@@ -2,17 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { clients, tasks } from "@/lib/schema";
 import { clientSchema, allowedTransitions, requiresNoteForTransition } from "@/types";
-import { eq, and, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const client = await db
       .select()
       .from(clients)
-      .where(eq(clients.id, params.id))
+      .where(eq(clients.id, id))
       .limit(1);
 
     if (!client.length) {
@@ -34,14 +37,15 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json();
     const existing = await db
       .select()
       .from(clients)
-      .where(eq(clients.id, params.id))
+      .where(eq(clients.id, id))
       .limit(1);
 
     if (!existing.length) {
@@ -89,14 +93,14 @@ export async function PATCH(
     const [updated] = await db
       .update(clients)
       .set(updateData)
-      .where(eq(clients.id, params.id))
+      .where(eq(clients.id, id))
       .returning();
 
     // Create note if transition requires it
     if (body.status && body.status !== currentClient.status && body.noteContent) {
       const { notes: notesTable } = await import("@/lib/schema");
       await db.insert(notesTable).values({
-        clientId: params.id,
+        clientId: id,
         content: body.noteContent,
         type: "decisione",
         author: "Sistema",
@@ -108,7 +112,7 @@ export async function PATCH(
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 3);
       await db.insert(tasks).values({
-        clientId: params.id,
+        clientId: id,
         title: "Chiamata qualificazione",
         description: "Chiamata di qualificazione per il nuovo suspect",
         dueDate,
@@ -124,14 +128,14 @@ export async function PATCH(
 
       await db.insert(tasks).values([
         {
-          clientId: params.id,
+          clientId: id,
           title: "Invia contratto",
           description: "Inviare il contratto al cliente",
           dueDate: dueContract,
           priority: "high",
         },
         {
-          clientId: params.id,
+          clientId: id,
           title: "Onboarding",
           description: "Completare l'onboarding del cliente",
           dueDate: dueOnboarding,
@@ -158,10 +162,11 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await db.delete(clients).where(eq(clients.id, params.id));
+    const { id } = await params;
+    await db.delete(clients).where(eq(clients.id, id));
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error deleting client:", error);
