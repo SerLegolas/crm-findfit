@@ -1,0 +1,939 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { StatusBadge } from "@/components/status-badge";
+import { PriorityBadge } from "@/components/priority-badge";
+import { useToast } from "@/components/ui/use-toast";
+import {
+  clientSchema,
+  clientStatuses,
+  noteSchema,
+  taskSchema,
+  allowedTransitions,
+  requiresNoteForTransition,
+  type ClientStatus,
+  type NoteType,
+  type Priority,
+} from "@/types";
+import { formatDate, formatDateTime, isOverdue } from "@/lib/utils";
+import {
+  ArrowLeft,
+  Plus,
+  Pencil,
+  Trash2,
+  CheckCircle2,
+  Circle,
+} from "lucide-react";
+
+type Tab = "dettagli" | "note" | "task";
+
+interface Client {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+  status: ClientStatus;
+  notes: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface Note {
+  id: string;
+  content: string;
+  type: NoteType;
+  author: string;
+  clientId: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface Task {
+  id: string;
+  title: string;
+  description: string | null;
+  dueDate: number | null;
+  status: "todo" | "in_progress" | "completed" | "cancelled";
+  priority: Priority;
+  completedAt: number | null;
+  clientId: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export default function ClientDetailPage() {
+  const params = useParams();
+  const router = useRouter();
+  const { toast } = useToast();
+  const [client, setClient] = useState<Client | null>(null);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<Tab>("dettagli");
+  const [noteModalOpen, setNoteModalOpen] = useState(false);
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [editNote, setEditNote] = useState<Note | null>(null);
+  const [editTask, setEditTask] = useState<Task | null>(null);
+  const [transitionNote, setTransitionNote] = useState("");
+  const [showTransitionDialog, setShowTransitionDialog] = useState(false);
+  const [pendingTransition, setPendingTransition] = useState<ClientStatus | null>(null);
+
+  // Form state for edit
+  const [editForm, setEditForm] = useState({ name: "", email: "", phone: "", company: "", notes: "" });
+
+  // Note form
+  const [noteForm, setNoteForm] = useState({ content: "", type: "conversazione" as NoteType, author: "Utente" });
+  const [noteErrors, setNoteErrors] = useState<Record<string, string>>({});
+
+  // Task form
+  const [taskForm, setTaskForm] = useState({
+    title: "",
+    description: "",
+    dueDate: "",
+    priority: "medium" as Priority,
+  });
+  const [taskErrors, setTaskErrors] = useState<Record<string, string>>({});
+
+  const fetchClient = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/clients/${params.id}`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setClient(data);
+      setEditForm({
+        name: data.name,
+        email: data.email || "",
+        phone: data.phone || "",
+        company: data.company || "",
+        notes: data.notes || "",
+      });
+    } catch {
+      toast({ title: "Errore", description: "Cliente non trovato", variant: "destructive" });
+      router.push("/clienti");
+    }
+  }, [params.id, toast, router]);
+
+  const fetchNotes = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/note?clientId=${params.id}&days=365`);
+      const data = await res.json();
+      setNotes(data);
+    } catch {}
+  }, [params.id]);
+
+  const fetchTasks = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/tasks?clientId=${params.id}`);
+      const data = await res.json();
+      setTasks(data);
+    } catch {}
+  }, [params.id]);
+
+  useEffect(() => {
+    Promise.all([fetchClient(), fetchNotes(), fetchTasks()]).finally(() =>
+      setLoading(false)
+    );
+  }, [fetchClient, fetchNotes, fetchTasks]);
+
+  // ── Status transition ──
+  const handleStatusChange = async (newStatus: ClientStatus) => {
+    if (!client) return;
+
+    if (requiresNoteForTransition(client.status, newStatus)) {
+      setPendingTransition(newStatus);
+      setTransitionNote("");
+      setShowTransitionDialog(true);
+      return;
+    }
+
+    await performTransition(newStatus);
+  };
+
+  const performTransition = async (newStatus: ClientStatus, noteContent?: string) => {
+    if (!client) return;
+
+    try {
+      const res = await fetch(`/api/clients/${client.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: newStatus,
+          noteContent,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        toast({ title: "Errore", description: err.error, variant: "destructive" });
+        return;
+      }
+
+      toast({ title: "Status aggiornato", variant: "success" as any });
+      setShowTransitionDialog(false);
+      setPendingTransition(null);
+      fetchClient();
+      fetchTasks();
+    } catch {
+      toast({ title: "Errore", description: "Transizione fallita", variant: "destructive" });
+    }
+  };
+
+  // ── Update client details ──
+  const handleUpdateClient = async () => {
+    if (!client) return;
+
+    try {
+      const res = await fetch(`/api/clients/${client.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editForm),
+      });
+
+      if (!res.ok) throw new Error();
+      toast({ title: "Cliente aggiornato", variant: "success" as any });
+      fetchClient();
+    } catch {
+      toast({ title: "Errore", description: "Aggiornamento fallito", variant: "destructive" });
+    }
+  };
+
+  // ── Note CRUD ──
+  const handleNoteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setNoteErrors({});
+
+    const result = noteSchema.safeParse(noteForm);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((i) => {
+        if (i.path[0]) errors[String(i.path[0])] = i.message;
+      });
+      setNoteErrors(errors);
+      return;
+    }
+
+    try {
+      const url = editNote ? `/api/note/${editNote.id}` : "/api/note";
+      const method = editNote ? "PATCH" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...result.data, clientId: params.id }),
+      });
+
+      if (!res.ok) throw new Error();
+
+      toast({
+        title: editNote ? "Nota aggiornata" : "Nota creata",
+        variant: "success" as any,
+      });
+      setNoteModalOpen(false);
+      setEditNote(null);
+      setNoteForm({ content: "", type: "conversazione", author: "Utente" });
+      fetchNotes();
+    } catch {
+      toast({ title: "Errore", description: "Operazione fallita", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteNote = async (id: string) => {
+    try {
+      await fetch(`/api/note/${id}`, { method: "DELETE" });
+      toast({ title: "Nota eliminata", variant: "success" as any });
+      fetchNotes();
+    } catch {
+      toast({ title: "Errore", description: "Eliminazione fallita", variant: "destructive" });
+    }
+  };
+
+  // ── Task CRUD ──
+  const handleTaskSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTaskErrors({});
+
+    const result = taskSchema.safeParse(taskForm);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((i) => {
+        if (i.path[0]) errors[String(i.path[0])] = i.message;
+      });
+      setTaskErrors(errors);
+      return;
+    }
+
+    try {
+      const url = editTask ? `/api/tasks/${editTask.id}` : "/api/tasks";
+      const method = editTask ? "PATCH" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...result.data, clientId: params.id }),
+      });
+
+      if (!res.ok) throw new Error();
+
+      toast({
+        title: editTask ? "Task aggiornato" : "Task creato",
+        variant: "success" as any,
+      });
+      setTaskModalOpen(false);
+      setEditTask(null);
+      setTaskForm({ title: "", description: "", dueDate: "", priority: "medium" });
+      fetchTasks();
+    } catch {
+      toast({ title: "Errore", description: "Operazione fallita", variant: "destructive" });
+    }
+  };
+
+  const handleToggleTask = async (task: Task) => {
+    try {
+      const newStatus = task.status === "completed" ? "todo" : "completed";
+      await fetch(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      fetchTasks();
+    } catch {
+      toast({ title: "Errore", description: "Aggiornamento task fallito", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteTask = async (id: string) => {
+    try {
+      await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+      toast({ title: "Task eliminato", variant: "success" as any });
+      fetchTasks();
+    } catch {
+      toast({ title: "Errore", description: "Eliminazione fallita", variant: "destructive" });
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">Caricamento...</p>
+      </div>
+    );
+  }
+
+  if (!client) return null;
+
+  const allowedNext = allowedTransitions[client.status];
+
+  // Group tasks
+  const todoTasks = tasks.filter((t) => t.status === "todo" || t.status === "in_progress");
+  const overdueTasksList = tasks.filter(
+    (t) => t.status !== "completed" && t.status !== "cancelled" && t.dueDate && isOverdue(t.dueDate)
+  );
+  const completedTasks = tasks.filter((t) => t.status === "completed");
+
+  const tabs: { key: Tab; label: string }[] = [
+    { key: "dettagli", label: "Dettagli" },
+    { key: "note", label: `Note (${notes.length})` },
+    { key: "task", label: `Task (${tasks.length})` },
+  ];
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <Button variant="ghost" size="icon" onClick={() => router.push("/clienti")}>
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <div className="flex-1">
+          <div className="flex items-center gap-3">
+            <h2 className="text-2xl font-bold tracking-tight">{client.name}</h2>
+            <StatusBadge status={client.status} />
+          </div>
+          <p className="text-muted-foreground">
+            Creato il {formatDate(client.createdAt)}
+          </p>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 border-b">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              activeTab === tab.key
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── TAB: Dettagli ── */}
+      {activeTab === "dettagli" && (
+        <div className="grid gap-6 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Informazioni</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Nome</Label>
+                <Input
+                  value={editForm.name}
+                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Email</Label>
+                <Input
+                  value={editForm.email}
+                  onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Telefono</Label>
+                <Input
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Azienda</Label>
+                <Input
+                  value={editForm.company}
+                  onChange={(e) => setEditForm({ ...editForm, company: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Note interne</Label>
+                <Textarea
+                  value={editForm.notes}
+                  onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                  rows={3}
+                />
+              </div>
+              <Button onClick={handleUpdateClient}>Salva modifiche</Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Stato Cliente</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label>Status attuale</Label>
+                <div className="mt-1">
+                  <StatusBadge status={client.status} />
+                </div>
+              </div>
+
+              {allowedNext.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Transizioni disponibili</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {allowedNext.map((status) => (
+                      <Button
+                        key={status}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleStatusChange(status)}
+                      >
+                        {status === "close"
+                          ? "Chiudi cliente"
+                          : `Sposta a ${status}`}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {client.status === "close" && (
+                <p className="text-sm text-muted-foreground">
+                  Questo cliente è chiuso. Non sono possibili ulteriori transizioni.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ── TAB: Note ── */}
+      {activeTab === "note" && (
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <Dialog open={noteModalOpen} onOpenChange={setNoteModalOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  onClick={() => {
+                    setEditNote(null);
+                    setNoteForm({ content: "", type: "conversazione", author: "Utente" });
+                  }}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Nuova nota
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{editNote ? "Modifica nota" : "Nuova nota"}</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleNoteSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Contenuto</Label>
+                    <Textarea
+                      value={noteForm.content}
+                      onChange={(e) => setNoteForm({ ...noteForm, content: e.target.value })}
+                      rows={4}
+                    />
+                    {noteErrors.content && (
+                      <p className="text-xs text-destructive">{noteErrors.content}</p>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Tipo</Label>
+                      <Select
+                        value={noteForm.type}
+                        onValueChange={(v) => setNoteForm({ ...noteForm, type: v as NoteType })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="conversazione">Conversazione</SelectItem>
+                          <SelectItem value="promemoria">Promemoria</SelectItem>
+                          <SelectItem value="decisione">Decisione</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Autore</Label>
+                      <Input
+                        value={noteForm.author}
+                        onChange={(e) => setNoteForm({ ...noteForm, author: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={() => setNoteModalOpen(false)}>
+                      Annulla
+                    </Button>
+                    <Button type="submit">
+                      {editNote ? "Salva" : "Crea nota"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          {/* Note list */}
+          {notes.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">Nessuna nota</p>
+          ) : (
+            <div className="space-y-3">
+              {notes.map((note) => (
+                <Card key={note.id}>
+                  <CardContent className="pt-6">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <StatusBadge
+                            status={
+                              note.type === "conversazione"
+                                ? "lead"
+                                : note.type === "promemoria"
+                                ? "suspect"
+                                : "won"
+                            }
+                          />
+                          <span className="text-sm font-medium">{note.author}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {formatDateTime(note.createdAt)}
+                          </span>
+                        </div>
+                        <p className="text-sm whitespace-pre-wrap">{note.content}</p>
+                      </div>
+                      <div className="flex items-center gap-1 ml-4">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setEditNote(note);
+                            setNoteForm({
+                              content: note.content,
+                              type: note.type,
+                              author: note.author,
+                            });
+                            setNoteModalOpen(true);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Eliminare questa nota?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Questa azione è irreversibile.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Annulla</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleDeleteNote(note.id)}>
+                                Elimina
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: Task ── */}
+      {activeTab === "task" && (
+        <div className="space-y-6">
+          <div className="flex justify-end">
+            <Dialog open={taskModalOpen} onOpenChange={setTaskModalOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  onClick={() => {
+                    setEditTask(null);
+                    setTaskForm({ title: "", description: "", dueDate: "", priority: "medium" });
+                  }}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Nuovo task
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{editTask ? "Modifica task" : "Nuovo task"}</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleTaskSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Titolo</Label>
+                    <Input
+                      value={taskForm.title}
+                      onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })}
+                    />
+                    {taskErrors.title && (
+                      <p className="text-xs text-destructive">{taskErrors.title}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Descrizione</Label>
+                    <Textarea
+                      value={taskForm.description}
+                      onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
+                      rows={3}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Scadenza</Label>
+                      <Input
+                        type="date"
+                        value={taskForm.dueDate}
+                        onChange={(e) => setTaskForm({ ...taskForm, dueDate: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Priorità</Label>
+                      <Select
+                        value={taskForm.priority}
+                        onValueChange={(v) => setTaskForm({ ...taskForm, priority: v as Priority })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="low">Bassa</SelectItem>
+                          <SelectItem value="medium">Media</SelectItem>
+                          <SelectItem value="high">Alta</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={() => setTaskModalOpen(false)}>
+                      Annulla
+                    </Button>
+                    <Button type="submit">
+                      {editTask ? "Salva" : "Crea task"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          {/* Overdue tasks */}
+          {overdueTasksList.length > 0 && (
+            <div>
+              <h3 className="text-sm font-medium text-destructive mb-3">
+                Scaduti ({overdueTasksList.length})
+              </h3>
+              <div className="space-y-2">
+                {overdueTasksList.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onToggle={() => handleToggleTask(task)}
+                    onEdit={() => {
+                      setEditTask(task);
+                      setTaskForm({
+                        title: task.title,
+                        description: task.description || "",
+                        dueDate: task.dueDate
+                          ? new Date(task.dueDate).toISOString().split("T")[0]
+                          : "",
+                        priority: task.priority,
+                      });
+                      setTaskModalOpen(true);
+                    }}
+                    onDelete={() => handleDeleteTask(task.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Todo tasks */}
+          <div>
+            <h3 className="text-sm font-medium mb-3">
+              Da fare ({todoTasks.length})
+            </h3>
+            {todoTasks.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nessun task da fare</p>
+            ) : (
+              <div className="space-y-2">
+                {todoTasks.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onToggle={() => handleToggleTask(task)}
+                    onEdit={() => {
+                      setEditTask(task);
+                      setTaskForm({
+                        title: task.title,
+                        description: task.description || "",
+                        dueDate: task.dueDate
+                          ? new Date(task.dueDate).toISOString().split("T")[0]
+                          : "",
+                        priority: task.priority,
+                      });
+                      setTaskModalOpen(true);
+                    }}
+                    onDelete={() => handleDeleteTask(task.id)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Completed tasks */}
+          {completedTasks.length > 0 && (
+            <div>
+              <h3 className="text-sm font-medium mb-3">
+                Completati ({completedTasks.length})
+              </h3>
+              <div className="space-y-2">
+                {completedTasks.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onToggle={() => handleToggleTask(task)}
+                    onEdit={() => {
+                      setEditTask(task);
+                      setTaskForm({
+                        title: task.title,
+                        description: task.description || "",
+                        dueDate: task.dueDate
+                          ? new Date(task.dueDate).toISOString().split("T")[0]
+                          : "",
+                        priority: task.priority,
+                      });
+                      setTaskModalOpen(true);
+                    }}
+                    onDelete={() => handleDeleteTask(task.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Transition note dialog */}
+      <AlertDialog open={showTransitionDialog} onOpenChange={setShowTransitionDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Nota obbligatoria</AlertDialogTitle>
+            <AlertDialogDescription>
+              Per chiudere questo cliente è necessario aggiungere una nota di motivazione.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Textarea
+            placeholder="Inserisci il motivo della chiusura..."
+            value={transitionNote}
+            onChange={(e) => setTransitionNote(e.target.value)}
+            rows={3}
+            className="my-4"
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingTransition(null)}>
+              Annulla
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!transitionNote.trim()}
+              onClick={() =>
+                pendingTransition && performTransition(pendingTransition, transitionNote)
+              }
+            >
+              Conferma chiusura
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+// ── Task Card sub-component ──
+function TaskCard({
+  task,
+  onToggle,
+  onEdit,
+  onDelete,
+}: {
+  task: Task;
+  onToggle: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const isCompleted = task.status === "completed";
+  const overdue = task.dueDate && isOverdue(task.dueDate) && !isCompleted;
+
+  return (
+    <Card className={`${isCompleted ? "opacity-60" : ""} ${overdue ? "border-red-200 bg-red-50 dark:bg-red-950/20" : ""}`}>
+      <CardContent className="flex items-center gap-3 py-3">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0"
+          onClick={onToggle}
+        >
+          {isCompleted ? (
+            <CheckCircle2 className="h-5 w-5 text-green-500" />
+          ) : (
+            <Circle className="h-5 w-5 text-muted-foreground" />
+          )}
+        </Button>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-sm font-medium ${
+                isCompleted ? "line-through" : ""
+              }`}
+            >
+              {task.title}
+            </span>
+            <PriorityBadge priority={task.priority} />
+            {overdue && (
+              <span className="text-xs text-destructive font-medium">Scaduto</span>
+            )}
+          </div>
+          {task.description && (
+            <p className="text-xs text-muted-foreground truncate mt-0.5">
+              {task.description}
+            </p>
+          )}
+          {task.dueDate && (
+            <p className={`text-xs mt-0.5 ${overdue ? "text-destructive" : "text-muted-foreground"}`}>
+              Scadenza: {formatDate(task.dueDate)}
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" onClick={onEdit}>
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="icon">
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Eliminare questo task?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Questa azione è irreversibile.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Annulla</AlertDialogCancel>
+                <AlertDialogAction onClick={onDelete}>Elimina</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

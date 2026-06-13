@@ -1,0 +1,5643 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+.gitignore
+app/(dashboard)/clienti/[id]/page.tsx
+app/(dashboard)/clienti/page.tsx
+app/(dashboard)/dashboard/page.tsx
+app/(dashboard)/impostazioni/page.tsx
+app/(dashboard)/kanban/page.tsx
+app/(dashboard)/layout.tsx
+app/(dashboard)/note/page.tsx
+app/(dashboard)/page.tsx
+app/(dashboard)/task/page.tsx
+app/api/clients/[id]/route.ts
+app/api/clients/route.ts
+app/api/dashboard/route.ts
+app/api/note/[id]/route.ts
+app/api/note/route.ts
+app/api/tasks/[id]/route.ts
+app/api/tasks/route.ts
+app/globals.css
+app/layout.tsx
+components/priority-badge.tsx
+components/providers.tsx
+components/sidebar.tsx
+components/status-badge.tsx
+components/topbar.tsx
+components/ui/alert-dialog.tsx
+components/ui/avatar.tsx
+components/ui/badge.tsx
+components/ui/button.tsx
+components/ui/card.tsx
+components/ui/dialog.tsx
+components/ui/dropdown-menu.tsx
+components/ui/input.tsx
+components/ui/label.tsx
+components/ui/scroll-area.tsx
+components/ui/select.tsx
+components/ui/separator.tsx
+components/ui/table.tsx
+components/ui/textarea.tsx
+components/ui/toast.tsx
+components/ui/toaster.tsx
+components/ui/use-toast.ts
+drizzle.config.ts
+lib/db.ts
+lib/schema.ts
+lib/utils.ts
+next.config.js
+package.json
+postcss.config.js
+README.md
+tailwind.config.ts
+tsconfig.json
+types/index.ts
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path=".gitignore">
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env*.local
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# drizzle
+drizzle/
+</file>
+
+<file path="app/(dashboard)/clienti/[id]/page.tsx">
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { StatusBadge } from "@/components/status-badge";
+import { PriorityBadge } from "@/components/priority-badge";
+import { useToast } from "@/components/ui/use-toast";
+import {
+  clientSchema,
+  clientStatuses,
+  noteSchema,
+  taskSchema,
+  allowedTransitions,
+  requiresNoteForTransition,
+  type ClientStatus,
+  type NoteType,
+  type Priority,
+} from "@/types";
+import { formatDate, formatDateTime, isOverdue } from "@/lib/utils";
+import {
+  ArrowLeft,
+  Plus,
+  Pencil,
+  Trash2,
+  CheckCircle2,
+  Circle,
+} from "lucide-react";
+
+type Tab = "dettagli" | "note" | "task";
+
+interface Client {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+  status: ClientStatus;
+  notes: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface Note {
+  id: string;
+  content: string;
+  type: NoteType;
+  author: string;
+  clientId: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface Task {
+  id: string;
+  title: string;
+  description: string | null;
+  dueDate: number | null;
+  status: "todo" | "in_progress" | "completed" | "cancelled";
+  priority: Priority;
+  completedAt: number | null;
+  clientId: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export default function ClientDetailPage() {
+  const params = useParams();
+  const router = useRouter();
+  const { toast } = useToast();
+  const [client, setClient] = useState<Client | null>(null);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<Tab>("dettagli");
+  const [noteModalOpen, setNoteModalOpen] = useState(false);
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [editNote, setEditNote] = useState<Note | null>(null);
+  const [editTask, setEditTask] = useState<Task | null>(null);
+  const [transitionNote, setTransitionNote] = useState("");
+  const [showTransitionDialog, setShowTransitionDialog] = useState(false);
+  const [pendingTransition, setPendingTransition] = useState<ClientStatus | null>(null);
+
+  // Form state for edit
+  const [editForm, setEditForm] = useState({ name: "", email: "", phone: "", company: "", notes: "" });
+
+  // Note form
+  const [noteForm, setNoteForm] = useState({ content: "", type: "conversazione" as NoteType, author: "Utente" });
+  const [noteErrors, setNoteErrors] = useState<Record<string, string>>({});
+
+  // Task form
+  const [taskForm, setTaskForm] = useState({
+    title: "",
+    description: "",
+    dueDate: "",
+    priority: "medium" as Priority,
+  });
+  const [taskErrors, setTaskErrors] = useState<Record<string, string>>({});
+
+  const fetchClient = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/clients/${params.id}`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setClient(data);
+      setEditForm({
+        name: data.name,
+        email: data.email || "",
+        phone: data.phone || "",
+        company: data.company || "",
+        notes: data.notes || "",
+      });
+    } catch {
+      toast({ title: "Errore", description: "Cliente non trovato", variant: "destructive" });
+      router.push("/clienti");
+    }
+  }, [params.id, toast, router]);
+
+  const fetchNotes = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/note?clientId=${params.id}&days=365`);
+      const data = await res.json();
+      setNotes(data);
+    } catch {}
+  }, [params.id]);
+
+  const fetchTasks = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/tasks?clientId=${params.id}`);
+      const data = await res.json();
+      setTasks(data);
+    } catch {}
+  }, [params.id]);
+
+  useEffect(() => {
+    Promise.all([fetchClient(), fetchNotes(), fetchTasks()]).finally(() =>
+      setLoading(false)
+    );
+  }, [fetchClient, fetchNotes, fetchTasks]);
+
+  // ── Status transition ──
+  const handleStatusChange = async (newStatus: ClientStatus) => {
+    if (!client) return;
+
+    if (requiresNoteForTransition(client.status, newStatus)) {
+      setPendingTransition(newStatus);
+      setTransitionNote("");
+      setShowTransitionDialog(true);
+      return;
+    }
+
+    await performTransition(newStatus);
+  };
+
+  const performTransition = async (newStatus: ClientStatus, noteContent?: string) => {
+    if (!client) return;
+
+    try {
+      const res = await fetch(`/api/clients/${client.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: newStatus,
+          noteContent,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        toast({ title: "Errore", description: err.error, variant: "destructive" });
+        return;
+      }
+
+      toast({ title: "Status aggiornato", variant: "success" as any });
+      setShowTransitionDialog(false);
+      setPendingTransition(null);
+      fetchClient();
+      fetchTasks();
+    } catch {
+      toast({ title: "Errore", description: "Transizione fallita", variant: "destructive" });
+    }
+  };
+
+  // ── Update client details ──
+  const handleUpdateClient = async () => {
+    if (!client) return;
+
+    try {
+      const res = await fetch(`/api/clients/${client.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editForm),
+      });
+
+      if (!res.ok) throw new Error();
+      toast({ title: "Cliente aggiornato", variant: "success" as any });
+      fetchClient();
+    } catch {
+      toast({ title: "Errore", description: "Aggiornamento fallito", variant: "destructive" });
+    }
+  };
+
+  // ── Note CRUD ──
+  const handleNoteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setNoteErrors({});
+
+    const result = noteSchema.safeParse(noteForm);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((i) => {
+        if (i.path[0]) errors[String(i.path[0])] = i.message;
+      });
+      setNoteErrors(errors);
+      return;
+    }
+
+    try {
+      const url = editNote ? `/api/note/${editNote.id}` : "/api/note";
+      const method = editNote ? "PATCH" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...result.data, clientId: params.id }),
+      });
+
+      if (!res.ok) throw new Error();
+
+      toast({
+        title: editNote ? "Nota aggiornata" : "Nota creata",
+        variant: "success" as any,
+      });
+      setNoteModalOpen(false);
+      setEditNote(null);
+      setNoteForm({ content: "", type: "conversazione", author: "Utente" });
+      fetchNotes();
+    } catch {
+      toast({ title: "Errore", description: "Operazione fallita", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteNote = async (id: string) => {
+    try {
+      await fetch(`/api/note/${id}`, { method: "DELETE" });
+      toast({ title: "Nota eliminata", variant: "success" as any });
+      fetchNotes();
+    } catch {
+      toast({ title: "Errore", description: "Eliminazione fallita", variant: "destructive" });
+    }
+  };
+
+  // ── Task CRUD ──
+  const handleTaskSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTaskErrors({});
+
+    const result = taskSchema.safeParse(taskForm);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((i) => {
+        if (i.path[0]) errors[String(i.path[0])] = i.message;
+      });
+      setTaskErrors(errors);
+      return;
+    }
+
+    try {
+      const url = editTask ? `/api/tasks/${editTask.id}` : "/api/tasks";
+      const method = editTask ? "PATCH" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...result.data, clientId: params.id }),
+      });
+
+      if (!res.ok) throw new Error();
+
+      toast({
+        title: editTask ? "Task aggiornato" : "Task creato",
+        variant: "success" as any,
+      });
+      setTaskModalOpen(false);
+      setEditTask(null);
+      setTaskForm({ title: "", description: "", dueDate: "", priority: "medium" });
+      fetchTasks();
+    } catch {
+      toast({ title: "Errore", description: "Operazione fallita", variant: "destructive" });
+    }
+  };
+
+  const handleToggleTask = async (task: Task) => {
+    try {
+      const newStatus = task.status === "completed" ? "todo" : "completed";
+      await fetch(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      fetchTasks();
+    } catch {
+      toast({ title: "Errore", description: "Aggiornamento task fallito", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteTask = async (id: string) => {
+    try {
+      await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+      toast({ title: "Task eliminato", variant: "success" as any });
+      fetchTasks();
+    } catch {
+      toast({ title: "Errore", description: "Eliminazione fallita", variant: "destructive" });
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">Caricamento...</p>
+      </div>
+    );
+  }
+
+  if (!client) return null;
+
+  const allowedNext = allowedTransitions[client.status];
+
+  // Group tasks
+  const todoTasks = tasks.filter((t) => t.status === "todo" || t.status === "in_progress");
+  const overdueTasksList = tasks.filter(
+    (t) => t.status !== "completed" && t.status !== "cancelled" && t.dueDate && isOverdue(t.dueDate)
+  );
+  const completedTasks = tasks.filter((t) => t.status === "completed");
+
+  const tabs: { key: Tab; label: string }[] = [
+    { key: "dettagli", label: "Dettagli" },
+    { key: "note", label: `Note (${notes.length})` },
+    { key: "task", label: `Task (${tasks.length})` },
+  ];
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <Button variant="ghost" size="icon" onClick={() => router.push("/clienti")}>
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <div className="flex-1">
+          <div className="flex items-center gap-3">
+            <h2 className="text-2xl font-bold tracking-tight">{client.name}</h2>
+            <StatusBadge status={client.status} />
+          </div>
+          <p className="text-muted-foreground">
+            Creato il {formatDate(client.createdAt)}
+          </p>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 border-b">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              activeTab === tab.key
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── TAB: Dettagli ── */}
+      {activeTab === "dettagli" && (
+        <div className="grid gap-6 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Informazioni</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Nome</Label>
+                <Input
+                  value={editForm.name}
+                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Email</Label>
+                <Input
+                  value={editForm.email}
+                  onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Telefono</Label>
+                <Input
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Azienda</Label>
+                <Input
+                  value={editForm.company}
+                  onChange={(e) => setEditForm({ ...editForm, company: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Note interne</Label>
+                <Textarea
+                  value={editForm.notes}
+                  onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                  rows={3}
+                />
+              </div>
+              <Button onClick={handleUpdateClient}>Salva modifiche</Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Stato Cliente</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label>Status attuale</Label>
+                <div className="mt-1">
+                  <StatusBadge status={client.status} />
+                </div>
+              </div>
+
+              {allowedNext.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Transizioni disponibili</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {allowedNext.map((status) => (
+                      <Button
+                        key={status}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleStatusChange(status)}
+                      >
+                        {status === "close"
+                          ? "Chiudi cliente"
+                          : `Sposta a ${status}`}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {client.status === "close" && (
+                <p className="text-sm text-muted-foreground">
+                  Questo cliente è chiuso. Non sono possibili ulteriori transizioni.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ── TAB: Note ── */}
+      {activeTab === "note" && (
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <Dialog open={noteModalOpen} onOpenChange={setNoteModalOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  onClick={() => {
+                    setEditNote(null);
+                    setNoteForm({ content: "", type: "conversazione", author: "Utente" });
+                  }}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Nuova nota
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{editNote ? "Modifica nota" : "Nuova nota"}</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleNoteSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Contenuto</Label>
+                    <Textarea
+                      value={noteForm.content}
+                      onChange={(e) => setNoteForm({ ...noteForm, content: e.target.value })}
+                      rows={4}
+                    />
+                    {noteErrors.content && (
+                      <p className="text-xs text-destructive">{noteErrors.content}</p>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Tipo</Label>
+                      <Select
+                        value={noteForm.type}
+                        onValueChange={(v) => setNoteForm({ ...noteForm, type: v as NoteType })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="conversazione">Conversazione</SelectItem>
+                          <SelectItem value="promemoria">Promemoria</SelectItem>
+                          <SelectItem value="decisione">Decisione</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Autore</Label>
+                      <Input
+                        value={noteForm.author}
+                        onChange={(e) => setNoteForm({ ...noteForm, author: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={() => setNoteModalOpen(false)}>
+                      Annulla
+                    </Button>
+                    <Button type="submit">
+                      {editNote ? "Salva" : "Crea nota"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          {/* Note list */}
+          {notes.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">Nessuna nota</p>
+          ) : (
+            <div className="space-y-3">
+              {notes.map((note) => (
+                <Card key={note.id}>
+                  <CardContent className="pt-6">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <StatusBadge
+                            status={
+                              note.type === "conversazione"
+                                ? "lead"
+                                : note.type === "promemoria"
+                                ? "suspect"
+                                : "won"
+                            }
+                          />
+                          <span className="text-sm font-medium">{note.author}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {formatDateTime(note.createdAt)}
+                          </span>
+                        </div>
+                        <p className="text-sm whitespace-pre-wrap">{note.content}</p>
+                      </div>
+                      <div className="flex items-center gap-1 ml-4">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setEditNote(note);
+                            setNoteForm({
+                              content: note.content,
+                              type: note.type,
+                              author: note.author,
+                            });
+                            setNoteModalOpen(true);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Eliminare questa nota?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Questa azione è irreversibile.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Annulla</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleDeleteNote(note.id)}>
+                                Elimina
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: Task ── */}
+      {activeTab === "task" && (
+        <div className="space-y-6">
+          <div className="flex justify-end">
+            <Dialog open={taskModalOpen} onOpenChange={setTaskModalOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  onClick={() => {
+                    setEditTask(null);
+                    setTaskForm({ title: "", description: "", dueDate: "", priority: "medium" });
+                  }}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Nuovo task
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{editTask ? "Modifica task" : "Nuovo task"}</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleTaskSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Titolo</Label>
+                    <Input
+                      value={taskForm.title}
+                      onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })}
+                    />
+                    {taskErrors.title && (
+                      <p className="text-xs text-destructive">{taskErrors.title}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Descrizione</Label>
+                    <Textarea
+                      value={taskForm.description}
+                      onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
+                      rows={3}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Scadenza</Label>
+                      <Input
+                        type="date"
+                        value={taskForm.dueDate}
+                        onChange={(e) => setTaskForm({ ...taskForm, dueDate: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Priorità</Label>
+                      <Select
+                        value={taskForm.priority}
+                        onValueChange={(v) => setTaskForm({ ...taskForm, priority: v as Priority })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="low">Bassa</SelectItem>
+                          <SelectItem value="medium">Media</SelectItem>
+                          <SelectItem value="high">Alta</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={() => setTaskModalOpen(false)}>
+                      Annulla
+                    </Button>
+                    <Button type="submit">
+                      {editTask ? "Salva" : "Crea task"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          {/* Overdue tasks */}
+          {overdueTasksList.length > 0 && (
+            <div>
+              <h3 className="text-sm font-medium text-destructive mb-3">
+                Scaduti ({overdueTasksList.length})
+              </h3>
+              <div className="space-y-2">
+                {overdueTasksList.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onToggle={() => handleToggleTask(task)}
+                    onEdit={() => {
+                      setEditTask(task);
+                      setTaskForm({
+                        title: task.title,
+                        description: task.description || "",
+                        dueDate: task.dueDate
+                          ? new Date(task.dueDate).toISOString().split("T")[0]
+                          : "",
+                        priority: task.priority,
+                      });
+                      setTaskModalOpen(true);
+                    }}
+                    onDelete={() => handleDeleteTask(task.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Todo tasks */}
+          <div>
+            <h3 className="text-sm font-medium mb-3">
+              Da fare ({todoTasks.length})
+            </h3>
+            {todoTasks.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nessun task da fare</p>
+            ) : (
+              <div className="space-y-2">
+                {todoTasks.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onToggle={() => handleToggleTask(task)}
+                    onEdit={() => {
+                      setEditTask(task);
+                      setTaskForm({
+                        title: task.title,
+                        description: task.description || "",
+                        dueDate: task.dueDate
+                          ? new Date(task.dueDate).toISOString().split("T")[0]
+                          : "",
+                        priority: task.priority,
+                      });
+                      setTaskModalOpen(true);
+                    }}
+                    onDelete={() => handleDeleteTask(task.id)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Completed tasks */}
+          {completedTasks.length > 0 && (
+            <div>
+              <h3 className="text-sm font-medium mb-3">
+                Completati ({completedTasks.length})
+              </h3>
+              <div className="space-y-2">
+                {completedTasks.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onToggle={() => handleToggleTask(task)}
+                    onEdit={() => {
+                      setEditTask(task);
+                      setTaskForm({
+                        title: task.title,
+                        description: task.description || "",
+                        dueDate: task.dueDate
+                          ? new Date(task.dueDate).toISOString().split("T")[0]
+                          : "",
+                        priority: task.priority,
+                      });
+                      setTaskModalOpen(true);
+                    }}
+                    onDelete={() => handleDeleteTask(task.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Transition note dialog */}
+      <AlertDialog open={showTransitionDialog} onOpenChange={setShowTransitionDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Nota obbligatoria</AlertDialogTitle>
+            <AlertDialogDescription>
+              Per chiudere questo cliente è necessario aggiungere una nota di motivazione.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Textarea
+            placeholder="Inserisci il motivo della chiusura..."
+            value={transitionNote}
+            onChange={(e) => setTransitionNote(e.target.value)}
+            rows={3}
+            className="my-4"
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingTransition(null)}>
+              Annulla
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!transitionNote.trim()}
+              onClick={() =>
+                pendingTransition && performTransition(pendingTransition, transitionNote)
+              }
+            >
+              Conferma chiusura
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+// ── Task Card sub-component ──
+function TaskCard({
+  task,
+  onToggle,
+  onEdit,
+  onDelete,
+}: {
+  task: Task;
+  onToggle: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const isCompleted = task.status === "completed";
+  const overdue = task.dueDate && isOverdue(task.dueDate) && !isCompleted;
+
+  return (
+    <Card className={`${isCompleted ? "opacity-60" : ""} ${overdue ? "border-red-200 bg-red-50 dark:bg-red-950/20" : ""}`}>
+      <CardContent className="flex items-center gap-3 py-3">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0"
+          onClick={onToggle}
+        >
+          {isCompleted ? (
+            <CheckCircle2 className="h-5 w-5 text-green-500" />
+          ) : (
+            <Circle className="h-5 w-5 text-muted-foreground" />
+          )}
+        </Button>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-sm font-medium ${
+                isCompleted ? "line-through" : ""
+              }`}
+            >
+              {task.title}
+            </span>
+            <PriorityBadge priority={task.priority} />
+            {overdue && (
+              <span className="text-xs text-destructive font-medium">Scaduto</span>
+            )}
+          </div>
+          {task.description && (
+            <p className="text-xs text-muted-foreground truncate mt-0.5">
+              {task.description}
+            </p>
+          )}
+          {task.dueDate && (
+            <p className={`text-xs mt-0.5 ${overdue ? "text-destructive" : "text-muted-foreground"}`}>
+              Scadenza: {formatDate(task.dueDate)}
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" onClick={onEdit}>
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="icon">
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Eliminare questo task?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Questa azione è irreversibile.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Annulla</AlertDialogCancel>
+                <AlertDialogAction onClick={onDelete}>Elimina</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+</file>
+
+<file path="app/(dashboard)/clienti/page.tsx">
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { StatusBadge } from "@/components/status-badge";
+import { useToast } from "@/components/ui/use-toast";
+import { clientSchema, clientStatuses, type ClientStatus } from "@/types";
+import { formatDate } from "@/lib/utils";
+import {
+  Plus,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  Trash2,
+  Eye,
+  ArrowUpDown,
+} from "lucide-react";
+
+interface Client {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+  status: ClientStatus;
+  notes: string | null;
+  createdAt: number;
+}
+
+export default function ClientiPage() {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [clients, setClients] = useState<Client[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [limit] = useState(10);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [sort, setSort] = useState("createdAt");
+  const [order, setOrder] = useState("desc");
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editClient, setEditClient] = useState<Client | null>(null);
+
+  // Form state
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    company: "",
+    status: "lead" as ClientStatus,
+    notes: "",
+  });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  const fetchClients = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(limit),
+        sort,
+        order,
+      });
+      if (search) params.set("search", search);
+      if (statusFilter) params.set("status", statusFilter);
+
+      const res = await fetch(`/api/clients?${params}`);
+      const data = await res.json();
+      setClients(data.data);
+      setTotal(data.total);
+    } catch {
+      toast({
+        title: "Errore",
+        description: "Impossibile caricare i clienti",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [page, limit, search, statusFilter, sort, order, toast]);
+
+  useEffect(() => {
+    fetchClients();
+  }, [fetchClients]);
+
+  const totalPages = Math.ceil(total / limit);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormErrors({});
+
+    const result = clientSchema.safeParse(formData);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((issue) => {
+        if (issue.path[0]) errors[String(issue.path[0])] = issue.message;
+      });
+      setFormErrors(errors);
+      return;
+    }
+
+    try {
+      const url = editClient ? `/api/clients/${editClient.id}` : "/api/clients";
+      const method = editClient ? "PATCH" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(result.data),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        toast({
+          title: "Errore",
+          description: err.error || "Operazione fallita",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: editClient ? "Cliente aggiornato" : "Cliente creato",
+        variant: "success" as any,
+      });
+      setModalOpen(false);
+      resetForm();
+      fetchClients();
+    } catch {
+      toast({
+        title: "Errore",
+        description: "Operazione fallita",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      const res = await fetch(`/api/clients/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      toast({ title: "Cliente eliminato", variant: "success" as any });
+      fetchClients();
+    } catch {
+      toast({
+        title: "Errore",
+        description: "Eliminazione fallita",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      name: "",
+      email: "",
+      phone: "",
+      company: "",
+      status: "lead",
+      notes: "",
+    });
+    setEditClient(null);
+    setFormErrors({});
+  };
+
+  const openEdit = (client: Client) => {
+    setEditClient(client);
+    setFormData({
+      name: client.name,
+      email: client.email || "",
+      phone: client.phone || "",
+      company: client.company || "",
+      status: client.status,
+      notes: client.notes || "",
+    });
+    setModalOpen(true);
+  };
+
+  const openCreate = () => {
+    resetForm();
+    setModalOpen(true);
+  };
+
+  const toggleSort = (field: string) => {
+    if (sort === field) {
+      setOrder(order === "asc" ? "desc" : "asc");
+    } else {
+      setSort(field);
+      setOrder("asc");
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Lista Clienti</h2>
+          <p className="text-muted-foreground">
+            Gestisci i tuoi clienti ({total} totali)
+          </p>
+        </div>
+        <Button onClick={openCreate}>
+          <Plus className="mr-2 h-4 w-4" />
+          Nuovo Cliente
+        </Button>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-col gap-4 sm:flex-row">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Cerca per nome, email o azienda..."
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            className="pl-9"
+          />
+        </div>
+        <Select
+          value={statusFilter}
+          onValueChange={(v) => {
+            setStatusFilter(v);
+            setPage(1);
+          }}
+        >
+          <SelectTrigger className="w-full sm:w-40">
+            <SelectValue placeholder="Tutti gli status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tutti</SelectItem>
+            {clientStatuses.map((s) => (
+              <SelectItem key={s} value={s}>
+                {s.charAt(0).toUpperCase() + s.slice(1)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Table */}
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead
+                className="cursor-pointer"
+                onClick={() => toggleSort("name")}
+              >
+                <div className="flex items-center gap-1">
+                  Nome
+                  <ArrowUpDown className="h-3 w-3" />
+                </div>
+              </TableHead>
+              <TableHead>Email</TableHead>
+              <TableHead>Telefono</TableHead>
+              <TableHead>Azienda</TableHead>
+              <TableHead
+                className="cursor-pointer"
+                onClick={() => toggleSort("status")}
+              >
+                <div className="flex items-center gap-1">
+                  Status
+                  <ArrowUpDown className="h-3 w-3" />
+                </div>
+              </TableHead>
+              <TableHead>Azioni</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-8">
+                  Caricamento...
+                </TableCell>
+              </TableRow>
+            ) : clients.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-8">
+                  Nessun cliente trovato
+                </TableCell>
+              </TableRow>
+            ) : (
+              clients.map((client) => (
+                <TableRow
+                  key={client.id}
+                  className="cursor-pointer"
+                  onClick={() => router.push(`/clienti/${client.id}`)}
+                >
+                  <TableCell className="font-medium">{client.name}</TableCell>
+                  <TableCell>{client.email || "—"}</TableCell>
+                  <TableCell>{client.phone || "—"}</TableCell>
+                  <TableCell>{client.company || "—"}</TableCell>
+                  <TableCell>
+                    <StatusBadge status={client.status} />
+                  </TableCell>
+                  <TableCell>
+                    <div
+                      className="flex items-center gap-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => router.push(`/clienti/${client.id}`)}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => openEdit(client)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="ghost" size="icon">
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Conferma eliminazione</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Sei sicuro di voler eliminare "{client.name}"?
+                              Questa azione è irreversibile.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Annulla</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => handleDelete(client.id)}
+                            >
+                              Elimina
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Pagina {page} di {totalPages}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => setPage(page - 1)}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Precedente
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page >= totalPages}
+              onClick={() => setPage(page + 1)}
+            >
+              Successiva
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Create/Edit Modal */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>
+              {editClient ? "Modifica Cliente" : "Nuovo Cliente"}
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="name">
+                Nome <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="name"
+                value={formData.name}
+                onChange={(e) =>
+                  setFormData({ ...formData, name: e.target.value })
+                }
+              />
+              {formErrors.name && (
+                <p className="text-xs text-destructive">{formErrors.name}</p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) =>
+                    setFormData({ ...formData, email: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="phone">Telefono</Label>
+                <Input
+                  id="phone"
+                  value={formData.phone}
+                  onChange={(e) =>
+                    setFormData({ ...formData, phone: e.target.value })
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="company">Azienda</Label>
+              <Input
+                id="company"
+                value={formData.company}
+                onChange={(e) =>
+                  setFormData({ ...formData, company: e.target.value })
+                }
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="status">Status</Label>
+              <Select
+                value={formData.status}
+                onValueChange={(v) =>
+                  setFormData({ ...formData, status: v as ClientStatus })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {clientStatuses.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s.charAt(0).toUpperCase() + s.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="notes">Note</Label>
+              <Textarea
+                id="notes"
+                value={formData.notes}
+                onChange={(e) =>
+                  setFormData({ ...formData, notes: e.target.value })
+                }
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setModalOpen(false);
+                  resetForm();
+                }}
+              >
+                Annulla
+              </Button>
+              <Button type="submit">
+                {editClient ? "Salva modifiche" : "Crea cliente"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+</file>
+
+<file path="app/(dashboard)/dashboard/page.tsx">
+"use client";
+
+import { useEffect, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/status-badge";
+import { formatDateTime, isOverdue } from "@/lib/utils";
+import { AlertTriangle, Users, TrendingUp, CalendarClock, FileText } from "lucide-react";
+import type { ClientStatus, NoteType } from "@/types";
+
+interface DashboardData {
+  statusCounts: Record<ClientStatus, number>;
+  totalClients: number;
+  overdueTasks: number;
+  upcomingTasks: number;
+  lastNotes: {
+    id: string;
+    content: string;
+    type: NoteType;
+    author: string;
+    createdAt: number;
+    clientId: string;
+    clientName: string | null;
+  }[];
+  trendData: { date: string; count: number }[];
+}
+
+export default function DashboardPage() {
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/dashboard")
+      .then((r) => r.json())
+      .then(setData)
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">Caricamento...</p>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-destructive">Errore nel caricamento dei dati</p>
+      </div>
+    );
+  }
+
+  const maxTrend = Math.max(...data.trendData.map((d) => d.count), 1);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">Dashboard</h2>
+        <p className="text-muted-foreground">
+          Panoramica del tuo CRM FindFit
+        </p>
+      </div>
+
+      {/* Overdue banner */}
+      {data.overdueTasks > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+          <AlertTriangle className="h-5 w-5 shrink-0" />
+          <p className="text-sm font-medium">
+            Attenzione: {data.overdueTasks} task scaduti richiedono la tua attenzione!
+          </p>
+        </div>
+      )}
+
+      {/* Stats cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Totale Clienti</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{data.totalClients}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Lead</CardTitle>
+            <Badge variant="info">Lead</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{data.statusCounts.lead}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Suspect</CardTitle>
+            <Badge variant="warning">Suspect</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{data.statusCounts.suspect}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Won</CardTitle>
+            <Badge variant="success">Won</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{data.statusCounts.won}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Close</CardTitle>
+            <Badge variant="muted">Close</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{data.statusCounts.close}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Task Scaduti</CardTitle>
+            <CalendarClock className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-destructive">
+              {data.overdueTasks}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Task in Scadenza (3gg)</CardTitle>
+            <CalendarClock className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-amber-500">
+              {data.upcomingTasks}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Trend chart & Last notes */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* Trend chart */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" />
+              Trend Clienti (7 giorni)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-end gap-2 h-32">
+              {data.trendData.map((item) => (
+                <div
+                  key={item.date}
+                  className="flex flex-1 flex-col items-center gap-1"
+                >
+                  <div
+                    className="w-full rounded-md bg-primary/20 transition-all hover:bg-primary/30"
+                    style={{
+                      height: `${Math.max((item.count / maxTrend) * 100, 4)}%`,
+                    }}
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    {item.count}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {item.date}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Last notes */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Ultime Note
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {data.lastNotes.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nessuna nota recente</p>
+            ) : (
+              <div className="space-y-3">
+                {data.lastNotes.map((note) => (
+                  <div key={note.id} className="border-b pb-2 last:border-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <StatusBadge
+                        status={
+                          note.type === "conversazione"
+                            ? "lead"
+                            : note.type === "promemoria"
+                            ? "suspect"
+                            : "won"
+                        }
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        {note.clientName || "Cliente sconosciuto"}
+                      </span>
+                    </div>
+                    <p className="text-sm line-clamp-2">{note.content}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {formatDateTime(note.createdAt)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="app/(dashboard)/impostazioni/page.tsx">
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+export default function ImpostazioniPage() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">Impostazioni</h2>
+        <p className="text-muted-foreground">
+          Configurazione del sistema CRM
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Impostazioni Generali</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Le impostazioni di configurazione saranno disponibili in una versione futura.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+</file>
+
+<file path="app/(dashboard)/kanban/page.tsx">
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { StatusBadge } from "@/components/status-badge";
+import { useToast } from "@/components/ui/use-toast";
+import { clientStatuses, type ClientStatus } from "@/types";
+
+interface Client {
+  id: string;
+  name: string;
+  email: string | null;
+  company: string | null;
+  status: ClientStatus;
+}
+
+const columns: { id: ClientStatus; title: string }[] = [
+  { id: "lead", title: "Lead" },
+  { id: "suspect", title: "Suspect" },
+  { id: "won", title: "Won" },
+  { id: "close", title: "Close" },
+];
+
+export default function KanbanPage() {
+  const { toast } = useToast();
+  const [clients, setClients] = useState<Client[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchClients = useCallback(async () => {
+    try {
+      const res = await fetch("/api/clients?limit=100");
+      const data = await res.json();
+      setClients(data.data);
+    } catch {
+      toast({
+        title: "Errore",
+        description: "Impossibile caricare i clienti",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchClients();
+  }, [fetchClients]);
+
+  const handleDragEnd = async (result: DropResult) => {
+    if (!result.destination) return;
+
+    const { draggableId, destination } = result;
+    const newStatus = destination.droppableId as ClientStatus;
+
+    // Optimistic update
+    setClients((prev) =>
+      prev.map((c) =>
+        c.id === draggableId ? { ...c, status: newStatus } : c
+      )
+    );
+
+    try {
+      const res = await fetch(`/api/clients/${draggableId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        toast({ title: "Errore", description: err.error, variant: "destructive" });
+        fetchClients(); // revert
+      }
+    } catch {
+      toast({
+        title: "Errore",
+        description: "Transizione fallita",
+        variant: "destructive",
+      });
+      fetchClients(); // revert
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">Caricamento...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">Kanban</h2>
+        <p className="text-muted-foreground">
+          Trascina i clienti tra le colonne per aggiornare lo status
+        </p>
+      </div>
+
+      <DragDropContext onDragEnd={handleDragEnd}>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {columns.map((column) => {
+            const columnClients = clients.filter(
+              (c) => c.status === column.id
+            );
+
+            return (
+              <div key={column.id} className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-sm">{column.title}</h3>
+                  <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                    {columnClients.length}
+                  </span>
+                </div>
+
+                <Droppable droppableId={column.id}>
+                  {(provided, snapshot) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.droppableProps}
+                      className={`min-h-[200px] rounded-lg border-2 border-dashed p-3 space-y-3 transition-colors ${
+                        snapshot.isDraggingOver
+                          ? "border-primary bg-primary/5"
+                          : "border-muted"
+                      }`}
+                    >
+                      {columnClients.length === 0 && !snapshot.isDraggingOver && (
+                        <p className="text-xs text-muted-foreground text-center py-8">
+                          Nessun cliente
+                        </p>
+                      )}
+
+                      {columnClients.map((client, index) => (
+                        <Draggable
+                          key={client.id}
+                          draggableId={client.id}
+                          index={index}
+                        >
+                          {(provided, snapshot) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...(provided.draggableProps as any)}
+                              {...(provided.dragHandleProps as any)}
+                              className={`rounded-lg border bg-card text-card-foreground shadow-sm p-3 ${
+                                snapshot.isDragging
+                                  ? "shadow-lg ring-2 ring-primary"
+                                  : ""
+                              }`}
+                            >
+                              <p className="font-medium text-sm truncate">
+                                {client.name}
+                              </p>
+                              {client.company && (
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {client.company}
+                                </p>
+                              )}
+                              {client.email && (
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {client.email}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </Draggable>
+                      ))}
+                      {provided.placeholder}
+                    </div>
+                  )}
+                </Droppable>
+              </div>
+            );
+          })}
+        </div>
+      </DragDropContext>
+    </div>
+  );
+}
+</file>
+
+<file path="app/(dashboard)/layout.tsx">
+"use client";
+
+import { useState } from "react";
+import { Sidebar } from "@/components/sidebar";
+import { Topbar } from "@/components/topbar";
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  return (
+    <div className="flex min-h-screen">
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <div className="flex flex-1 flex-col">
+        <Topbar onMenuClick={() => setSidebarOpen(true)} />
+        <main className="flex-1 p-4 lg:p-6">{children}</main>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="app/(dashboard)/note/page.tsx">
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Card, CardContent } from "@/components/ui/card";
+import { StatusBadge } from "@/components/status-badge";
+import { useToast } from "@/components/ui/use-toast";
+import { formatDateTime } from "@/lib/utils";
+import { noteTypes, type NoteType } from "@/types";
+import { Search } from "lucide-react";
+
+interface NoteItem {
+  id: string;
+  content: string;
+  type: NoteType;
+  author: string;
+  clientId: string;
+  createdAt: number;
+  clientName: string | null;
+}
+
+export default function NotePage() {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [notes, setNotes] = useState<NoteItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+
+  const fetchNotes = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({ days: "30" });
+      if (search) params.set("search", search);
+      if (typeFilter) params.set("type", typeFilter);
+
+      const res = await fetch(`/api/note?${params}`);
+      const data = await res.json();
+      setNotes(data);
+    } catch {
+      toast({
+        title: "Errore",
+        description: "Impossibile caricare le note",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [search, typeFilter, toast]);
+
+  useEffect(() => {
+    fetchNotes();
+  }, [fetchNotes]);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">Note Recenti</h2>
+        <p className="text-muted-foreground">
+          Ultime 30 giorni di note
+        </p>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-col gap-4 sm:flex-row">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Cerca nel contenuto..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-full sm:w-40">
+            <SelectValue placeholder="Tutti i tipi" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tutti</SelectItem>
+            {noteTypes.map((t) => (
+              <SelectItem key={t} value={t}>
+                {t.charAt(0).toUpperCase() + t.slice(1)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Notes list */}
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <p className="text-muted-foreground">Caricamento...</p>
+        </div>
+      ) : notes.length === 0 ? (
+        <div className="flex items-center justify-center py-12">
+          <p className="text-muted-foreground">Nessuna nota trovata</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {notes.map((note) => (
+            <Card
+              key={note.id}
+              className="cursor-pointer hover:bg-accent/50 transition-colors"
+              onClick={() => router.push(`/clienti/${note.clientId}`)}
+            >
+              <CardContent className="py-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <StatusBadge
+                    status={
+                      note.type === "conversazione"
+                        ? "lead"
+                        : note.type === "promemoria"
+                        ? "suspect"
+                        : "won"
+                    }
+                  />
+                  <span className="text-sm font-medium">
+                    {note.clientName || "Cliente sconosciuto"}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    · {note.author}
+                  </span>
+                  <span className="text-xs text-muted-foreground ml-auto">
+                    {formatDateTime(note.createdAt)}
+                  </span>
+                </div>
+                <p className="text-sm whitespace-pre-wrap line-clamp-3">
+                  {note.content}
+                </p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+</file>
+
+<file path="app/(dashboard)/page.tsx">
+import { redirect } from "next/navigation";
+
+export default function DashboardRedirect() {
+  redirect("/dashboard");
+}
+</file>
+
+<file path="app/(dashboard)/task/page.tsx">
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { PriorityBadge } from "@/components/priority-badge";
+import { StatusBadge } from "@/components/status-badge";
+import { useToast } from "@/components/ui/use-toast";
+import { formatDate, isOverdue, daysUntil } from "@/lib/utils";
+import { CheckCircle2, Circle, ExternalLink } from "lucide-react";
+import type { ClientStatus, Priority } from "@/types";
+
+interface TaskItem {
+  id: string;
+  title: string;
+  description: string | null;
+  dueDate: number | null;
+  status: string;
+  priority: Priority;
+  completedAt: number | null;
+  clientId: string;
+  clientName: string | null;
+}
+
+export default function TaskPage() {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchTasks = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tasks?upcomingDays=7");
+      const data = await res.json();
+      setTasks(data);
+    } catch {
+      toast({
+        title: "Errore",
+        description: "Impossibile caricare i task",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
+
+  const handleToggle = async (id: string, currentStatus: string) => {
+    const newStatus = currentStatus === "completed" ? "todo" : "completed";
+    try {
+      await fetch(`/api/tasks/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      fetchTasks();
+    } catch {
+      toast({
+        title: "Errore",
+        description: "Aggiornamento fallito",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const overdueTasks = tasks.filter(
+    (t) => t.status !== "completed" && t.status !== "cancelled" && t.dueDate && isOverdue(t.dueDate)
+  );
+
+  const upcomingTasks = tasks.filter(
+    (t) =>
+      t.status !== "completed" &&
+      t.status !== "cancelled" &&
+      t.dueDate &&
+      !isOverdue(t.dueDate) &&
+      daysUntil(t.dueDate) <= 7
+  );
+
+  // Group by client
+  const groupByClient = (taskList: TaskItem[]) => {
+    const groups: Record<string, { clientName: string; clientId: string; tasks: TaskItem[] }> = {};
+    taskList.forEach((t) => {
+      const key = t.clientId;
+      if (!groups[key]) {
+        groups[key] = {
+          clientName: t.clientName || "Sconosciuto",
+          clientId: t.clientId,
+          tasks: [],
+        };
+      }
+      groups[key].tasks.push(t);
+    });
+    return Object.values(groups);
+  };
+
+  const overdueGroups = groupByClient(overdueTasks);
+  const upcomingGroups = groupByClient(upcomingTasks);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">Caricamento...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">Task Scaduti</h2>
+        <p className="text-muted-foreground">
+          Task scaduti o in scadenza nei prossimi 7 giorni
+        </p>
+      </div>
+
+      {/* Overdue section */}
+      <div>
+        <h3 className="text-lg font-semibold text-destructive mb-4 flex items-center gap-2">
+          <span className="inline-block w-2 h-2 rounded-full bg-destructive" />
+          Scaduti ({overdueTasks.length})
+        </h3>
+        {overdueGroups.length === 0 ? (
+          <p className="text-sm text-muted-foreground pl-4">Nessun task scaduto</p>
+        ) : (
+          <div className="space-y-4">
+            {overdueGroups.map((group) => (
+              <div key={group.clientId}>
+                <button
+                  onClick={() => router.push(`/clienti/${group.clientId}`)}
+                  className="flex items-center gap-2 text-sm font-medium text-primary hover:underline mb-2"
+                >
+                  {group.clientName}
+                  <ExternalLink className="h-3 w-3" />
+                </button>
+                <div className="space-y-2 pl-4">
+                  {group.tasks.map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      onToggle={() => handleToggle(task.id, task.status)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Upcoming section */}
+      <div>
+        <h3 className="text-lg font-semibold text-amber-500 mb-4 flex items-center gap-2">
+          <span className="inline-block w-2 h-2 rounded-full bg-amber-500" />
+          In scadenza (7 giorni) ({upcomingTasks.length})
+        </h3>
+        {upcomingGroups.length === 0 ? (
+          <p className="text-sm text-muted-foreground pl-4">Nessun task in scadenza</p>
+        ) : (
+          <div className="space-y-4">
+            {upcomingGroups.map((group) => (
+              <div key={group.clientId}>
+                <button
+                  onClick={() => router.push(`/clienti/${group.clientId}`)}
+                  className="flex items-center gap-2 text-sm font-medium text-primary hover:underline mb-2"
+                >
+                  {group.clientName}
+                  <ExternalLink className="h-3 w-3" />
+                </button>
+                <div className="space-y-2 pl-4">
+                  {group.tasks.map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      onToggle={() => handleToggle(task.id, task.status)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TaskRow({
+  task,
+  onToggle,
+}: {
+  task: TaskItem;
+  onToggle: () => void;
+}) {
+  return (
+    <Card className={task.dueDate && isOverdue(task.dueDate) ? "border-red-200 bg-red-50 dark:bg-red-950/20" : ""}>
+      <CardContent className="flex items-center gap-3 py-3">
+        <Button variant="ghost" size="icon" className="shrink-0" onClick={onToggle}>
+          {task.status === "completed" ? (
+            <CheckCircle2 className="h-5 w-5 text-green-500" />
+          ) : (
+            <Circle className="h-5 w-5 text-muted-foreground" />
+          )}
+        </Button>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium">{task.title}</span>
+            <PriorityBadge priority={task.priority} />
+            {task.dueDate && isOverdue(task.dueDate) && task.status !== "completed" && (
+              <span className="text-xs text-destructive font-medium">Scaduto</span>
+            )}
+          </div>
+          {task.description && (
+            <p className="text-xs text-muted-foreground truncate mt-0.5">
+              {task.description}
+            </p>
+          )}
+          {task.dueDate && (
+            <p
+              className={`text-xs mt-0.5 ${
+                task.dueDate && isOverdue(task.dueDate)
+                  ? "text-destructive"
+                  : "text-muted-foreground"
+              }`}
+            >
+              Scadenza: {formatDate(task.dueDate)}
+            </p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+</file>
+
+<file path="app/api/clients/[id]/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { clients, tasks } from "@/lib/schema";
+import { clientSchema, allowedTransitions, requiresNoteForTransition } from "@/types";
+import { eq, and, sql } from "drizzle-orm";
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const client = await db
+      .select()
+      .from(clients)
+      .where(eq(clients.id, params.id))
+      .limit(1);
+
+    if (!client.length) {
+      return NextResponse.json(
+        { error: "Cliente non trovato" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json(client[0]);
+  } catch (error) {
+    console.error("Error fetching client:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento del cliente" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const body = await request.json();
+    const existing = await db
+      .select()
+      .from(clients)
+      .where(eq(clients.id, params.id))
+      .limit(1);
+
+    if (!existing.length) {
+      return NextResponse.json(
+        { error: "Cliente non trovato" },
+        { status: 404 }
+      );
+    }
+
+    const currentClient = existing[0];
+
+    // Handle status transitions
+    if (body.status && body.status !== currentClient.status) {
+      const allowed = allowedTransitions[currentClient.status];
+      if (!allowed.includes(body.status)) {
+        return NextResponse.json(
+          {
+            error: `Transizione da "${currentClient.status}" a "${body.status}" non consentita`,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (requiresNoteForTransition(currentClient.status, body.status) && !body.noteContent) {
+        return NextResponse.json(
+          {
+            error:
+              "Per chiudere un cliente è necessario aggiungere una nota di motivazione",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Prepare update data (only provided fields)
+    const updateData: Record<string, any> = {};
+    const allowedFields = ["name", "email", "phone", "company", "status", "notes"];
+    for (const field of allowedFields) {
+      if (body[field] !== undefined) {
+        updateData[field] = body[field] || null;
+      }
+    }
+    updateData.updatedAt = new Date();
+
+    const [updated] = await db
+      .update(clients)
+      .set(updateData)
+      .where(eq(clients.id, params.id))
+      .returning();
+
+    // Create note if transition requires it
+    if (body.status && body.status !== currentClient.status && body.noteContent) {
+      const { notes: notesTable } = await import("@/lib/schema");
+      await db.insert(notesTable).values({
+        clientId: params.id,
+        content: body.noteContent,
+        type: "decisione",
+        author: "Sistema",
+      });
+    }
+
+    // Create automatic tasks on new status
+    if (body.status === "suspect" && body.status !== currentClient.status) {
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 3);
+      await db.insert(tasks).values({
+        clientId: params.id,
+        title: "Chiamata qualificazione",
+        description: "Chiamata di qualificazione per il nuovo suspect",
+        dueDate,
+        priority: "high",
+      });
+    }
+
+    if (body.status === "won" && body.status !== currentClient.status) {
+      const dueContract = new Date();
+      dueContract.setDate(dueContract.getDate() + 2);
+      const dueOnboarding = new Date();
+      dueOnboarding.setDate(dueOnboarding.getDate() + 7);
+
+      await db.insert(tasks).values([
+        {
+          clientId: params.id,
+          title: "Invia contratto",
+          description: "Inviare il contratto al cliente",
+          dueDate: dueContract,
+          priority: "high",
+        },
+        {
+          clientId: params.id,
+          title: "Onboarding",
+          description: "Completare l'onboarding del cliente",
+          dueDate: dueOnboarding,
+          priority: "medium",
+        },
+      ]);
+    }
+
+    return NextResponse.json(updated);
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error updating client:", error);
+    return NextResponse.json(
+      { error: "Errore nell'aggiornamento del cliente" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    await db.delete(clients).where(eq(clients.id, params.id));
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting client:", error);
+    return NextResponse.json(
+      { error: "Errore nell'eliminazione del cliente" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/clients/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { clients, tasks } from "@/lib/schema";
+import { clientSchema } from "@/types";
+import { eq, desc, like, or, and, sql } from "drizzle-orm";
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const search = searchParams.get("search") || "";
+    const status = searchParams.get("status") || "";
+    const sort = searchParams.get("sort") || "createdAt";
+    const order = searchParams.get("order") || "desc";
+    const page = parseInt(searchParams.get("page") || "1");
+    const limit = parseInt(searchParams.get("limit") || "10");
+    const offset = (page - 1) * limit;
+
+    const conditions = [];
+    if (search) {
+      conditions.push(
+        or(
+          like(clients.name, `%${search}%`),
+          like(clients.email, `%${search}%`),
+          like(clients.company, `%${search}%`)
+        )
+      );
+    }
+    if (status) {
+      conditions.push(eq(clients.status, status as any));
+    }
+
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const orderBy =
+      order === "asc"
+        ? (sql`${clients[sort as keyof typeof clients]} ASC` as any)
+        : (sql`${clients[sort as keyof typeof clients]} DESC` as any);
+
+    const data = await db
+      .select()
+      .from(clients)
+      .where(where)
+      .orderBy(orderBy)
+      .limit(limit)
+      .offset(offset);
+
+    const totalResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(clients)
+      .where(where);
+
+    const total = Number(totalResult[0]?.count || 0);
+
+    return NextResponse.json({ data, total, page, limit });
+  } catch (error) {
+    console.error("Error fetching clients:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento dei clienti" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const parsed = clientSchema.parse(body);
+
+    const [client] = await db
+      .insert(clients)
+      .values({
+        name: parsed.name,
+        email: parsed.email || null,
+        phone: parsed.phone || null,
+        company: parsed.company || null,
+        status: parsed.status,
+        notes: parsed.notes || null,
+      })
+      .returning();
+
+    // Auto-create tasks for suspect and won
+    if (client.status === "suspect") {
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 3);
+      await db.insert(tasks).values({
+        clientId: client.id,
+        title: "Chiamata qualificazione",
+        description: "Chiamata di qualificazione per il nuovo suspect",
+        dueDate,
+        priority: "high",
+      });
+    }
+
+    if (client.status === "won") {
+      const dueContract = new Date();
+      dueContract.setDate(dueContract.getDate() + 2);
+      const dueOnboarding = new Date();
+      dueOnboarding.setDate(dueOnboarding.getDate() + 7);
+
+      await db.insert(tasks).values([
+        {
+          clientId: client.id,
+          title: "Invia contratto",
+          description: "Inviare il contratto al cliente",
+          dueDate: dueContract,
+          priority: "high",
+        },
+        {
+          clientId: client.id,
+          title: "Onboarding",
+          description: "Completare l'onboarding del cliente",
+          dueDate: dueOnboarding,
+          priority: "medium",
+        },
+      ]);
+    }
+
+    return NextResponse.json(client, { status: 201 });
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error creating client:", error);
+    return NextResponse.json(
+      { error: "Errore nella creazione del cliente" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/dashboard/route.ts">
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { clients, tasks, notes } from "@/lib/schema";
+import { eq, sql, lte, desc, and, gte } from "drizzle-orm";
+
+export async function GET() {
+  try {
+    const now = new Date();
+    const in3Days = new Date();
+    in3Days.setDate(in3Days.getDate() + 3);
+    const in7Days = new Date();
+    in7Days.setDate(in7Days.getDate() + 7);
+
+    // Count per status
+    const statusCounts = await db
+      .select({
+        status: clients.status,
+        count: sql<number>`count(*)`,
+      })
+      .from(clients)
+      .groupBy(clients.status);
+
+    const statusMap: Record<string, number> = {
+      lead: 0,
+      suspect: 0,
+      won: 0,
+      close: 0,
+    };
+    statusCounts.forEach((s) => {
+      statusMap[s.status] = Number(s.count);
+    });
+
+    // Overdue tasks
+    const overdueTasks = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(tasks)
+      .where(
+        and(
+          lte(tasks.dueDate, now),
+          sql`${tasks.status} IN ('todo', 'in_progress')`
+        )
+      );
+
+    // Tasks due in next 3 days
+    const upcomingTasks = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(tasks)
+      .where(
+        and(
+          gte(tasks.dueDate, now),
+          lte(tasks.dueDate, in3Days),
+          sql`${tasks.status} IN ('todo', 'in_progress')`
+        )
+      );
+
+    // Last 5 notes
+    const lastNotes = await db
+      .select({
+        id: notes.id,
+        content: notes.content,
+        type: notes.type,
+        author: notes.author,
+        createdAt: notes.createdAt,
+        clientId: notes.clientId,
+        clientName: clients.name,
+      })
+      .from(notes)
+      .leftJoin(clients, eq(notes.clientId, clients.id))
+      .orderBy(desc(notes.createdAt))
+      .limit(5);
+
+    // Trend: clients created in last 7 days
+    const trendData = [];
+    for (let i = 6; i >= 0; i--) {
+      const day = new Date();
+      day.setDate(day.getDate() - i);
+      const dayStart = new Date(day);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(day);
+      dayEnd.setHours(23, 59, 59, 999);
+
+      const [countResult] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(clients)
+        .where(
+          and(gte(clients.createdAt, dayStart), lte(clients.createdAt, dayEnd))
+        );
+
+      trendData.push({
+        date: day.toLocaleDateString("it-IT", {
+          day: "2-digit",
+          month: "2-digit",
+        }),
+        count: Number(countResult?.count || 0),
+      });
+    }
+
+    // Total clients
+    const [totalResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(clients);
+
+    return NextResponse.json({
+      statusCounts: statusMap,
+      totalClients: Number(totalResult?.count || 0),
+      overdueTasks: Number(overdueTasks[0]?.count || 0),
+      upcomingTasks: Number(upcomingTasks[0]?.count || 0),
+      lastNotes,
+      trendData,
+    });
+  } catch (error) {
+    console.error("Error fetching dashboard data:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento della dashboard" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/note/[id]/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { notes } from "@/lib/schema";
+import { noteSchema } from "@/types";
+import { eq } from "drizzle-orm";
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const body = await request.json();
+    const parsed = noteSchema.partial().parse(body);
+
+    const [updated] = await db
+      .update(notes)
+      .set({ ...parsed, updatedAt: new Date() })
+      .where(eq(notes.id, params.id))
+      .returning();
+
+    if (!updated) {
+      return NextResponse.json(
+        { error: "Nota non trovata" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json(updated);
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error updating note:", error);
+    return NextResponse.json(
+      { error: "Errore nell'aggiornamento della nota" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    await db.delete(notes).where(eq(notes.id, params.id));
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting note:", error);
+    return NextResponse.json(
+      { error: "Errore nell'eliminazione della nota" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/note/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { notes, clients } from "@/lib/schema";
+import { noteSchema } from "@/types";
+import { eq, desc, like, and, gte, sql } from "drizzle-orm";
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const search = searchParams.get("search") || "";
+    const type = searchParams.get("type") || "";
+    const clientId = searchParams.get("clientId") || "";
+    const days = parseInt(searchParams.get("days") || "30");
+
+    const dateThreshold = new Date();
+    dateThreshold.setDate(dateThreshold.getDate() - days);
+
+    const conditions = [gte(notes.createdAt, dateThreshold)];
+
+    if (type) {
+      conditions.push(eq(notes.type, type as any));
+    }
+
+    if (clientId) {
+      conditions.push(eq(notes.clientId, clientId));
+    }
+
+    const data = await db
+      .select({
+        id: notes.id,
+        content: notes.content,
+        type: notes.type,
+        author: notes.author,
+        clientId: notes.clientId,
+        createdAt: notes.createdAt,
+        updatedAt: notes.updatedAt,
+        clientName: clients.name,
+      })
+      .from(notes)
+      .leftJoin(clients, eq(notes.clientId, clients.id))
+      .where(
+        search
+          ? and(
+              ...conditions,
+              like(notes.content, `%${search}%`)
+            )
+          : and(...conditions)
+      )
+      .orderBy(desc(notes.createdAt));
+
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error("Error fetching notes:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento delle note" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const parsed = noteSchema.parse(body);
+
+    const [note] = await db
+      .insert(notes)
+      .values({
+        clientId: body.clientId,
+        content: parsed.content,
+        type: parsed.type,
+        author: parsed.author,
+      })
+      .returning();
+
+    return NextResponse.json(note, { status: 201 });
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error creating note:", error);
+    return NextResponse.json(
+      { error: "Errore nella creazione della nota" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/tasks/[id]/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { tasks } from "@/lib/schema";
+import { taskSchema } from "@/types";
+import { eq } from "drizzle-orm";
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const body = await request.json();
+    const parsed = taskSchema.partial().parse(body);
+
+    // Get current task to check status change
+    const existing = await db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.id, params.id))
+      .limit(1);
+
+    if (!existing.length) {
+      return NextResponse.json(
+        { error: "Task non trovato" },
+        { status: 404 }
+      );
+    }
+
+    const updateData: Record<string, any> = {
+      ...parsed,
+      updatedAt: new Date(),
+    };
+
+    // Handle completion
+    if (body.status === "completed" && existing[0].status !== "completed") {
+      updateData.completedAt = new Date();
+    } else if (body.status && body.status !== "completed") {
+      updateData.completedAt = null;
+    }
+
+    if (parsed.dueDate) {
+      updateData.dueDate = new Date(parsed.dueDate);
+    }
+
+    const [updated] = await db
+      .update(tasks)
+      .set(updateData)
+      .where(eq(tasks.id, params.id))
+      .returning();
+
+    return NextResponse.json(updated);
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error updating task:", error);
+    return NextResponse.json(
+      { error: "Errore nell'aggiornamento del task" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    await db.delete(tasks).where(eq(tasks.id, params.id));
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting task:", error);
+    return NextResponse.json(
+      { error: "Errore nell'eliminazione del task" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/tasks/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { tasks, clients } from "@/lib/schema";
+import { taskSchema } from "@/types";
+import { eq, desc, and, lte, gte, or, sql } from "drizzle-orm";
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const status = searchParams.get("status") || "";
+    const clientId = searchParams.get("clientId") || "";
+    const upcomingDays = parseInt(searchParams.get("upcomingDays") || "7");
+
+    const conditions = [];
+
+    if (status) {
+      conditions.push(eq(tasks.status, status as any));
+    }
+
+    if (clientId) {
+      conditions.push(eq(tasks.clientId, clientId));
+    }
+
+    // Default: show overdue or due within upcomingDays
+    const now = new Date();
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + upcomingDays);
+
+    if (!status && !clientId) {
+      conditions.push(
+        or(
+          and(
+            lte(tasks.dueDate, futureDate),
+            sql`${tasks.status} IN ('todo', 'in_progress')`
+          ),
+          eq(tasks.status, "todo"),
+          eq(tasks.status, "in_progress")
+        )
+      );
+    }
+
+    const data = await db
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        description: tasks.description,
+        dueDate: tasks.dueDate,
+        status: tasks.status,
+        priority: tasks.priority,
+        completedAt: tasks.completedAt,
+        clientId: tasks.clientId,
+        createdAt: tasks.createdAt,
+        updatedAt: tasks.updatedAt,
+        clientName: clients.name,
+      })
+      .from(tasks)
+      .leftJoin(clients, eq(tasks.clientId, clients.id))
+      .where(
+        conditions.length > 0 ? and(...conditions) : undefined
+      )
+      .orderBy(desc(tasks.priority), desc(tasks.dueDate));
+
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error("Error fetching tasks:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento dei task" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const parsed = taskSchema.parse(body);
+
+    const [task] = await db
+      .insert(tasks)
+      .values({
+        clientId: body.clientId,
+        title: parsed.title,
+        description: parsed.description || null,
+        dueDate: parsed.dueDate ? new Date(parsed.dueDate) : null,
+        status: parsed.status,
+        priority: parsed.priority,
+      })
+      .returning();
+
+    return NextResponse.json(task, { status: 201 });
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error creating task:", error);
+    return NextResponse.json(
+      { error: "Errore nella creazione del task" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/globals.css">
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 224.3 76.3% 48%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+</file>
+
+<file path="app/layout.tsx">
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import "./globals.css";
+import { Toaster } from "@/components/ui/toaster";
+
+const inter = Inter({ subsets: ["latin"] });
+
+export const metadata: Metadata = {
+  title: "CRM FindFit",
+  description: "Customer Relationship Management",
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="it">
+      <body className={inter.className}>
+        {children}
+        <Toaster />
+      </body>
+    </html>
+  );
+}
+</file>
+
+<file path="components/priority-badge.tsx">
+import { Badge } from "@/components/ui/badge";
+import type { Priority } from "@/types";
+
+const priorityConfig: Record<
+  Priority,
+  { label: string; variant: "destructive" | "warning" | "success" }
+> = {
+  high: { label: "Alta", variant: "destructive" },
+  medium: { label: "Media", variant: "warning" },
+  low: { label: "Bassa", variant: "success" },
+};
+
+export function PriorityBadge({ priority }: { priority: Priority }) {
+  const config = priorityConfig[priority];
+  return (
+    <Badge variant={config.variant} className="font-medium">
+      {config.label}
+    </Badge>
+  );
+}
+</file>
+
+<file path="components/providers.tsx">
+"use client";
+
+import { Toaster } from "@/components/ui/toaster";
+
+export function Providers({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      {children}
+      <Toaster />
+    </>
+  );
+}
+</file>
+
+<file path="components/sidebar.tsx">
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  LayoutDashboard,
+  Users,
+  Kanban,
+  CalendarCheck,
+  FileText,
+  Settings,
+  X,
+} from "lucide-react";
+
+interface SidebarProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+const navItems = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/clienti", label: "Lista Clienti", icon: Users },
+  { href: "/kanban", label: "Kanban", icon: Kanban },
+  { href: "/task", label: "Task Scaduti", icon: CalendarCheck },
+  { href: "/note", label: "Note Recenti", icon: FileText },
+  { href: "/impostazioni", label: "Impostazioni", icon: Settings },
+];
+
+export function Sidebar({ open, onClose }: SidebarProps) {
+  const pathname = usePathname();
+
+  return (
+    <>
+      {/* Mobile overlay */}
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={onClose}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r bg-background transition-transform duration-300 lg:static lg:translate-x-0",
+          open ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        <div className="flex h-14 items-center justify-between border-b px-4 lg:hidden">
+          <span className="font-semibold">CRM FindFit</span>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
+
+        <ScrollArea className="flex-1 px-3 py-4">
+          <nav className="flex flex-col gap-1">
+            {navItems.map((item) => {
+              const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={onClose}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                    isActive
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  <Icon className="h-5 w-5 shrink-0" />
+                  <span className="hidden lg:inline">{item.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
+        </ScrollArea>
+
+        <div className="border-t p-4">
+          <p className="text-xs text-muted-foreground">CRM FindFit v1.0</p>
+        </div>
+      </aside>
+    </>
+  );
+}
+</file>
+
+<file path="components/status-badge.tsx">
+import { Badge } from "@/components/ui/badge";
+import type { ClientStatus } from "@/types";
+
+const statusConfig: Record<
+  ClientStatus,
+  { label: string; variant: "info" | "warning" | "success" | "muted" }
+> = {
+  lead: { label: "Lead", variant: "info" },
+  suspect: { label: "Suspect", variant: "warning" },
+  won: { label: "Won", variant: "success" },
+  close: { label: "Close", variant: "muted" },
+};
+
+export function StatusBadge({ status }: { status: ClientStatus }) {
+  const config = statusConfig[status];
+  return (
+    <Badge variant={config.variant} className="font-medium">
+      {config.label}
+    </Badge>
+  );
+}
+</file>
+
+<file path="components/topbar.tsx">
+"use client";
+
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Menu } from "lucide-react";
+
+interface TopbarProps {
+  onMenuClick: () => void;
+}
+
+export function Topbar({ onMenuClick }: TopbarProps) {
+  return (
+    <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 lg:px-6">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="lg:hidden"
+        onClick={onMenuClick}
+      >
+        <Menu className="h-5 w-5" />
+      </Button>
+
+      <h1 className="text-lg font-semibold">CRM FindFit</h1>
+
+      <div className="flex-1" />
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="rounded-full">
+            <Avatar className="h-8 w-8">
+              <AvatarFallback>CF</AvatarFallback>
+            </Avatar>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuLabel>Il mio account</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem>Profilo</DropdownMenuItem>
+          <DropdownMenuItem>Impostazioni</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem>Esci</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </header>
+  );
+}
+</file>
+
+<file path="components/ui/alert-dialog.tsx">
+"use client";
+
+import * as React from "react";
+import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
+import { cn } from "@/lib/utils";
+import { buttonVariants } from "@/components/ui/button";
+
+const AlertDialog = AlertDialogPrimitive.Root;
+const AlertDialogTrigger = AlertDialogPrimitive.Trigger;
+const AlertDialogPortal = AlertDialogPrimitive.Portal;
+
+const AlertDialogOverlay = React.forwardRef<
+  React.ElementRef<typeof AlertDialogPrimitive.Overlay>,
+  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Overlay>
+>(({ className, ...props }, ref) => (
+  <AlertDialogPrimitive.Overlay
+    className={cn(
+      "fixed inset-0 z-50 bg-black/80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      className
+    )}
+    {...props}
+    ref={ref}
+  />
+));
+AlertDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName;
+
+const AlertDialogContent = React.forwardRef<
+  React.ElementRef<typeof AlertDialogPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content>
+>(({ className, ...props }, ref) => (
+  <AlertDialogPortal>
+    <AlertDialogOverlay />
+    <AlertDialogPrimitive.Content
+      ref={ref}
+      className={cn(
+        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
+        className
+      )}
+      {...props}
+    />
+  </AlertDialogPortal>
+));
+AlertDialogContent.displayName = AlertDialogPrimitive.Content.displayName;
+
+const AlertDialogHeader = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn(
+      "flex flex-col space-y-2 text-center sm:text-left",
+      className
+    )}
+    {...props}
+  />
+);
+AlertDialogHeader.displayName = "AlertDialogHeader";
+
+const AlertDialogFooter = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn(
+      "flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2",
+      className
+    )}
+    {...props}
+  />
+);
+AlertDialogFooter.displayName = "AlertDialogFooter";
+
+const AlertDialogTitle = React.forwardRef<
+  React.ElementRef<typeof AlertDialogPrimitive.Title>,
+  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Title>
+>(({ className, ...props }, ref) => (
+  <AlertDialogPrimitive.Title
+    ref={ref}
+    className={cn("text-lg font-semibold", className)}
+    {...props}
+  />
+));
+AlertDialogTitle.displayName = AlertDialogPrimitive.Title.displayName;
+
+const AlertDialogDescription = React.forwardRef<
+  React.ElementRef<typeof AlertDialogPrimitive.Description>,
+  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Description>
+>(({ className, ...props }, ref) => (
+  <AlertDialogPrimitive.Description
+    ref={ref}
+    className={cn("text-sm text-muted-foreground", className)}
+    {...props}
+  />
+));
+AlertDialogDescription.displayName =
+  AlertDialogPrimitive.Description.displayName;
+
+const AlertDialogAction = React.forwardRef<
+  React.ElementRef<typeof AlertDialogPrimitive.Action>,
+  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Action>
+>(({ className, ...props }, ref) => (
+  <AlertDialogPrimitive.Action
+    ref={ref}
+    className={cn(buttonVariants(), className)}
+    {...props}
+  />
+));
+AlertDialogAction.displayName = AlertDialogPrimitive.Action.displayName;
+
+const AlertDialogCancel = React.forwardRef<
+  React.ElementRef<typeof AlertDialogPrimitive.Cancel>,
+  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Cancel>
+>(({ className, ...props }, ref) => (
+  <AlertDialogPrimitive.Cancel
+    ref={ref}
+    className={cn(
+      buttonVariants({ variant: "outline" }),
+      "mt-2 sm:mt-0",
+      className
+    )}
+    {...props}
+  />
+));
+AlertDialogCancel.displayName = AlertDialogPrimitive.Cancel.displayName;
+
+export {
+  AlertDialog,
+  AlertDialogPortal,
+  AlertDialogOverlay,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+};
+</file>
+
+<file path="components/ui/avatar.tsx">
+"use client";
+
+import * as React from "react";
+import * as AvatarPrimitive from "@radix-ui/react-avatar";
+import { cn } from "@/lib/utils";
+
+const Avatar = React.forwardRef<
+  React.ElementRef<typeof AvatarPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Root>
+>(({ className, ...props }, ref) => (
+  <AvatarPrimitive.Root
+    ref={ref}
+    className={cn(
+      "relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full",
+      className
+    )}
+    {...props}
+  />
+));
+Avatar.displayName = AvatarPrimitive.Root.displayName;
+
+const AvatarImage = React.forwardRef<
+  React.ElementRef<typeof AvatarPrimitive.Image>,
+  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Image>
+>(({ className, ...props }, ref) => (
+  <AvatarPrimitive.Image
+    ref={ref}
+    className={cn("aspect-square h-full w-full", className)}
+    {...props}
+  />
+));
+AvatarImage.displayName = AvatarPrimitive.Image.displayName;
+
+const AvatarFallback = React.forwardRef<
+  React.ElementRef<typeof AvatarPrimitive.Fallback>,
+  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Fallback>
+>(({ className, ...props }, ref) => (
+  <AvatarPrimitive.Fallback
+    ref={ref}
+    className={cn(
+      "flex h-full w-full items-center justify-center rounded-full bg-muted",
+      className
+    )}
+    {...props}
+  />
+));
+AvatarFallback.displayName = AvatarPrimitive.Fallback.displayName;
+
+export { Avatar, AvatarImage, AvatarFallback };
+</file>
+
+<file path="components/ui/badge.tsx">
+import * as React from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+import { cn } from "@/lib/utils";
+
+const badgeVariants = cva(
+  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  {
+    variants: {
+      variant: {
+        default:
+          "border-transparent bg-primary text-primary-foreground hover:bg-primary/80",
+        secondary:
+          "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        destructive:
+          "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80",
+        outline: "text-foreground",
+        success:
+          "border-transparent bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100",
+        warning:
+          "border-transparent bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100",
+        info: "border-transparent bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100",
+        muted:
+          "border-transparent bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-100",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+    },
+  }
+);
+
+export interface BadgeProps
+  extends React.HTMLAttributes<HTMLDivElement>,
+    VariantProps<typeof badgeVariants> {}
+
+function Badge({ className, variant, ...props }: BadgeProps) {
+  return (
+    <div className={cn(badgeVariants({ variant }), className)} {...props} />
+  );
+}
+
+export { Badge, badgeVariants };
+</file>
+
+<file path="components/ui/button.tsx">
+import * as React from "react";
+import { Slot } from "@radix-ui/react-slot";
+import { cva, type VariantProps } from "class-variance-authority";
+import { cn } from "@/lib/utils";
+
+const buttonVariants = cva(
+  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        destructive:
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        outline:
+          "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        ghost: "hover:bg-accent hover:text-accent-foreground",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        default: "h-10 px-4 py-2",
+        sm: "h-9 rounded-md px-3",
+        lg: "h-11 rounded-md px-8",
+        icon: "h-10 w-10",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+);
+
+export interface ButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof buttonVariants> {
+  asChild?: boolean;
+}
+
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant, size, asChild = false, ...props }, ref) => {
+    const Comp = asChild ? Slot : "button";
+    return (
+      <Comp
+        className={cn(buttonVariants({ variant, size, className }))}
+        ref={ref}
+        {...props}
+      />
+    );
+  }
+);
+Button.displayName = "Button";
+
+export { Button, buttonVariants };
+</file>
+
+<file path="components/ui/card.tsx">
+import * as React from "react";
+import { cn } from "@/lib/utils";
+
+const Card = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div
+    ref={ref}
+    className={cn(
+      "rounded-lg border bg-card text-card-foreground shadow-sm",
+      className
+    )}
+    {...props}
+  />
+));
+Card.displayName = "Card";
+
+const CardHeader = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div
+    ref={ref}
+    className={cn("flex flex-col space-y-1.5 p-6", className)}
+    {...props}
+  />
+));
+CardHeader.displayName = "CardHeader";
+
+const CardTitle = React.forwardRef<
+  HTMLParagraphElement,
+  React.HTMLAttributes<HTMLHeadingElement>
+>(({ className, ...props }, ref) => (
+  <h3
+    ref={ref}
+    className={cn(
+      "text-2xl font-semibold leading-none tracking-tight",
+      className
+    )}
+    {...props}
+  />
+));
+CardTitle.displayName = "CardTitle";
+
+const CardDescription = React.forwardRef<
+  HTMLParagraphElement,
+  React.HTMLAttributes<HTMLParagraphElement>
+>(({ className, ...props }, ref) => (
+  <p
+    ref={ref}
+    className={cn("text-sm text-muted-foreground", className)}
+    {...props}
+  />
+));
+CardDescription.displayName = "CardDescription";
+
+const CardContent = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div ref={ref} className={cn("p-6 pt-0", className)} {...props} />
+));
+CardContent.displayName = "CardContent";
+
+const CardFooter = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div
+    ref={ref}
+    className={cn("flex items-center p-6 pt-0", className)}
+    {...props}
+  />
+));
+CardFooter.displayName = "CardFooter";
+
+export {
+  Card,
+  CardHeader,
+  CardFooter,
+  CardTitle,
+  CardDescription,
+  CardContent,
+};
+</file>
+
+<file path="components/ui/dialog.tsx">
+"use client";
+
+import * as React from "react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { X } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+const Dialog = DialogPrimitive.Root;
+const DialogTrigger = DialogPrimitive.Trigger;
+const DialogPortal = DialogPrimitive.Portal;
+const DialogClose = DialogPrimitive.Close;
+
+const DialogOverlay = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Overlay>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Overlay
+    ref={ref}
+    className={cn(
+      "fixed inset-0 z-50 bg-black/80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      className
+    )}
+    {...props}
+  />
+));
+DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
+
+const DialogContent = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
+>(({ className, children, ...props }, ref) => (
+  <DialogPortal>
+    <DialogOverlay />
+    <DialogPrimitive.Content
+      ref={ref}
+      className={cn(
+        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+        <X className="h-4 w-4" />
+        <span className="sr-only">Close</span>
+      </DialogPrimitive.Close>
+    </DialogPrimitive.Content>
+  </DialogPortal>
+));
+DialogContent.displayName = DialogPrimitive.Content.displayName;
+
+const DialogHeader = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn(
+      "flex flex-col space-y-1.5 text-center sm:text-left",
+      className
+    )}
+    {...props}
+  />
+);
+DialogHeader.displayName = "DialogHeader";
+
+const DialogFooter = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn(
+      "flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2",
+      className
+    )}
+    {...props}
+  />
+);
+DialogFooter.displayName = "DialogFooter";
+
+const DialogTitle = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Title>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Title
+    ref={ref}
+    className={cn(
+      "text-lg font-semibold leading-none tracking-tight",
+      className
+    )}
+    {...props}
+  />
+));
+DialogTitle.displayName = DialogPrimitive.Title.displayName;
+
+const DialogDescription = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Description>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Description
+    ref={ref}
+    className={cn("text-sm text-muted-foreground", className)}
+    {...props}
+  />
+));
+DialogDescription.displayName = DialogPrimitive.Description.displayName;
+
+export {
+  Dialog,
+  DialogPortal,
+  DialogOverlay,
+  DialogClose,
+  DialogTrigger,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+};
+</file>
+
+<file path="components/ui/dropdown-menu.tsx">
+"use client";
+
+import * as React from "react";
+import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
+import { Check, ChevronRight, Circle } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+const DropdownMenu = DropdownMenuPrimitive.Root;
+const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
+const DropdownMenuGroup = DropdownMenuPrimitive.Group;
+const DropdownMenuPortal = DropdownMenuPrimitive.Portal;
+const DropdownMenuSub = DropdownMenuPrimitive.Sub;
+const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup;
+
+const DropdownMenuSubTrigger = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.SubTrigger>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubTrigger> & {
+    inset?: boolean;
+  }
+>(({ className, inset, children, ...props }, ref) => (
+  <DropdownMenuPrimitive.SubTrigger
+    ref={ref}
+    className={cn(
+      "flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none focus:bg-accent data-[state=open]:bg-accent",
+      inset && "pl-8",
+      className
+    )}
+    {...props}
+  >
+    {children}
+    <ChevronRight className="ml-auto h-4 w-4" />
+  </DropdownMenuPrimitive.SubTrigger>
+));
+DropdownMenuSubTrigger.displayName =
+  DropdownMenuPrimitive.SubTrigger.displayName;
+
+const DropdownMenuSubContent = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.SubContent>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent>
+>(({ className, ...props }, ref) => (
+  <DropdownMenuPrimitive.SubContent
+    ref={ref}
+    className={cn(
+      "z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+      className
+    )}
+    {...props}
+  />
+));
+DropdownMenuSubContent.displayName =
+  DropdownMenuPrimitive.SubContent.displayName;
+
+const DropdownMenuContent = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>
+>(({ className, sideOffset = 4, ...props }, ref) => (
+  <DropdownMenuPrimitive.Portal>
+    <DropdownMenuPrimitive.Content
+      ref={ref}
+      sideOffset={sideOffset}
+      className={cn(
+        "z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+        className
+      )}
+      {...props}
+    />
+  </DropdownMenuPrimitive.Portal>
+));
+DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName;
+
+const DropdownMenuItem = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.Item>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item> & {
+    inset?: boolean;
+  }
+>(({ className, inset, ...props }, ref) => (
+  <DropdownMenuPrimitive.Item
+    ref={ref}
+    className={cn(
+      "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      inset && "pl-8",
+      className
+    )}
+    {...props}
+  />
+));
+DropdownMenuItem.displayName = DropdownMenuPrimitive.Item.displayName;
+
+const DropdownMenuCheckboxItem = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.CheckboxItem>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.CheckboxItem>
+>(({ className, children, checked, ...props }, ref) => (
+  <DropdownMenuPrimitive.CheckboxItem
+    ref={ref}
+    className={cn(
+      "relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      className
+    )}
+    checked={checked}
+    {...props}
+  >
+    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+      <DropdownMenuPrimitive.ItemIndicator>
+        <Check className="h-4 w-4" />
+      </DropdownMenuPrimitive.ItemIndicator>
+    </span>
+    {children}
+  </DropdownMenuPrimitive.CheckboxItem>
+));
+DropdownMenuCheckboxItem.displayName =
+  DropdownMenuPrimitive.CheckboxItem.displayName;
+
+const DropdownMenuRadioItem = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.RadioItem>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem>
+>(({ className, children, ...props }, ref) => (
+  <DropdownMenuPrimitive.RadioItem
+    ref={ref}
+    className={cn(
+      "relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      className
+    )}
+    {...props}
+  >
+    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+      <DropdownMenuPrimitive.ItemIndicator>
+        <Circle className="h-2 w-2 fill-current" />
+      </DropdownMenuPrimitive.ItemIndicator>
+    </span>
+    {children}
+  </DropdownMenuPrimitive.RadioItem>
+));
+DropdownMenuRadioItem.displayName = DropdownMenuPrimitive.RadioItem.displayName;
+
+const DropdownMenuLabel = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.Label>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Label> & {
+    inset?: boolean;
+  }
+>(({ className, inset, ...props }, ref) => (
+  <DropdownMenuPrimitive.Label
+    ref={ref}
+    className={cn(
+      "px-2 py-1.5 text-sm font-semibold",
+      inset && "pl-8",
+      className
+    )}
+    {...props}
+  />
+));
+DropdownMenuLabel.displayName = DropdownMenuPrimitive.Label.displayName;
+
+const DropdownMenuSeparator = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.Separator>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Separator>
+>(({ className, ...props }, ref) => (
+  <DropdownMenuPrimitive.Separator
+    ref={ref}
+    className={cn("-mx-1 my-1 h-px bg-muted", className)}
+    {...props}
+  />
+));
+DropdownMenuSeparator.displayName =
+  DropdownMenuPrimitive.Separator.displayName;
+
+const DropdownMenuShortcut = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLSpanElement>) => {
+  return (
+    <span
+      className={cn("ml-auto text-xs tracking-widest opacity-60", className)}
+      {...props}
+    />
+  );
+};
+DropdownMenuShortcut.displayName = "DropdownMenuShortcut";
+
+export {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuCheckboxItem,
+  DropdownMenuRadioItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuGroup,
+  DropdownMenuPortal,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuRadioGroup,
+};
+</file>
+
+<file path="components/ui/input.tsx">
+import * as React from "react";
+import { cn } from "@/lib/utils";
+
+export interface InputProps
+  extends React.InputHTMLAttributes<HTMLInputElement> {}
+
+const Input = React.forwardRef<HTMLInputElement, InputProps>(
+  ({ className, type, ...props }, ref) => {
+    return (
+      <input
+        type={type}
+        className={cn(
+          "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+          className
+        )}
+        ref={ref}
+        {...props}
+      />
+    );
+  }
+);
+Input.displayName = "Input";
+
+export { Input };
+</file>
+
+<file path="components/ui/label.tsx">
+"use client";
+
+import * as React from "react";
+import * as LabelPrimitive from "@radix-ui/react-label";
+import { cva, type VariantProps } from "class-variance-authority";
+import { cn } from "@/lib/utils";
+
+const labelVariants = cva(
+  "text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+);
+
+const Label = React.forwardRef<
+  React.ElementRef<typeof LabelPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof LabelPrimitive.Root> &
+    VariantProps<typeof labelVariants>
+>(({ className, ...props }, ref) => (
+  <LabelPrimitive.Root
+    ref={ref}
+    className={cn(labelVariants(), className)}
+    {...props}
+  />
+));
+Label.displayName = LabelPrimitive.Root.displayName;
+
+export { Label };
+</file>
+
+<file path="components/ui/scroll-area.tsx">
+"use client";
+
+import * as React from "react";
+import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area";
+import { cn } from "@/lib/utils";
+
+const ScrollArea = React.forwardRef<
+  React.ElementRef<typeof ScrollAreaPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root>
+>(({ className, children, ...props }, ref) => (
+  <ScrollAreaPrimitive.Root
+    ref={ref}
+    className={cn("relative overflow-hidden", className)}
+    {...props}
+  >
+    <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit]">
+      {children}
+    </ScrollAreaPrimitive.Viewport>
+    <ScrollBar />
+    <ScrollAreaPrimitive.Corner />
+  </ScrollAreaPrimitive.Root>
+));
+ScrollArea.displayName = ScrollAreaPrimitive.Root.displayName;
+
+const ScrollBar = React.forwardRef<
+  React.ElementRef<typeof ScrollAreaPrimitive.ScrollAreaScrollbar>,
+  React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.ScrollAreaScrollbar>
+>(({ className, orientation = "vertical", ...props }, ref) => (
+  <ScrollAreaPrimitive.ScrollAreaScrollbar
+    ref={ref}
+    orientation={orientation}
+    className={cn(
+      "flex touch-none select-none transition-colors",
+      orientation === "vertical" &&
+        "h-full w-2.5 border-l border-l-transparent p-[1px]",
+      orientation === "horizontal" &&
+        "h-2.5 flex-col border-t border-t-transparent p-[1px]",
+      className
+    )}
+    {...props}
+  >
+    <ScrollAreaPrimitive.ScrollAreaThumb className="relative flex-1 rounded-full bg-border" />
+  </ScrollAreaPrimitive.ScrollAreaScrollbar>
+));
+ScrollBar.displayName = ScrollAreaPrimitive.ScrollAreaScrollbar.displayName;
+
+export { ScrollArea, ScrollBar };
+</file>
+
+<file path="components/ui/select.tsx">
+"use client";
+
+import * as React from "react";
+import * as SelectPrimitive from "@radix-ui/react-select";
+import { Check, ChevronDown, ChevronUp } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+const Select = SelectPrimitive.Root;
+const SelectGroup = SelectPrimitive.Group;
+const SelectValue = SelectPrimitive.Value;
+
+const SelectTrigger = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
+>(({ className, children, ...props }, ref) => (
+  <SelectPrimitive.Trigger
+    ref={ref}
+    className={cn(
+      "flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+      className
+    )}
+    {...props}
+  >
+    {children}
+    <SelectPrimitive.Icon asChild>
+      <ChevronDown className="h-4 w-4 opacity-50" />
+    </SelectPrimitive.Icon>
+  </SelectPrimitive.Trigger>
+));
+SelectTrigger.displayName = SelectPrimitive.Trigger.displayName;
+
+const SelectScrollUpButton = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.ScrollUpButton>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.ScrollUpButton>
+>(({ className, ...props }, ref) => (
+  <SelectPrimitive.ScrollUpButton
+    ref={ref}
+    className={cn(
+      "flex cursor-default items-center justify-center py-1",
+      className
+    )}
+    {...props}
+  >
+    <ChevronUp className="h-4 w-4" />
+  </SelectPrimitive.ScrollUpButton>
+));
+SelectScrollUpButton.displayName = SelectPrimitive.ScrollUpButton.displayName;
+
+const SelectScrollDownButton = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.ScrollDownButton>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.ScrollDownButton>
+>(({ className, ...props }, ref) => (
+  <SelectPrimitive.ScrollDownButton
+    ref={ref}
+    className={cn(
+      "flex cursor-default items-center justify-center py-1",
+      className
+    )}
+    {...props}
+  >
+    <ChevronDown className="h-4 w-4" />
+  </SelectPrimitive.ScrollDownButton>
+));
+SelectScrollDownButton.displayName =
+  SelectPrimitive.ScrollDownButton.displayName;
+
+const SelectContent = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
+>(({ className, children, position = "popper", ...props }, ref) => (
+  <SelectPrimitive.Portal>
+    <SelectPrimitive.Content
+      ref={ref}
+      className={cn(
+        "relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+        position === "popper" &&
+          "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
+        className
+      )}
+      position={position}
+      {...props}
+    >
+      <SelectScrollUpButton />
+      <SelectPrimitive.Viewport
+        className={cn(
+          "p-1",
+          position === "popper" &&
+            "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]"
+        )}
+      >
+        {children}
+      </SelectPrimitive.Viewport>
+      <SelectScrollDownButton />
+    </SelectPrimitive.Content>
+  </SelectPrimitive.Portal>
+));
+SelectContent.displayName = SelectPrimitive.Content.displayName;
+
+const SelectLabel = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.Label>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Label>
+>(({ className, ...props }, ref) => (
+  <SelectPrimitive.Label
+    ref={ref}
+    className={cn("py-1.5 pl-8 pr-2 text-sm font-semibold", className)}
+    {...props}
+  />
+));
+SelectLabel.displayName = SelectPrimitive.Label.displayName;
+
+const SelectItem = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.Item>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
+>(({ className, children, ...props }, ref) => (
+  <SelectPrimitive.Item
+    ref={ref}
+    className={cn(
+      "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      className
+    )}
+    {...props}
+  >
+    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+      <SelectPrimitive.ItemIndicator>
+        <Check className="h-4 w-4" />
+      </SelectPrimitive.ItemIndicator>
+    </span>
+    <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+  </SelectPrimitive.Item>
+));
+SelectItem.displayName = SelectPrimitive.Item.displayName;
+
+const SelectSeparator = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.Separator>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Separator>
+>(({ className, ...props }, ref) => (
+  <SelectPrimitive.Separator
+    ref={ref}
+    className={cn("-mx-1 my-1 h-px bg-muted", className)}
+    {...props}
+  />
+));
+SelectSeparator.displayName = SelectPrimitive.Separator.displayName;
+
+export {
+  Select,
+  SelectGroup,
+  SelectValue,
+  SelectTrigger,
+  SelectContent,
+  SelectLabel,
+  SelectItem,
+  SelectSeparator,
+  SelectScrollUpButton,
+  SelectScrollDownButton,
+};
+</file>
+
+<file path="components/ui/separator.tsx">
+"use client";
+
+import * as React from "react";
+import * as SeparatorPrimitive from "@radix-ui/react-separator";
+import { cn } from "@/lib/utils";
+
+const Separator = React.forwardRef<
+  React.ElementRef<typeof SeparatorPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof SeparatorPrimitive.Root>
+>(
+  (
+    { className, orientation = "horizontal", decorative = true, ...props },
+    ref
+  ) => (
+    <SeparatorPrimitive.Root
+      ref={ref}
+      decorative={decorative}
+      orientation={orientation}
+      className={cn(
+        "shrink-0 bg-border",
+        orientation === "horizontal" ? "h-[1px] w-full" : "h-full w-[1px]",
+        className
+      )}
+      {...props}
+    />
+  )
+);
+Separator.displayName = SeparatorPrimitive.Root.displayName;
+
+export { Separator };
+</file>
+
+<file path="components/ui/table.tsx">
+import * as React from "react";
+import { cn } from "@/lib/utils";
+
+const Table = React.forwardRef<
+  HTMLTableElement,
+  React.HTMLAttributes<HTMLTableElement>
+>(({ className, ...props }, ref) => (
+  <div className="relative w-full overflow-auto">
+    <table
+      ref={ref}
+      className={cn("w-full caption-bottom text-sm", className)}
+      {...props}
+    />
+  </div>
+));
+Table.displayName = "Table";
+
+const TableHeader = React.forwardRef<
+  HTMLTableSectionElement,
+  React.HTMLAttributes<HTMLTableSectionElement>
+>(({ className, ...props }, ref) => (
+  <thead ref={ref} className={cn("[&_tr]:border-b", className)} {...props} />
+));
+TableHeader.displayName = "TableHeader";
+
+const TableBody = React.forwardRef<
+  HTMLTableSectionElement,
+  React.HTMLAttributes<HTMLTableSectionElement>
+>(({ className, ...props }, ref) => (
+  <tbody
+    ref={ref}
+    className={cn("[&_tr:last-child]:border-0", className)}
+    {...props}
+  />
+));
+TableBody.displayName = "TableBody";
+
+const TableFooter = React.forwardRef<
+  HTMLTableSectionElement,
+  React.HTMLAttributes<HTMLTableSectionElement>
+>(({ className, ...props }, ref) => (
+  <tfoot
+    ref={ref}
+    className={cn(
+      "border-t bg-muted/50 font-medium [&>tr]:last:border-b-0",
+      className
+    )}
+    {...props}
+  />
+));
+TableFooter.displayName = "TableFooter";
+
+const TableRow = React.forwardRef<
+  HTMLTableRowElement,
+  React.HTMLAttributes<HTMLTableRowElement>
+>(({ className, ...props }, ref) => (
+  <tr
+    ref={ref}
+    className={cn(
+      "border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted",
+      className
+    )}
+    {...props}
+  />
+));
+TableRow.displayName = "TableRow";
+
+const TableHead = React.forwardRef<
+  HTMLTableCellElement,
+  React.ThHTMLAttributes<HTMLTableCellElement>
+>(({ className, ...props }, ref) => (
+  <th
+    ref={ref}
+    className={cn(
+      "h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0",
+      className
+    )}
+    {...props}
+  />
+));
+TableHead.displayName = "TableHead";
+
+const TableCell = React.forwardRef<
+  HTMLTableCellElement,
+  React.TdHTMLAttributes<HTMLTableCellElement>
+>(({ className, ...props }, ref) => (
+  <td
+    ref={ref}
+    className={cn(
+      "p-4 align-middle [&:has([role=checkbox])]:pr-0",
+      className
+    )}
+    {...props}
+  />
+));
+TableCell.displayName = "TableCell";
+
+const TableCaption = React.forwardRef<
+  HTMLTableCaptionElement,
+  React.HTMLAttributes<HTMLTableCaptionElement>
+>(({ className, ...props }, ref) => (
+  <caption
+    ref={ref}
+    className={cn("mt-4 text-sm text-muted-foreground", className)}
+    {...props}
+  />
+));
+TableCaption.displayName = "TableCaption";
+
+export {
+  Table,
+  TableHeader,
+  TableBody,
+  TableFooter,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableCaption,
+};
+</file>
+
+<file path="components/ui/textarea.tsx">
+import * as React from "react";
+import { cn } from "@/lib/utils";
+
+export interface TextareaProps
+  extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {}
+
+const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
+  ({ className, ...props }, ref) => {
+    return (
+      <textarea
+        className={cn(
+          "flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+          className
+        )}
+        ref={ref}
+        {...props}
+      />
+    );
+  }
+);
+Textarea.displayName = "Textarea";
+
+export { Textarea };
+</file>
+
+<file path="components/ui/toast.tsx">
+"use client";
+
+import * as React from "react";
+import * as ToastPrimitives from "@radix-ui/react-toast";
+import { cva, type VariantProps } from "class-variance-authority";
+import { X } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+const ToastProvider = ToastPrimitives.Provider;
+
+const ToastViewport = React.forwardRef<
+  React.ElementRef<typeof ToastPrimitives.Viewport>,
+  React.ComponentPropsWithoutRef<typeof ToastPrimitives.Viewport>
+>(({ className, ...props }, ref) => (
+  <ToastPrimitives.Viewport
+    ref={ref}
+    className={cn(
+      "fixed top-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]",
+      className
+    )}
+    {...props}
+  />
+));
+ToastViewport.displayName = ToastPrimitives.Viewport.displayName;
+
+const toastVariants = cva(
+  "group pointer-events-auto relative flex w-full items-center justify-between space-x-4 overflow-hidden rounded-md border p-6 pr-8 shadow-lg transition-all data-[swipe=cancel]:translate-x-0 data-[swipe=end]:translate-x-[var(--radix-toast-swipe-end-x)] data-[swipe=move]:translate-x-[var(--radix-toast-swipe-move-x)] data-[swipe=move]:transition-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[swipe=end]:animate-out data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full data-[state=open]:slide-in-from-top-full data-[state=open]:sm:slide-in-from-bottom-full",
+  {
+    variants: {
+      variant: {
+        default: "border bg-background text-foreground",
+        destructive:
+          "destructive group border-destructive bg-destructive text-destructive-foreground",
+        success: "border-green-500 bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-100",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+    },
+  }
+);
+
+const Toast = React.forwardRef<
+  React.ElementRef<typeof ToastPrimitives.Root>,
+  React.ComponentPropsWithoutRef<typeof ToastPrimitives.Root> &
+    VariantProps<typeof toastVariants>
+>(({ className, variant, ...props }, ref) => {
+  return (
+    <ToastPrimitives.Root
+      ref={ref}
+      className={cn(toastVariants({ variant }), className)}
+      {...props}
+    />
+  );
+});
+Toast.displayName = ToastPrimitives.Root.displayName;
+
+const ToastAction = React.forwardRef<
+  React.ElementRef<typeof ToastPrimitives.Action>,
+  React.ComponentPropsWithoutRef<typeof ToastPrimitives.Action>
+>(({ className, ...props }, ref) => (
+  <ToastPrimitives.Action
+    ref={ref}
+    className={cn(
+      "inline-flex h-8 shrink-0 items-center justify-center rounded-md border bg-transparent px-3 text-sm font-medium ring-offset-background transition-colors hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 group-[.destructive]:border-muted/40 group-[.destructive]:hover:border-destructive/30 group-[.destructive]:hover:bg-destructive group-[.destructive]:hover:text-destructive-foreground group-[.destructive]:focus:ring-destructive",
+      className
+    )}
+    {...props}
+  />
+));
+ToastAction.displayName = ToastPrimitives.Action.displayName;
+
+const ToastClose = React.forwardRef<
+  React.ElementRef<typeof ToastPrimitives.Close>,
+  React.ComponentPropsWithoutRef<typeof ToastPrimitives.Close>
+>(({ className, ...props }, ref) => (
+  <ToastPrimitives.Close
+    ref={ref}
+    className={cn(
+      "absolute right-2 top-2 rounded-md p-1 text-foreground/50 opacity-0 transition-opacity hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 group-hover:opacity-100 group-[.destructive]:text-red-300 group-[.destructive]:hover:text-red-50 group-[.destructive]:focus:ring-red-400 group-[.destructive]:focus:ring-offset-red-600",
+      className
+    )}
+    toast-close=""
+    {...props}
+  >
+    <X className="h-4 w-4" />
+  </ToastPrimitives.Close>
+));
+ToastClose.displayName = ToastPrimitives.Close.displayName;
+
+const ToastTitle = React.forwardRef<
+  React.ElementRef<typeof ToastPrimitives.Title>,
+  React.ComponentPropsWithoutRef<typeof ToastPrimitives.Title>
+>(({ className, ...props }, ref) => (
+  <ToastPrimitives.Title
+    ref={ref}
+    className={cn("text-sm font-semibold", className)}
+    {...props}
+  />
+));
+ToastTitle.displayName = ToastPrimitives.Title.displayName;
+
+const ToastDescription = React.forwardRef<
+  React.ElementRef<typeof ToastPrimitives.Description>,
+  React.ComponentPropsWithoutRef<typeof ToastPrimitives.Description>
+>(({ className, ...props }, ref) => (
+  <ToastPrimitives.Description
+    ref={ref}
+    className={cn("text-sm opacity-90", className)}
+    {...props}
+  />
+));
+ToastDescription.displayName = ToastPrimitives.Description.displayName;
+
+type ToastProps = React.ComponentPropsWithoutRef<typeof Toast>;
+type ToastActionElement = React.ReactElement<typeof ToastAction>;
+
+export {
+  type ToastProps,
+  type ToastActionElement,
+  ToastProvider,
+  ToastViewport,
+  Toast,
+  ToastTitle,
+  ToastDescription,
+  ToastClose,
+  ToastAction,
+};
+</file>
+
+<file path="components/ui/toaster.tsx">
+"use client";
+
+import {
+  Toast,
+  ToastClose,
+  ToastDescription,
+  ToastProvider,
+  ToastTitle,
+  ToastViewport,
+} from "@/components/ui/toast";
+import { useToast } from "@/components/ui/use-toast";
+
+export function Toaster() {
+  const { toasts } = useToast();
+
+  return (
+    <ToastProvider>
+      {toasts.map(function ({ id, title, description, action, ...props }) {
+        return (
+          <Toast key={id} {...props}>
+            <div className="grid gap-1">
+              {title && <ToastTitle>{title}</ToastTitle>}
+              {description && (
+                <ToastDescription>{description}</ToastDescription>
+              )}
+            </div>
+            {action}
+            <ToastClose />
+          </Toast>
+        );
+      })}
+      <ToastViewport />
+    </ToastProvider>
+  );
+}
+</file>
+
+<file path="components/ui/use-toast.ts">
+"use client";
+
+// Inspired by react-hot-toast library
+import * as React from "react";
+import type { ToastActionElement, ToastProps } from "@/components/ui/toast";
+
+const TOAST_LIMIT = 5;
+const TOAST_REMOVE_DELAY = 5000;
+
+type ToasterToast = ToastProps & {
+  id: string;
+  title?: React.ReactNode;
+  description?: React.ReactNode;
+  action?: ToastActionElement;
+};
+
+const actionTypes = {
+  ADD_TOAST: "ADD_TOAST",
+  UPDATE_TOAST: "UPDATE_TOAST",
+  DISMISS_TOAST: "DISMISS_TOAST",
+  REMOVE_TOAST: "REMOVE_TOAST",
+} as const;
+
+let count = 0;
+
+function genId() {
+  count = (count + 1) % Number.MAX_SAFE_INTEGER;
+  return count.toString();
+}
+
+type ActionType = typeof actionTypes;
+
+type Action =
+  | {
+      type: ActionType["ADD_TOAST"];
+      toast: ToasterToast;
+    }
+  | {
+      type: ActionType["UPDATE_TOAST"];
+      toast: Partial<ToasterToast>;
+    }
+  | {
+      type: ActionType["DISMISS_TOAST"];
+      toastId?: ToasterToast["id"];
+    }
+  | {
+      type: ActionType["REMOVE_TOAST"];
+      toastId?: ToasterToast["id"];
+    };
+
+interface State {
+  toasts: ToasterToast[];
+}
+
+const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+
+const addToRemoveQueue = (toastId: string) => {
+  if (toastTimeouts.has(toastId)) {
+    return;
+  }
+
+  const timeout = setTimeout(() => {
+    toastTimeouts.delete(toastId);
+    dispatch({
+      type: "REMOVE_TOAST",
+      toastId: toastId,
+    });
+  }, TOAST_REMOVE_DELAY);
+
+  toastTimeouts.set(toastId, timeout);
+};
+
+export const reducer = (state: State, action: Action): State => {
+  switch (action.type) {
+    case "ADD_TOAST":
+      return {
+        ...state,
+        toasts: [action.toast, ...state.toasts].slice(0, TOAST_LIMIT),
+      };
+
+    case "UPDATE_TOAST":
+      return {
+        ...state,
+        toasts: state.toasts.map((t) =>
+          t.id === action.toast.id ? { ...t, ...action.toast } : t
+        ),
+      };
+
+    case "DISMISS_TOAST": {
+      const { toastId } = action;
+
+      if (toastId) {
+        addToRemoveQueue(toastId);
+      } else {
+        state.toasts.forEach((toast) => {
+          addToRemoveQueue(toast.id);
+        });
+      }
+
+      return {
+        ...state,
+        toasts: state.toasts.map((t) =>
+          t.id === toastId || toastId === undefined
+            ? {
+                ...t,
+                open: false,
+              }
+            : t
+        ),
+      };
+    }
+    case "REMOVE_TOAST":
+      if (action.toastId === undefined) {
+        return {
+          ...state,
+          toasts: [],
+        };
+      }
+      return {
+        ...state,
+        toasts: state.toasts.filter((t) => t.id !== action.toastId),
+      };
+  }
+};
+
+const listeners: Array<(state: State) => void> = [];
+
+let memoryState: State = { toasts: [] };
+
+function dispatch(action: Action) {
+  memoryState = reducer(memoryState, action);
+  listeners.forEach((listener) => {
+    listener(memoryState);
+  });
+}
+
+type Toast = Omit<ToasterToast, "id">;
+
+function toast({ ...props }: Toast) {
+  const id = genId();
+
+  const update = (props: ToasterToast) =>
+    dispatch({
+      type: "UPDATE_TOAST",
+      toast: { ...props, id },
+    });
+  const dismiss = () => dispatch({ type: "DISMISS_TOAST", toastId: id });
+
+  dispatch({
+    type: "ADD_TOAST",
+    toast: {
+      ...props,
+      id,
+      open: true,
+      onOpenChange: (open) => {
+        if (!open) dismiss();
+      },
+    },
+  });
+
+  return {
+    id: id,
+    dismiss,
+    update,
+  };
+}
+
+function useToast() {
+  const [state, setState] = React.useState<State>(memoryState);
+
+  React.useEffect(() => {
+    listeners.push(setState);
+    return () => {
+      const index = listeners.indexOf(setState);
+      if (index > -1) {
+        listeners.splice(index, 1);
+      }
+    };
+  }, [state]);
+
+  return {
+    ...state,
+    toast,
+    dismiss: (toastId?: string) => dispatch({ type: "DISMISS_TOAST", toastId }),
+  };
+}
+
+export { useToast, toast };
+</file>
+
+<file path="drizzle.config.ts">
+import { config } from "dotenv";
+import { defineConfig } from "drizzle-kit";
+
+config({ path: ".env.local" });
+
+export default defineConfig({
+  schema: "./lib/schema.ts",
+  out: "./drizzle",
+  dialect: "sqlite",
+  driver: "turso",
+  dbCredentials: {
+    url: process.env.TURSO_DB_URL!,
+    authToken: process.env.TURSO_AUTH_TOKEN,
+  },
+});
+</file>
+
+<file path="lib/db.ts">
+import { drizzle } from "drizzle-orm/libsql";
+import { createClient } from "@libsql/client";
+import * as schema from "./schema";
+
+const client = createClient({
+  url: process.env.TURSO_DB_URL!,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
+
+export const db = drizzle(client, { schema });
+</file>
+
+<file path="lib/schema.ts">
+import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+
+// ── Clienti ──
+export const clients = sqliteTable("clients", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  email: text("email"),
+  phone: text("phone"),
+  company: text("company"),
+  status: text("status", {
+    enum: ["lead", "suspect", "won", "close"],
+  })
+    .notNull()
+    .default("lead"),
+  notes: text("notes"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
+// ── Note ──
+export const notes = sqliteTable("notes", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  clientId: text("client_id")
+    .notNull()
+    .references(() => clients.id, { onDelete: "cascade" }),
+  content: text("content").notNull(),
+  type: text("type", {
+    enum: ["conversazione", "promemoria", "decisione"],
+  })
+    .notNull()
+    .default("conversazione"),
+  author: text("author").notNull().default("Utente"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
+// ── Task ──
+export const tasks = sqliteTable("tasks", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  clientId: text("client_id")
+    .notNull()
+    .references(() => clients.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  dueDate: integer("due_date", { mode: "timestamp" }),
+  status: text("status", {
+    enum: ["todo", "in_progress", "completed", "cancelled"],
+  })
+    .notNull()
+    .default("todo"),
+  priority: text("priority", { enum: ["low", "medium", "high"] })
+    .notNull()
+    .default("medium"),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
+// ── Tipi ──
+export type Client = typeof clients.$inferSelect;
+export type NewClient = typeof clients.$inferInsert;
+export type Note = typeof notes.$inferSelect;
+export type NewNote = typeof notes.$inferInsert;
+export type Task = typeof tasks.$inferSelect;
+export type NewTask = typeof tasks.$inferInsert;
+</file>
+
+<file path="lib/utils.ts">
+import { type ClassValue, clsx } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+export function formatDate(date: Date | number | null | undefined): string {
+  if (!date) return "—";
+  const d = new Date(date);
+  return d.toLocaleDateString("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+export function formatDateTime(date: Date | number | null | undefined): string {
+  if (!date) return "—";
+  const d = new Date(date);
+  return d.toLocaleDateString("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export function isOverdue(date: Date | number | null | undefined): boolean {
+  if (!date) return false;
+  return new Date(date) < new Date();
+}
+
+export function daysUntil(date: Date | number | null | undefined): number {
+  if (!date) return Infinity;
+  const now = new Date();
+  const target = new Date(date);
+  const diff = target.getTime() - now.getTime();
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
+</file>
+
+<file path="next.config.js">
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    serverComponentsExternalPackages: ["@libsql/client"],
+  },
+};
+
+module.exports = nextConfig;
+</file>
+
+<file path="package.json">
+{
+  "name": "crm-findfit",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@hello-pangea/dnd": "^16.6.0",
+    "@libsql/client": "^0.14.0",
+    "@radix-ui/react-alert-dialog": "^1.1.1",
+    "@radix-ui/react-avatar": "^1.1.0",
+    "@radix-ui/react-dialog": "^1.1.1",
+    "@radix-ui/react-dropdown-menu": "^2.1.1",
+    "@radix-ui/react-label": "^2.1.0",
+    "@radix-ui/react-popover": "^1.1.1",
+    "@radix-ui/react-scroll-area": "^1.1.0",
+    "@radix-ui/react-select": "^2.1.1",
+    "@radix-ui/react-separator": "^1.1.0",
+    "@radix-ui/react-slot": "^1.1.0",
+    "@radix-ui/react-toast": "^1.2.1",
+    "@radix-ui/react-tooltip": "^1.1.2",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "drizzle-orm": "^0.31.0",
+    "lucide-react": "^0.379.0",
+    "next": "^14.2.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.3.0",
+    "tailwindcss-animate": "^1.0.7",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "@types/react": "^18.3.2",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.5.0",
+    "dotenv": "^17.4.2",
+    "drizzle-kit": "^0.22.0",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "typescript": "^5.4.5"
+  }
+}
+</file>
+
+<file path="postcss.config.js">
+module.exports = {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+};
+</file>
+
+<file path="README.md">
+# CRM FindFit
+
+Sistema CRM professionale built con Next.js 14+, Turso (SQLite) e Drizzle ORM.
+
+## Stack Tecnologico
+
+- **Frontend**: Next.js 14+ (App Router), TypeScript, Tailwind CSS, shadcn/ui
+- **Database**: Turso (SQLite edge database)
+- **ORM**: Drizzle ORM
+- **Validazione**: Zod
+- **Drag & Drop**: @hello-pangea/dnd
+- **Deploy**: Vercel
+
+## Funzionalità
+
+- **Dashboard**: Panoramica con conteggi per status, task scaduti, ultime note, trend clienti
+- **Lista Clienti**: Tabella con ricerca, filtri, ordinamento, paginazione e CRUD completo
+- **Dettaglio Cliente**: Tab con dettagli modificabili, note cronologiche e task
+- **Kanban**: 4 colonne (Lead/Suspect/Won/Close) con drag & drop
+- **Task Scaduti**: Task raggruppati per cliente con badge priorità
+- **Note Recenti**: Ricerca e filtro per tipo
+
+### Regole Business
+
+- **Transizioni status**: lead→suspect, lead→close (nota obbligatoria), suspect→won, suspect→close (nota obbligatoria), won→close
+- **Task automatici**: suspect crea "Chiamata qualificazione" (3gg), won crea "Invia contratto" (2gg) e "Onboarding" (7gg)
+- **Banner rosso** su dashboard se ci sono task scaduti
+
+## Setup Locale
+
+### Prerequisiti
+
+- Node.js 18+
+- Un account [Turso](https://turso.tech)
+
+### Installazione
+
+```bash
+# Clona il repository
+git clone <your-repo-url>
+cd crm-findfit
+
+# Installa le dipendenze
+npm install
+
+# Configura le variabili d'ambiente
+cp .env.local .env.local
+# Modifica .env.local con i tuoi dati Turso
+```
+
+### Configurazione Database Turso
+
+```bash
+# Installa Turso CLI
+npm install -g turso
+
+# Login
+turso auth login
+
+# Crea un database
+turso db create crm-findfit
+
+# Ottieni le credenziali
+turso db show crm-findfit --url
+turso db tokens create crm-findfit
+
+# Aggiorna .env.local
+# TURSO_DB_URL=<url-ottenuto>
+# TURSO_AUTH_TOKEN=<token-ottenuto>
+```
+
+### Esegui le migrazioni
+
+```bash
+# Genera le migrazioni
+npm run db:generate
+
+# Pusha lo schema sul database
+npm run db:push
+
+# Oppure esegui le migrazioni
+npm run db:migrate
+```
+
+### Avvia in sviluppo
+
+```bash
+npm run dev
+```
+
+L'applicazione sarà disponibile su [http://localhost:3000](http://localhost:3000).
+
+## Deploy su Vercel
+
+1. Crea un repository su GitHub e carica il codice
+2. Connetti il repository a [Vercel](https://vercel.com)
+3. Imposta le variabili d'ambiente in Vercel:
+   - `TURSO_DB_URL`
+   - `TURSO_AUTH_TOKEN`
+4. Deploy!
+
+## Variabili d'Ambiente
+
+```env
+TURSO_DB_URL=libsql://your-database.turso.io
+TURSO_AUTH_TOKEN=your-auth-token
+```
+
+## Struttura del Progetto
+
+```
+crm-findfit/
+├── app/
+│   ├── (dashboard)/          # Layout con sidebar e topbar
+│   │   ├── dashboard/        # Pagina dashboard
+│   │   ├── clienti/          # Lista e dettaglio clienti
+│   │   ├── kanban/           # Kanban board
+│   │   ├── task/             # Task scaduti
+│   │   ├── note/             # Note recenti
+│   │   └── impostazioni/     # Impostazioni
+│   ├── api/                  # API routes
+│   │   ├── clients/          # CRUD clienti
+│   │   ├── note/             # CRUD note
+│   │   ├── tasks/            # CRUD task
+│   │   └── dashboard/        # Dati dashboard
+│   └── layout.tsx
+├── components/
+│   ├── ui/                   # Componenti shadcn/ui
+│   ├── sidebar.tsx
+│   ├── topbar.tsx
+│   ├── status-badge.tsx
+│   └── priority-badge.tsx
+├── lib/
+│   ├── db.ts                 # Connessione database
+│   ├── schema.ts             # Schema Drizzle
+│   └── utils.ts              # Utility functions
+├── types/
+│   └── index.ts              # Tipi e validazione Zod
+└── drizzle.config.ts         # Configurazione Drizzle Kit
+```
+
+## Comandi Disponibili
+
+```bash
+npm run dev          # Avvia in sviluppo
+npm run build        # Build di produzione
+npm run start        # Avvia in produzione
+npm run lint         # Controllo lint
+npm run db:generate  # Genera migrazioni
+npm run db:push      # Pusha schema
+npm run db:migrate   # Esegui migrazioni
+npm run db:studio    # Apri Drizzle Studio
+```
+</file>
+
+<file path="tailwind.config.ts">
+import type { Config } from "tailwindcss";
+
+const config: Config = {
+  darkMode: ["class"],
+  content: [
+    "./pages/**/*.{ts,tsx}",
+    "./components/**/*.{ts,tsx}",
+    "./app/**/*.{ts,tsx}",
+  ],
+  prefix: "",
+  theme: {
+    container: {
+      center: true,
+      padding: "2rem",
+      screens: {
+        "2xl": "1400px",
+      },
+    },
+    extend: {
+      colors: {
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        primary: {
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
+        },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+        muted: {
+          DEFAULT: "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
+        },
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
+        },
+      },
+      borderRadius: {
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
+      },
+      keyframes: {
+        "accordion-down": {
+          from: { height: "0" },
+          to: { height: "var(--radix-accordion-content-height)" },
+        },
+        "accordion-up": {
+          from: { height: "var(--radix-accordion-content-height)" },
+          to: { height: "0" },
+        },
+      },
+      animation: {
+        "accordion-down": "accordion-down 0.2s ease-out",
+        "accordion-up": "accordion-up 0.2s ease-out",
+      },
+    },
+  },
+  plugins: [require("tailwindcss-animate")],
+};
+
+export default config;
+</file>
+
+<file path="tsconfig.json">
+{
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [{ "name": "next" }],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}
+</file>
+
+<file path="types/index.ts">
+import { z } from "zod";
+
+// ── Client ──
+export const clientStatuses = ["lead", "suspect", "won", "close"] as const;
+export type ClientStatus = (typeof clientStatuses)[number];
+
+export const clientSchema = z.object({
+  name: z.string().min(1, "Il nome è obbligatorio"),
+  email: z.string().email("Email non valida").optional().or(z.literal("")),
+  phone: z.string().optional().or(z.literal("")),
+  company: z.string().optional().or(z.literal("")),
+  status: z.enum(clientStatuses).default("lead"),
+  notes: z.string().optional().or(z.literal("")),
+});
+
+export type ClientFormData = z.infer<typeof clientSchema>;
+
+// ── Note ──
+export const noteTypes = ["conversazione", "promemoria", "decisione"] as const;
+export type NoteType = (typeof noteTypes)[number];
+
+export const noteSchema = z.object({
+  content: z.string().min(1, "Il contenuto è obbligatorio"),
+  type: z.enum(noteTypes).default("conversazione"),
+  author: z.string().min(1, "L'autore è obbligatorio").default("Utente"),
+});
+
+export type NoteFormData = z.infer<typeof noteSchema>;
+
+// ── Task ──
+export const taskStatuses = [
+  "todo",
+  "in_progress",
+  "completed",
+  "cancelled",
+] as const;
+export type TaskStatus = (typeof taskStatuses)[number];
+
+export const priorities = ["low", "medium", "high"] as const;
+export type Priority = (typeof priorities)[number];
+
+export const taskSchema = z.object({
+  title: z.string().min(1, "Il titolo è obbligatorio"),
+  description: z.string().optional().or(z.literal("")),
+  dueDate: z.string().optional().or(z.literal("")),
+  status: z.enum(taskStatuses).default("todo"),
+  priority: z.enum(priorities).default("medium"),
+});
+
+export type TaskFormData = z.infer<typeof taskSchema>;
+
+// ── Transizioni status ──
+export const allowedTransitions: Record<ClientStatus, ClientStatus[]> = {
+  lead: ["suspect", "close"],
+  suspect: ["won", "close"],
+  won: ["close"],
+  close: [],
+};
+
+export function requiresNoteForTransition(
+  from: ClientStatus,
+  to: ClientStatus
+): boolean {
+  return (from === "lead" || from === "suspect") && to === "close";
+}
+</file>
+
+</files>
