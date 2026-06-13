@@ -1,31 +1,53 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { StatusBadge } from "@/components/status-badge";
 import { useToast } from "@/components/ui/use-toast";
-import { clientStatuses, type ClientStatus } from "@/types";
+import { clientStatuses, allowedTransitions, requiresNoteForTransition, type ClientStatus } from "@/types";
 
 interface Client {
   id: string;
   name: string;
-  email: string | null;
+  phone: string | null;
   company: string | null;
   status: ClientStatus;
 }
 
-const columns: { id: ClientStatus; title: string }[] = [
-  { id: "lead", title: "Lead" },
-  { id: "suspect", title: "Suspect" },
-  { id: "won", title: "Won" },
-  { id: "close", title: "Close" },
+const columns: { id: ClientStatus; title: string; bgClass: string }[] = [
+  { id: "lead", title: "Lead", bgClass: "bg-blue-50" },
+  { id: "suspect", title: "Suspect", bgClass: "bg-yellow-50" },
+  { id: "won", title: "Won", bgClass: "bg-green-50" },
+  { id: "closed_lost", title: "Closed Lost", bgClass: "bg-gray-50" },
 ];
 
 export default function KanbanPage() {
+  const router = useRouter();
   const { toast } = useToast();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Close transition modal state
+  const [closeModal, setCloseModal] = useState<{
+    clientId: string;
+    currentStatus: ClientStatus;
+  } | null>(null);
+  const [closeNote, setCloseNote] = useState("");
 
   const fetchClients = useCallback(async () => {
     try {
@@ -47,13 +69,76 @@ export default function KanbanPage() {
     fetchClients();
   }, [fetchClients]);
 
+  const performCloseTransition = async () => {
+    if (!closeModal) return;
+    if (!closeNote.trim()) {
+      toast({
+        title: "Nota obbligatoria",
+        description: "Inserisci una nota di motivazione per la chiusura",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const { clientId, currentStatus } = closeModal;
+
+    // Optimistic update
+    setClients((prev) =>
+      prev.map((c) =>
+        c.id === clientId ? { ...c, status: "closed_lost" } : c
+      )
+    );
+    setCloseModal(null);
+    setCloseNote("");
+
+    try {
+      const res = await fetch(`/api/clients/${clientId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "closed_lost", noteContent: closeNote.trim() }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        toast({ title: "Errore", description: err.error, variant: "destructive" });
+        fetchClients();
+      }
+    } catch {
+      toast({
+        title: "Errore",
+        description: "Transizione fallita",
+        variant: "destructive",
+      });
+      fetchClients();
+    }
+  };
+
   const handleDragEnd = async (result: DropResult) => {
     if (!result.destination) return;
 
-    const { draggableId, destination } = result;
+    const { draggableId, source, destination } = result;
     const newStatus = destination.droppableId as ClientStatus;
+    const currentStatus = source.droppableId as ClientStatus;
 
-    // Optimistic update
+    // Check if transition is allowed
+    const allowed = allowedTransitions[currentStatus];
+    if (!allowed.includes(newStatus)) {
+      toast({
+        title: "Transizione non consentita",
+        description: `Da "${currentStatus}" a "${newStatus}" non è permessa`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Intercept close transitions that require a note
+    if (requiresNoteForTransition(currentStatus, newStatus)) {
+      setCloseModal({ clientId: draggableId, currentStatus });
+      setCloseNote("");
+      return;
+    }
+
+    // Optimistic update for normal transitions
     setClients((prev) =>
       prev.map((c) =>
         c.id === draggableId ? { ...c, status: newStatus } : c
@@ -70,7 +155,7 @@ export default function KanbanPage() {
       if (!res.ok) {
         const err = await res.json();
         toast({ title: "Errore", description: err.error, variant: "destructive" });
-        fetchClients(); // revert
+        fetchClients();
       }
     } catch {
       toast({
@@ -78,7 +163,7 @@ export default function KanbanPage() {
         description: "Transizione fallita",
         variant: "destructive",
       });
-      fetchClients(); // revert
+      fetchClients();
     }
   };
 
@@ -93,7 +178,7 @@ export default function KanbanPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">Kanban</h2>
+        <h2 className="text-2xl font-bold tracking-tight">Trattative</h2>
         <p className="text-muted-foreground">
           Trascina i clienti tra le colonne per aggiornare lo status
         </p>
@@ -120,9 +205,9 @@ export default function KanbanPage() {
                     <div
                       ref={provided.innerRef}
                       {...provided.droppableProps}
-                      className={`min-h-[200px] rounded-lg border-2 border-dashed p-3 space-y-3 transition-colors ${
+                      className={`min-h-[200px] rounded-lg border-2 border-dashed p-3 space-y-3 transition-colors ${column.bgClass} ${
                         snapshot.isDraggingOver
-                          ? "border-primary bg-primary/5"
+                          ? "border-primary bg-primary/10"
                           : "border-muted"
                       }`}
                     >
@@ -143,7 +228,8 @@ export default function KanbanPage() {
                               ref={provided.innerRef}
                               {...(provided.draggableProps as any)}
                               {...(provided.dragHandleProps as any)}
-                              className={`rounded-lg border bg-card text-card-foreground shadow-sm p-3 ${
+                              onClick={() => router.push(`/clienti/${client.id}`)}
+                              className={`rounded-lg border bg-card text-card-foreground shadow-sm p-3 cursor-pointer hover:bg-accent/50 ${
                                 snapshot.isDragging
                                   ? "shadow-lg ring-2 ring-primary"
                                   : ""
@@ -157,9 +243,9 @@ export default function KanbanPage() {
                                   {client.company}
                                 </p>
                               )}
-                              {client.email && (
+                              {client.phone && (
                                 <p className="text-xs text-muted-foreground truncate">
-                                  {client.email}
+                                  {client.phone}
                                 </p>
                               )}
                             </div>
@@ -175,6 +261,41 @@ export default function KanbanPage() {
           })}
         </div>
       </DragDropContext>
+
+      {/* Close transition note modal */}
+      <AlertDialog
+        open={closeModal !== null}
+        onOpenChange={(open) => {
+          if (!open) setCloseModal(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Nota obbligatoria</AlertDialogTitle>
+            <AlertDialogDescription>
+              Per chiudere questo cliente è necessario aggiungere una nota di motivazione.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="closeNote">Nota di chiusura</Label>
+            <Textarea
+              id="closeNote"
+              placeholder="Inserisci il motivo della chiusura..."
+              value={closeNote}
+              onChange={(e) => setCloseNote(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setCloseModal(null)}>
+              Annulla
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={performCloseTransition}>
+              Conferma chiusura
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

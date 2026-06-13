@@ -10,7 +10,7 @@ export const clients = sqliteTable("clients", {
   phone: text("phone"),
   company: text("company"),
   status: text("status", {
-    enum: ["lead", "suspect", "won", "close"],
+    enum: ["lead", "suspect", "won", "closed_lost"],
   })
     .notNull()
     .default("lead"),

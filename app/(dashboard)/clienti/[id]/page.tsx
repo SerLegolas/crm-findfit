@@ -479,7 +479,7 @@ export default function ClientDetailPage() {
                         size="sm"
                         onClick={() => handleStatusChange(status)}
                       >
-                        {status === "close"
+                        {status === "closed_lost"
                           ? "Chiudi cliente"
                           : `Sposta a ${status}`}
                       </Button>
@@ -488,7 +488,7 @@ export default function ClientDetailPage() {
                 </div>
               )}
 
-              {client.status === "close" && (
+              {client.status === "closed_lost" && (
                 <p className="text-sm text-muted-foreground">
                   Questo cliente è chiuso. Non sono possibili ulteriori transizioni.
                 </p>

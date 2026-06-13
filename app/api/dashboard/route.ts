@@ -9,8 +9,22 @@ const priorityOrder = sql`CASE ${tasks.priority}
   WHEN 'low' THEN 3
 END`;
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
+  console.log("[Dashboard API] Chiamata ricevuta");
+  console.log("[Dashboard API] TURSO_DB_URL presente:", !!process.env.TURSO_DB_URL);
+  console.log("[Dashboard API] TURSO_AUTH_TOKEN presente:", !!process.env.TURSO_AUTH_TOKEN);
+
   try {
+    if (!process.env.TURSO_DB_URL) {
+      console.error("[Dashboard API] TURSO_DB_URL mancante");
+      return NextResponse.json(
+        { error: "Database Turso non configurato. Imposta TURSO_DB_URL e TURSO_AUTH_TOKEN in .env.local" },
+        { status: 500 }
+      );
+    }
+
     const now = new Date();
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
@@ -30,7 +44,7 @@ export async function GET() {
       lead: 0,
       suspect: 0,
       won: 0,
-      close: 0,
+      closed_lost: 0,
     };
     statusCounts.forEach((s) => {
       statusMap[s.status] = Number(s.count);

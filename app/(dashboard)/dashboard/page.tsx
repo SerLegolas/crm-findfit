@@ -31,12 +31,29 @@ export default function DashboardPage() {
   const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    console.log("[Dashboard] Fetch avviato");
     fetch("/api/dashboard")
-      .then((r) => r.json())
-      .then(setData)
-      .finally(() => setLoading(false));
+      .then((r) => {
+        console.log("[Dashboard] Response status:", r.status);
+        if (!r.ok) throw new Error(`Errore HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((json) => {
+        console.log("[Dashboard] JSON ricevuto:", json);
+        if (json.error) throw new Error(json.error);
+        setData(json);
+      })
+      .catch((err) => {
+        console.error("[Dashboard] Errore fetch:", err.message);
+        setError(err.message);
+      })
+      .finally(() => {
+        console.log("[Dashboard] Fetch completato");
+        setLoading(false);
+      });
   }, []);
 
   if (loading) {
@@ -47,21 +64,38 @@ export default function DashboardPage() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center space-y-2">
+          <p className="text-destructive font-medium">Errore di caricamento</p>
+          <p className="text-sm text-muted-foreground">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="text-sm text-primary hover:underline"
+          >
+            Riprova
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!data) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-destructive">Errore nel caricamento dei dati</p>
+        <p className="text-destructive">Nessun dato disponibile</p>
       </div>
     );
   }
 
   const maxTrend = Math.max(...data.trendData.map((d) => d.count), 1);
 
-  const statusCards: { key: ClientStatus; label: string; variant: "info" | "warning" | "success" | "muted" }[] = [
-    { key: "lead", label: "Lead", variant: "info" },
-    { key: "suspect", label: "Suspect", variant: "warning" },
-    { key: "won", label: "Won", variant: "success" },
-    { key: "close", label: "Close", variant: "muted" },
+  const statusCards: { key: ClientStatus; label: string; variant: "info" | "warning" | "success" | "muted"; bgClass: string }[] = [
+    { key: "lead", label: "Lead", variant: "info", bgClass: "bg-blue-50" },
+    { key: "suspect", label: "Suspect", variant: "warning", bgClass: "bg-yellow-50" },
+    { key: "won", label: "Won", variant: "success", bgClass: "bg-green-50" },
+    { key: "closed_lost", label: "Closed Lost", variant: "muted", bgClass: "bg-gray-50" },
   ];
 
   return (
@@ -85,8 +119,8 @@ export default function DashboardPage() {
 
       {/* Status cards: solo 4 */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        {statusCards.map(({ key, label, variant }) => (
-          <Card key={key}>
+        {statusCards.map(({ key, label, variant, bgClass }) => (
+          <Card key={key} className={bgClass}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">{label}</CardTitle>
               <Badge variant={variant}>{label}</Badge>
@@ -97,39 +131,6 @@ export default function DashboardPage() {
           </Card>
         ))}
       </div>
-
-      {/* Trend chart */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <TrendingUp className="h-4 w-4" />
-            Trend Clienti (7 giorni)
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-end gap-2 h-32">
-            {data.trendData.map((item) => (
-              <div
-                key={item.date}
-                className="flex flex-1 flex-col items-center gap-1"
-              >
-                <div
-                  className="w-full rounded-md bg-primary/20 transition-all hover:bg-primary/30"
-                  style={{
-                    height: `${Math.max((item.count / maxTrend) * 100, 4)}%`,
-                  }}
-                />
-                <span className="text-xs text-muted-foreground">
-                  {item.count}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {item.date}
-                </span>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Task lists */}
       <div className="grid gap-4 md:grid-cols-2">
@@ -213,6 +214,39 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Trend chart */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <TrendingUp className="h-4 w-4" />
+            Trend Clienti (7 giorni)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-end gap-2 h-32">
+            {data.trendData.map((item) => (
+              <div
+                key={item.date}
+                className="flex flex-1 flex-col items-center gap-1"
+              >
+                <div
+                  className="w-full rounded-md bg-primary/20 transition-all hover:bg-primary/30"
+                  style={{
+                    height: `${Math.max((item.count / maxTrend) * 100, 4)}%`,
+                  }}
+                />
+                <span className="text-xs text-muted-foreground">
+                  {item.count}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {item.date}
+                </span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

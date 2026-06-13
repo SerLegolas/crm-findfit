@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // ── Client ──
-export const clientStatuses = ["lead", "suspect", "won", "close"] as const;
+export const clientStatuses = ["lead", "suspect", "won", "closed_lost"] as const;
 export type ClientStatus = (typeof clientStatuses)[number];
 
 export const clientSchema = z.object({
@@ -51,15 +51,15 @@ export type TaskFormData = z.infer<typeof taskSchema>;
 
 // ── Transizioni status ──
 export const allowedTransitions: Record<ClientStatus, ClientStatus[]> = {
-  lead: ["suspect", "close"],
-  suspect: ["won", "close"],
-  won: ["close"],
-  close: [],
+  lead: ["suspect", "won", "closed_lost"],
+  suspect: ["lead", "won", "closed_lost"],
+  won: [],
+  closed_lost: ["lead", "suspect", "won"],
 };
 
 export function requiresNoteForTransition(
   from: ClientStatus,
   to: ClientStatus
 ): boolean {
-  return (from === "lead" || from === "suspect") && to === "close";
+  return (from === "lead" || from === "suspect") && to === "closed_lost";
 }

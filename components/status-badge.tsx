@@ -8,7 +8,7 @@ const statusConfig: Record<
   lead: { label: "Lead", variant: "info" },
   suspect: { label: "Suspect", variant: "warning" },
   won: { label: "Won", variant: "success" },
-  close: { label: "Close", variant: "muted" },
+  closed_lost: { label: "Closed Lost", variant: "muted" },
 };
 
 export function StatusBadge({ status }: { status: ClientStatus }) {

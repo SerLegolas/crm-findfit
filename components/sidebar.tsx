@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   LayoutDashboard,
   Users,
@@ -23,7 +22,7 @@ interface SidebarProps {
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/clienti", label: "Lista Clienti", icon: Users },
-  { href: "/kanban", label: "Kanban", icon: Kanban },
+  { href: "/kanban", label: "Trattative", icon: Kanban },
   { href: "/task", label: "Task Scaduti", icon: CalendarCheck },
   { href: "/note", label: "Note Recenti", icon: FileText },
   { href: "/impostazioni", label: "Impostazioni", icon: Settings },
@@ -56,7 +55,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           </Button>
         </div>
 
-        <ScrollArea className="flex-1 px-3 py-4">
+        <div className="flex-1 overflow-y-auto px-3 py-4">
           <nav className="flex flex-col gap-1">
             {navItems.map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
@@ -79,7 +78,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               );
             })}
           </nav>
-        </ScrollArea>
+        </div>
 
         <div className="border-t p-4">
           <p className="text-xs text-muted-foreground">CRM FindFit v1.0</p>
