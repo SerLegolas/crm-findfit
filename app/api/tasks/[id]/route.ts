@@ -6,9 +6,10 @@ import { eq } from "drizzle-orm";
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json();
     const parsed = taskSchema.partial().parse(body);
 
@@ -16,7 +17,7 @@ export async function PATCH(
     const existing = await db
       .select()
       .from(tasks)
-      .where(eq(tasks.id, params.id))
+      .where(eq(tasks.id, id))
       .limit(1);
 
     if (!existing.length) {
@@ -45,7 +46,7 @@ export async function PATCH(
     const [updated] = await db
       .update(tasks)
       .set(updateData)
-      .where(eq(tasks.id, params.id))
+      .where(eq(tasks.id, id))
       .returning();
 
     return NextResponse.json(updated);
@@ -66,10 +67,11 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await db.delete(tasks).where(eq(tasks.id, params.id));
+    const { id } = await params;
+    await db.delete(tasks).where(eq(tasks.id, id));
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error deleting task:", error);

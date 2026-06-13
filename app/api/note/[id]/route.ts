@@ -6,16 +6,17 @@ import { eq } from "drizzle-orm";
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json();
     const parsed = noteSchema.partial().parse(body);
 
     const [updated] = await db
       .update(notes)
       .set({ ...parsed, updatedAt: new Date() })
-      .where(eq(notes.id, params.id))
+      .where(eq(notes.id, id))
       .returning();
 
     if (!updated) {
@@ -43,10 +44,11 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await db.delete(notes).where(eq(notes.id, params.id));
+    const { id } = await params;
+    await db.delete(notes).where(eq(notes.id, id));
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error deleting note:", error);
