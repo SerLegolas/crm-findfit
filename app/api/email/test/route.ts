@@ -5,6 +5,7 @@ import { getImapConfig } from "@/lib/imap-config";
 import { parseContactRequest, processContactRequest } from "@/lib/email-parser";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET(_request: NextRequest) {
   try {

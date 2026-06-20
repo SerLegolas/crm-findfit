@@ -5,6 +5,7 @@ import { encrypt, decrypt } from "@/lib/crypto";
 import { eq } from "drizzle-orm";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 /** GET: recupera le impostazioni IMAP (decriptate) */
 export async function GET() {
