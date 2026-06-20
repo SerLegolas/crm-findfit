@@ -8,14 +8,27 @@ export const runtime = "nodejs";
 
 export async function GET(_request: NextRequest) {
   try {
-    const config = await getImapConfig();
-
-    if (!config) {
+    console.log("[TEST-EMAIL] Lettura configurazione IMAP dal DB...");
+    let config;
+    try {
+      config = await getImapConfig();
+    } catch (decryptErr: any) {
+      console.error("[TEST-EMAIL] Errore decriptazione impostazioni:", decryptErr.message);
       return NextResponse.json(
-        { error: "Credenziali IMAP mancanti. Configura le impostazioni IMAP nella pagina Impostazioni." },
-        { status: 500 }
+        { error: "Configura prima le impostazioni email in /impostazioni — dati criptati non validi." },
+        { status: 400 }
       );
     }
+
+    if (!config) {
+      console.warn("[TEST-EMAIL] Nessuna configurazione IMAP trovata (DB vuoto e nessun fallback env).");
+      return NextResponse.json(
+        { error: "Configura prima le impostazioni email in /impostazioni." },
+        { status: 400 }
+      );
+    }
+
+    console.log("[TEST-EMAIL] Config OK →", { host: config.host, user: config.user, filterFrom: config.filterFrom });
 
     const { host, port, user, password, filterFrom, filterSubject } = config;
     const filterFromLower = filterFrom.toLowerCase();
