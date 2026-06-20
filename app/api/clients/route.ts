@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
         )
       );
     }
-    if (status) {
+    if (status && status !== "all") {
       conditions.push(eq(clients.status, status as any));
     }
 

@@ -215,35 +215,39 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Trend chart */}
+      {/* Trend chart — barre verticali */}
       <Card>
         <CardHeader>
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <TrendingUp className="h-4 w-4" />
-            Trend Clienti (7 giorni)
+            Nuovi Clienti (7 giorni)
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-end gap-2 h-32">
-            {data.trendData.map((item) => (
-              <div
-                key={item.date}
-                className="flex flex-1 flex-col items-center gap-1"
-              >
+          <div className="flex items-end gap-3 h-[200px]">
+            {data.trendData.map((item) => {
+              const pct = maxTrend > 0 ? (item.count / maxTrend) * 100 : 0;
+              return (
                 <div
-                  className="w-full rounded-md bg-primary/20 transition-all hover:bg-primary/30"
-                  style={{
-                    height: `${Math.max((item.count / maxTrend) * 100, 4)}%`,
-                  }}
-                />
-                <span className="text-xs text-muted-foreground">
-                  {item.count}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {item.date}
-                </span>
-              </div>
-            ))}
+                  key={item.date}
+                  className="flex flex-1 flex-col items-center justify-end h-full"
+                >
+                  {/* Etichetta conteggio sopra la barra */}
+                  <span className="mb-1 text-xs font-semibold text-foreground">
+                    {item.count}
+                  </span>
+                  {/* Barra */}
+                  <div
+                    className="w-full max-w-[48px] rounded-t-md bg-primary transition-all duration-300 hover:opacity-80"
+                    style={{ height: `${Math.max(pct, 2)}%` }}
+                  />
+                  {/* Etichetta giorno sotto */}
+                  <span className="mt-2 text-[11px] text-muted-foreground text-center leading-tight">
+                    {item.date}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </CardContent>
       </Card>

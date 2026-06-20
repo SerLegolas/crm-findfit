@@ -77,6 +77,26 @@ export const tasks = sqliteTable("tasks", {
     .$onUpdateFn(() => new Date()),
 });
 
+// ── Impostazioni IMAP ──
+export const imapSettings = sqliteTable("imap_settings", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => "default"),
+  host: text("host").notNull(),
+  port: text("port").notNull(),
+  user: text("user").notNull(),
+  password: text("password").notNull(),
+  filterFrom: text("filter_from").notNull(),
+  filterSubject: text("filter_subject").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
 // ── Tipi ──
 export type Client = typeof clients.$inferSelect;
 export type NewClient = typeof clients.$inferInsert;
@@ -84,3 +104,5 @@ export type Note = typeof notes.$inferSelect;
 export type NewNote = typeof notes.$inferInsert;
 export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
+export type ImapSetting = typeof imapSettings.$inferSelect;
+export type NewImapSetting = typeof imapSettings.$inferInsert;

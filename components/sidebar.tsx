@@ -11,6 +11,7 @@ import {
   CalendarCheck,
   FileText,
   Settings,
+  Mail,
   X,
 } from "lucide-react";
 
@@ -25,6 +26,7 @@ const navItems = [
   { href: "/kanban", label: "Trattative", icon: Kanban },
   { href: "/task", label: "Task Scaduti", icon: CalendarCheck },
   { href: "/note", label: "Note Recenti", icon: FileText },
+  { href: "/test-email", label: "Test Email", icon: Mail },
   { href: "/impostazioni", label: "Impostazioni", icon: Settings },
 ];
 

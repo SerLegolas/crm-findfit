@@ -50,9 +50,12 @@ app/(dashboard)/layout.tsx
 app/(dashboard)/note/page.tsx
 app/(dashboard)/page.tsx
 app/(dashboard)/task/page.tsx
+app/(dashboard)/test-email/page.tsx
 app/api/clients/[id]/route.ts
 app/api/clients/route.ts
 app/api/dashboard/route.ts
+app/api/email/sync/route.ts
+app/api/email/test/route.ts
 app/api/note/[id]/route.ts
 app/api/note/route.ts
 app/api/tasks/[id]/route.ts
@@ -97,6 +100,413 @@ types/index.ts
 <files>
 This section contains the contents of the repository's files.
 
+<file path="app/(dashboard)/test-email/page.tsx">
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Mail, Loader2, AlertCircle } from "lucide-react";
+
+interface Email {
+  mittente: string;
+  oggetto: string;
+  bodyText: string;
+  data: string;
+}
+
+export default function TestEmailPage() {
+  const [emails, setEmails] = useState<Email[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [totali, setTotali] = useState<number>(0);
+  const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const fetchEmails = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/email/test");
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Errore sconosciuto");
+        setEmails([]);
+      } else {
+        setEmails(data.emails || []);
+        setTotali(data.totali || 0);
+      }
+    } catch (err: any) {
+      setError(err.message || "Errore di connessione");
+      setEmails([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6 p-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Test Email</h1>
+          <p className="text-muted-foreground">
+            Leggi le ultime email non lette dalla casella IMAP Aruba
+          </p>
+        </div>
+        <Button onClick={fetchEmails} disabled={loading}>
+          {loading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Lettura in corso...
+            </>
+          ) : (
+            <>
+              <Mail className="mr-2 h-4 w-4" />
+              Leggi Email
+            </>
+          )}
+        </Button>
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-400">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {!loading && emails.length > 0 && (
+        <p className="text-sm text-muted-foreground">
+          Mostrate {emails.length} email su {totali} non lette totali.
+        </p>
+      )}
+
+      {!loading && emails.length === 0 && !error && (
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
+          <Mail className="mb-2 h-8 w-8 text-muted-foreground/50" />
+          <p className="text-sm text-muted-foreground">
+            Premi "Leggi Email" per recuperare le ultime email non lette.
+          </p>
+        </div>
+      )}
+
+      {emails.length > 0 && (
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Mittente</TableHead>
+                <TableHead>Oggetto</TableHead>
+                <TableHead>Corpo</TableHead>
+                <TableHead>Data</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {emails.map((email, index) => (
+                <TableRow
+                  key={index}
+                  className="cursor-pointer hover:bg-accent/50"
+                  onClick={() => {
+                    setSelectedEmail(email);
+                    setModalOpen(true);
+                  }}
+                >
+                  <TableCell className="max-w-[200px] truncate font-medium">
+                    {email.mittente}
+                  </TableCell>
+                  <TableCell className="max-w-[200px] truncate">
+                    {email.oggetto}
+                  </TableCell>
+                  <TableCell className="max-w-[300px] truncate text-muted-foreground">
+                    {email.bodyText
+                      ? email.bodyText.length > 200
+                        ? email.bodyText.substring(0, 200) + "..."
+                        : email.bodyText
+                      : "(corpo non disponibile)"}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                    {email.data}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      {/* Dialog dettaglio email */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg">Dettaglio Email</DialogTitle>
+          </DialogHeader>
+          {selectedEmail && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+                <span className="font-medium text-muted-foreground">Mittente</span>
+                <span>{selectedEmail.mittente}</span>
+                <span className="font-medium text-muted-foreground">Oggetto</span>
+                <span>{selectedEmail.oggetto}</span>
+                <span className="font-medium text-muted-foreground">Data</span>
+                <span>{selectedEmail.data}</span>
+              </div>
+              <hr />
+              <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                {selectedEmail.bodyText || "(corpo non disponibile)"}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+</file>
+
+<file path="app/api/email/sync/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { ImapFlow } from "imapflow";
+import { simpleParser } from "mailparser";
+
+export const runtime = "nodejs";
+
+export async function GET(_request: NextRequest) {
+  try {
+    const host = process.env.IMAP_HOST;
+    const port = parseInt(process.env.IMAP_PORT || "993");
+    const user = process.env.IMAP_USER;
+    const password = process.env.IMAP_PASSWORD;
+
+    if (!host || !user || !password) {
+      return NextResponse.json(
+        { error: "Credenziali IMAP mancanti. Configura IMAP_HOST, IMAP_USER, IMAP_PASSWORD nelle variabili d'ambiente." },
+        { status: 500 }
+      );
+    }
+
+    const filterFrom = (process.env.ARUBA_FILTER_FROM || "").toLowerCase();
+
+    const client = new ImapFlow({
+      host,
+      port,
+      secure: port === 993,
+      auth: { user, pass: password },
+      logger: false,
+    });
+
+    await client.connect();
+
+    const lock = await client.getMailboxLock("INBOX");
+    try {
+      const searchResult = await client.search({ unseen: true });
+
+      const uidList = searchResult.length > 0 ? searchResult : [];
+
+      const emails: {
+        mittente: string;
+        oggetto: string;
+        bodyText: string;
+        data: string;
+      }[] = [];
+      let filtrate = 0;
+
+      for (const uid of uidList) {
+        // Recupera source grezzo
+        const message = await client.fetchOne(uid, { source: true });
+
+        // Parsing completo con mailparser
+        let parsed;
+        try {
+          parsed = await simpleParser(message.source as Buffer);
+        } catch {
+          continue;
+        }
+
+        // Filtra per mittente
+        const fromAddress =
+          parsed.from && parsed.from.value && parsed.from.value.length > 0
+            ? parsed.from.value[0].address?.toLowerCase() || ""
+            : "";
+
+        if (filterFrom && fromAddress !== filterFrom) {
+          filtrate++;
+          continue;
+        }
+
+        // Mittente formattato
+        const mittente =
+          parsed.from && parsed.from.value && parsed.from.value.length > 0
+            ? `${parsed.from.value[0].name || ""} <${parsed.from.value[0].address}>`.trim()
+            : "Sconosciuto";
+
+        // Oggetto
+        const oggetto = parsed.subject || "(nessun oggetto)";
+
+        // Data
+        const data = parsed.date
+          ? new Date(parsed.date).toLocaleString("it-IT")
+          : "";
+
+        // Corpo
+        const bodyText = (parsed.text || parsed.html || "(corpo non disponibile)").trim();
+
+        emails.push({ mittente, oggetto, bodyText, data });
+
+        // Segna l'email come letta su Aruba
+        await client.messageFlagsAdd(uid, ["\\Seen"]);
+      }
+
+      return NextResponse.json({
+        emails,
+        totali: searchResult.length,
+        filtrate,
+        sincronizzate: emails.length,
+      });
+    } finally {
+      lock.release();
+      await client.logout();
+    }
+  } catch (error: any) {
+    console.error("Errore IMAP sync:", error);
+    return NextResponse.json(
+      {
+        error: `Errore durante la sincronizzazione IMAP: ${error.message || "Errore sconosciuto"}`,
+      },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/email/test/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { ImapFlow } from "imapflow";
+import { simpleParser } from "mailparser";
+
+export const runtime = "nodejs";
+
+export async function GET(_request: NextRequest) {
+  try {
+    const host = process.env.IMAP_HOST;
+    const port = parseInt(process.env.IMAP_PORT || "993");
+    const user = process.env.IMAP_USER;
+    const password = process.env.IMAP_PASSWORD;
+
+    if (!host || !user || !password) {
+      return NextResponse.json(
+        { error: "Credenziali IMAP mancanti. Configura IMAP_HOST, IMAP_USER, IMAP_PASSWORD nelle variabili d'ambiente." },
+        { status: 500 }
+      );
+    }
+
+    const filterFrom = (process.env.ARUBA_FILTER_FROM || "").toLowerCase();
+
+    const client = new ImapFlow({
+      host,
+      port,
+      secure: port === 993,
+      auth: { user, pass: password },
+      logger: false,
+    });
+
+    await client.connect();
+
+    const lock = await client.getMailboxLock("INBOX");
+    try {
+      const searchResult = await client.search({ unseen: true });
+
+      const uidList = searchResult.length > 0 ? searchResult : [];
+
+      const emails: {
+        mittente: string;
+        oggetto: string;
+        bodyText: string;
+        data: string;
+      }[] = [];
+      let filtrate = 0;
+
+      for (const uid of uidList) {
+        // Recupera source grezzo
+        const message = await client.fetchOne(uid, { source: true });
+
+        // Parsing completo con mailparser
+        let parsed;
+        try {
+          parsed = await simpleParser(message.source as Buffer);
+        } catch {
+          continue;
+        }
+
+        // Filtra per mittente
+        const fromAddress =
+          parsed.from && parsed.from.value && parsed.from.value.length > 0
+            ? parsed.from.value[0].address?.toLowerCase() || ""
+            : "";
+
+        if (filterFrom && fromAddress !== filterFrom) {
+          filtrate++;
+          continue;
+        }
+
+        // Mittente formattato
+        const mittente =
+          parsed.from && parsed.from.value && parsed.from.value.length > 0
+            ? `${parsed.from.value[0].name || ""} <${parsed.from.value[0].address}>`.trim()
+            : "Sconosciuto";
+
+        // Oggetto
+        const oggetto = parsed.subject || "(nessun oggetto)";
+
+        // Data
+        const data = parsed.date
+          ? new Date(parsed.date).toLocaleString("it-IT")
+          : "";
+
+        // Corpo
+        const bodyText = (parsed.text || parsed.html || "(corpo non disponibile)").trim();
+
+        emails.push({ mittente, oggetto, bodyText, data });
+
+        // Segna l'email come letta su Aruba
+        await client.messageFlagsAdd(uid, ["\\Seen"]);
+      }
+
+      return NextResponse.json({
+        emails,
+        totali: searchResult.length,
+        filtrate,
+        letti: emails.length,
+      });
+    } finally {
+      lock.release();
+      await client.logout();
+    }
+  } catch (error: any) {
+    console.error("Errore IMAP:", error);
+    return NextResponse.json(
+      {
+        error: `Errore durante la connessione IMAP: ${error.message || "Errore sconosciuto"}`,
+      },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
 <file path=".gitignore">
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
@@ -136,948 +546,6 @@ next-env.d.ts
 
 # drizzle
 drizzle/
-</file>
-
-<file path="app/(dashboard)/clienti/[id]/page.tsx">
-"use client";
-
-import { useEffect, useState, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { StatusBadge } from "@/components/status-badge";
-import { PriorityBadge } from "@/components/priority-badge";
-import { useToast } from "@/components/ui/use-toast";
-import {
-  clientSchema,
-  clientStatuses,
-  noteSchema,
-  taskSchema,
-  allowedTransitions,
-  requiresNoteForTransition,
-  type ClientStatus,
-  type NoteType,
-  type Priority,
-} from "@/types";
-import { formatDate, formatDateTime, isOverdue } from "@/lib/utils";
-import {
-  ArrowLeft,
-  Plus,
-  Pencil,
-  Trash2,
-  CheckCircle2,
-  Circle,
-} from "lucide-react";
-
-type Tab = "dettagli" | "note" | "task";
-
-interface Client {
-  id: string;
-  name: string;
-  email: string | null;
-  phone: string | null;
-  company: string | null;
-  status: ClientStatus;
-  notes: string | null;
-  createdAt: number;
-  updatedAt: number;
-}
-
-interface Note {
-  id: string;
-  content: string;
-  type: NoteType;
-  author: string;
-  clientId: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-interface Task {
-  id: string;
-  title: string;
-  description: string | null;
-  dueDate: number | null;
-  status: "todo" | "in_progress" | "completed" | "cancelled";
-  priority: Priority;
-  completedAt: number | null;
-  clientId: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export default function ClientDetailPage() {
-  const params = useParams();
-  const router = useRouter();
-  const { toast } = useToast();
-  const [client, setClient] = useState<Client | null>(null);
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<Tab>("dettagli");
-  const [noteModalOpen, setNoteModalOpen] = useState(false);
-  const [taskModalOpen, setTaskModalOpen] = useState(false);
-  const [editNote, setEditNote] = useState<Note | null>(null);
-  const [editTask, setEditTask] = useState<Task | null>(null);
-  const [transitionNote, setTransitionNote] = useState("");
-  const [showTransitionDialog, setShowTransitionDialog] = useState(false);
-  const [pendingTransition, setPendingTransition] = useState<ClientStatus | null>(null);
-
-  // Form state for edit
-  const [editForm, setEditForm] = useState({ name: "", email: "", phone: "", company: "", notes: "" });
-
-  // Note form
-  const [noteForm, setNoteForm] = useState({ content: "", type: "conversazione" as NoteType, author: "Utente" });
-  const [noteErrors, setNoteErrors] = useState<Record<string, string>>({});
-
-  // Task form
-  const [taskForm, setTaskForm] = useState({
-    title: "",
-    description: "",
-    dueDate: "",
-    priority: "medium" as Priority,
-  });
-  const [taskErrors, setTaskErrors] = useState<Record<string, string>>({});
-
-  const fetchClient = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/clients/${params.id}`);
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      setClient(data);
-      setEditForm({
-        name: data.name,
-        email: data.email || "",
-        phone: data.phone || "",
-        company: data.company || "",
-        notes: data.notes || "",
-      });
-    } catch {
-      toast({ title: "Errore", description: "Cliente non trovato", variant: "destructive" });
-      router.push("/clienti");
-    }
-  }, [params.id, toast, router]);
-
-  const fetchNotes = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/note?clientId=${params.id}&days=365`);
-      const data = await res.json();
-      setNotes(data);
-    } catch {}
-  }, [params.id]);
-
-  const fetchTasks = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/tasks?clientId=${params.id}`);
-      const data = await res.json();
-      setTasks(data);
-    } catch {}
-  }, [params.id]);
-
-  useEffect(() => {
-    Promise.all([fetchClient(), fetchNotes(), fetchTasks()]).finally(() =>
-      setLoading(false)
-    );
-  }, [fetchClient, fetchNotes, fetchTasks]);
-
-  // ── Status transition ──
-  const handleStatusChange = async (newStatus: ClientStatus) => {
-    if (!client) return;
-
-    if (requiresNoteForTransition(client.status, newStatus)) {
-      setPendingTransition(newStatus);
-      setTransitionNote("");
-      setShowTransitionDialog(true);
-      return;
-    }
-
-    await performTransition(newStatus);
-  };
-
-  const performTransition = async (newStatus: ClientStatus, noteContent?: string) => {
-    if (!client) return;
-
-    try {
-      const res = await fetch(`/api/clients/${client.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status: newStatus,
-          noteContent,
-        }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        toast({ title: "Errore", description: err.error, variant: "destructive" });
-        return;
-      }
-
-      toast({ title: "Status aggiornato", variant: "success" as any });
-      setShowTransitionDialog(false);
-      setPendingTransition(null);
-      fetchClient();
-      fetchTasks();
-    } catch {
-      toast({ title: "Errore", description: "Transizione fallita", variant: "destructive" });
-    }
-  };
-
-  // ── Update client details ──
-  const handleUpdateClient = async () => {
-    if (!client) return;
-
-    try {
-      const res = await fetch(`/api/clients/${client.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editForm),
-      });
-
-      if (!res.ok) throw new Error();
-      toast({ title: "Cliente aggiornato", variant: "success" as any });
-      fetchClient();
-    } catch {
-      toast({ title: "Errore", description: "Aggiornamento fallito", variant: "destructive" });
-    }
-  };
-
-  // ── Note CRUD ──
-  const handleNoteSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setNoteErrors({});
-
-    const result = noteSchema.safeParse(noteForm);
-    if (!result.success) {
-      const errors: Record<string, string> = {};
-      result.error.issues.forEach((i) => {
-        if (i.path[0]) errors[String(i.path[0])] = i.message;
-      });
-      setNoteErrors(errors);
-      return;
-    }
-
-    try {
-      const url = editNote ? `/api/note/${editNote.id}` : "/api/note";
-      const method = editNote ? "PATCH" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...result.data, clientId: params.id }),
-      });
-
-      if (!res.ok) throw new Error();
-
-      toast({
-        title: editNote ? "Nota aggiornata" : "Nota creata",
-        variant: "success" as any,
-      });
-      setNoteModalOpen(false);
-      setEditNote(null);
-      setNoteForm({ content: "", type: "conversazione", author: "Utente" });
-      fetchNotes();
-    } catch {
-      toast({ title: "Errore", description: "Operazione fallita", variant: "destructive" });
-    }
-  };
-
-  const handleDeleteNote = async (id: string) => {
-    try {
-      await fetch(`/api/note/${id}`, { method: "DELETE" });
-      toast({ title: "Nota eliminata", variant: "success" as any });
-      fetchNotes();
-    } catch {
-      toast({ title: "Errore", description: "Eliminazione fallita", variant: "destructive" });
-    }
-  };
-
-  // ── Task CRUD ──
-  const handleTaskSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setTaskErrors({});
-
-    const result = taskSchema.safeParse(taskForm);
-    if (!result.success) {
-      const errors: Record<string, string> = {};
-      result.error.issues.forEach((i) => {
-        if (i.path[0]) errors[String(i.path[0])] = i.message;
-      });
-      setTaskErrors(errors);
-      return;
-    }
-
-    try {
-      const url = editTask ? `/api/tasks/${editTask.id}` : "/api/tasks";
-      const method = editTask ? "PATCH" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...result.data, clientId: params.id }),
-      });
-
-      if (!res.ok) throw new Error();
-
-      toast({
-        title: editTask ? "Task aggiornato" : "Task creato",
-        variant: "success" as any,
-      });
-      setTaskModalOpen(false);
-      setEditTask(null);
-      setTaskForm({ title: "", description: "", dueDate: "", priority: "medium" });
-      fetchTasks();
-    } catch {
-      toast({ title: "Errore", description: "Operazione fallita", variant: "destructive" });
-    }
-  };
-
-  const handleToggleTask = async (task: Task) => {
-    try {
-      const newStatus = task.status === "completed" ? "todo" : "completed";
-      await fetch(`/api/tasks/${task.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      fetchTasks();
-    } catch {
-      toast({ title: "Errore", description: "Aggiornamento task fallito", variant: "destructive" });
-    }
-  };
-
-  const handleDeleteTask = async (id: string) => {
-    try {
-      await fetch(`/api/tasks/${id}`, { method: "DELETE" });
-      toast({ title: "Task eliminato", variant: "success" as any });
-      fetchTasks();
-    } catch {
-      toast({ title: "Errore", description: "Eliminazione fallita", variant: "destructive" });
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">Caricamento...</p>
-      </div>
-    );
-  }
-
-  if (!client) return null;
-
-  const allowedNext = allowedTransitions[client.status];
-
-  // Group tasks
-  const todoTasks = tasks.filter((t) => t.status === "todo" || t.status === "in_progress");
-  const overdueTasksList = tasks.filter(
-    (t) => t.status !== "completed" && t.status !== "cancelled" && t.dueDate && isOverdue(t.dueDate)
-  );
-  const completedTasks = tasks.filter((t) => t.status === "completed");
-
-  const tabs: { key: Tab; label: string }[] = [
-    { key: "dettagli", label: "Dettagli" },
-    { key: "note", label: `Note (${notes.length})` },
-    { key: "task", label: `Task (${tasks.length})` },
-  ];
-
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => router.push("/clienti")}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <div className="flex-1">
-          <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-bold tracking-tight">{client.name}</h2>
-            <StatusBadge status={client.status} />
-          </div>
-          <p className="text-muted-foreground">
-            Creato il {formatDate(client.createdAt)}
-          </p>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-1 border-b">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-              activeTab === tab.key
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* ── TAB: Dettagli ── */}
-      {activeTab === "dettagli" && (
-        <div className="grid gap-6 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Informazioni</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Nome</Label>
-                <Input
-                  value={editForm.name}
-                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Email</Label>
-                <Input
-                  value={editForm.email}
-                  onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Telefono</Label>
-                <Input
-                  value={editForm.phone}
-                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Azienda</Label>
-                <Input
-                  value={editForm.company}
-                  onChange={(e) => setEditForm({ ...editForm, company: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Note interne</Label>
-                <Textarea
-                  value={editForm.notes}
-                  onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
-                  rows={3}
-                />
-              </div>
-              <Button onClick={handleUpdateClient}>Salva modifiche</Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Stato Cliente</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label>Status attuale</Label>
-                <div className="mt-1">
-                  <StatusBadge status={client.status} />
-                </div>
-              </div>
-
-              {allowedNext.length > 0 && (
-                <div className="space-y-2">
-                  <Label>Transizioni disponibili</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {allowedNext.map((status) => (
-                      <Button
-                        key={status}
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleStatusChange(status)}
-                      >
-                        {status === "close"
-                          ? "Chiudi cliente"
-                          : `Sposta a ${status}`}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {client.status === "close" && (
-                <p className="text-sm text-muted-foreground">
-                  Questo cliente è chiuso. Non sono possibili ulteriori transizioni.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* ── TAB: Note ── */}
-      {activeTab === "note" && (
-        <div className="space-y-4">
-          <div className="flex justify-end">
-            <Dialog open={noteModalOpen} onOpenChange={setNoteModalOpen}>
-              <DialogTrigger asChild>
-                <Button
-                  onClick={() => {
-                    setEditNote(null);
-                    setNoteForm({ content: "", type: "conversazione", author: "Utente" });
-                  }}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Nuova nota
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>{editNote ? "Modifica nota" : "Nuova nota"}</DialogTitle>
-                </DialogHeader>
-                <form onSubmit={handleNoteSubmit} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Contenuto</Label>
-                    <Textarea
-                      value={noteForm.content}
-                      onChange={(e) => setNoteForm({ ...noteForm, content: e.target.value })}
-                      rows={4}
-                    />
-                    {noteErrors.content && (
-                      <p className="text-xs text-destructive">{noteErrors.content}</p>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Tipo</Label>
-                      <Select
-                        value={noteForm.type}
-                        onValueChange={(v) => setNoteForm({ ...noteForm, type: v as NoteType })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="conversazione">Conversazione</SelectItem>
-                          <SelectItem value="promemoria">Promemoria</SelectItem>
-                          <SelectItem value="decisione">Decisione</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Autore</Label>
-                      <Input
-                        value={noteForm.author}
-                        onChange={(e) => setNoteForm({ ...noteForm, author: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button type="button" variant="outline" onClick={() => setNoteModalOpen(false)}>
-                      Annulla
-                    </Button>
-                    <Button type="submit">
-                      {editNote ? "Salva" : "Crea nota"}
-                    </Button>
-                  </div>
-                </form>
-              </DialogContent>
-            </Dialog>
-          </div>
-
-          {/* Note list */}
-          {notes.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">Nessuna nota</p>
-          ) : (
-            <div className="space-y-3">
-              {notes.map((note) => (
-                <Card key={note.id}>
-                  <CardContent className="pt-6">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <StatusBadge
-                            status={
-                              note.type === "conversazione"
-                                ? "lead"
-                                : note.type === "promemoria"
-                                ? "suspect"
-                                : "won"
-                            }
-                          />
-                          <span className="text-sm font-medium">{note.author}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {formatDateTime(note.createdAt)}
-                          </span>
-                        </div>
-                        <p className="text-sm whitespace-pre-wrap">{note.content}</p>
-                      </div>
-                      <div className="flex items-center gap-1 ml-4">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            setEditNote(note);
-                            setNoteForm({
-                              content: note.content,
-                              type: note.type,
-                              author: note.author,
-                            });
-                            setNoteModalOpen(true);
-                          }}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Eliminare questa nota?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Questa azione è irreversibile.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Annulla</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => handleDeleteNote(note.id)}>
-                                Elimina
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── TAB: Task ── */}
-      {activeTab === "task" && (
-        <div className="space-y-6">
-          <div className="flex justify-end">
-            <Dialog open={taskModalOpen} onOpenChange={setTaskModalOpen}>
-              <DialogTrigger asChild>
-                <Button
-                  onClick={() => {
-                    setEditTask(null);
-                    setTaskForm({ title: "", description: "", dueDate: "", priority: "medium" });
-                  }}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Nuovo task
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>{editTask ? "Modifica task" : "Nuovo task"}</DialogTitle>
-                </DialogHeader>
-                <form onSubmit={handleTaskSubmit} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Titolo</Label>
-                    <Input
-                      value={taskForm.title}
-                      onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })}
-                    />
-                    {taskErrors.title && (
-                      <p className="text-xs text-destructive">{taskErrors.title}</p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Descrizione</Label>
-                    <Textarea
-                      value={taskForm.description}
-                      onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
-                      rows={3}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Scadenza</Label>
-                      <Input
-                        type="date"
-                        value={taskForm.dueDate}
-                        onChange={(e) => setTaskForm({ ...taskForm, dueDate: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Priorità</Label>
-                      <Select
-                        value={taskForm.priority}
-                        onValueChange={(v) => setTaskForm({ ...taskForm, priority: v as Priority })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="low">Bassa</SelectItem>
-                          <SelectItem value="medium">Media</SelectItem>
-                          <SelectItem value="high">Alta</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button type="button" variant="outline" onClick={() => setTaskModalOpen(false)}>
-                      Annulla
-                    </Button>
-                    <Button type="submit">
-                      {editTask ? "Salva" : "Crea task"}
-                    </Button>
-                  </div>
-                </form>
-              </DialogContent>
-            </Dialog>
-          </div>
-
-          {/* Overdue tasks */}
-          {overdueTasksList.length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium text-destructive mb-3">
-                Scaduti ({overdueTasksList.length})
-              </h3>
-              <div className="space-y-2">
-                {overdueTasksList.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    onToggle={() => handleToggleTask(task)}
-                    onEdit={() => {
-                      setEditTask(task);
-                      setTaskForm({
-                        title: task.title,
-                        description: task.description || "",
-                        dueDate: task.dueDate
-                          ? new Date(task.dueDate).toISOString().split("T")[0]
-                          : "",
-                        priority: task.priority,
-                      });
-                      setTaskModalOpen(true);
-                    }}
-                    onDelete={() => handleDeleteTask(task.id)}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Todo tasks */}
-          <div>
-            <h3 className="text-sm font-medium mb-3">
-              Da fare ({todoTasks.length})
-            </h3>
-            {todoTasks.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nessun task da fare</p>
-            ) : (
-              <div className="space-y-2">
-                {todoTasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    onToggle={() => handleToggleTask(task)}
-                    onEdit={() => {
-                      setEditTask(task);
-                      setTaskForm({
-                        title: task.title,
-                        description: task.description || "",
-                        dueDate: task.dueDate
-                          ? new Date(task.dueDate).toISOString().split("T")[0]
-                          : "",
-                        priority: task.priority,
-                      });
-                      setTaskModalOpen(true);
-                    }}
-                    onDelete={() => handleDeleteTask(task.id)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Completed tasks */}
-          {completedTasks.length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium mb-3">
-                Completati ({completedTasks.length})
-              </h3>
-              <div className="space-y-2">
-                {completedTasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    onToggle={() => handleToggleTask(task)}
-                    onEdit={() => {
-                      setEditTask(task);
-                      setTaskForm({
-                        title: task.title,
-                        description: task.description || "",
-                        dueDate: task.dueDate
-                          ? new Date(task.dueDate).toISOString().split("T")[0]
-                          : "",
-                        priority: task.priority,
-                      });
-                      setTaskModalOpen(true);
-                    }}
-                    onDelete={() => handleDeleteTask(task.id)}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Transition note dialog */}
-      <AlertDialog open={showTransitionDialog} onOpenChange={setShowTransitionDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Nota obbligatoria</AlertDialogTitle>
-            <AlertDialogDescription>
-              Per chiudere questo cliente è necessario aggiungere una nota di motivazione.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <Textarea
-            placeholder="Inserisci il motivo della chiusura..."
-            value={transitionNote}
-            onChange={(e) => setTransitionNote(e.target.value)}
-            rows={3}
-            className="my-4"
-          />
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setPendingTransition(null)}>
-              Annulla
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={!transitionNote.trim()}
-              onClick={() =>
-                pendingTransition && performTransition(pendingTransition, transitionNote)
-              }
-            >
-              Conferma chiusura
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
-}
-
-// ── Task Card sub-component ──
-function TaskCard({
-  task,
-  onToggle,
-  onEdit,
-  onDelete,
-}: {
-  task: Task;
-  onToggle: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  const isCompleted = task.status === "completed";
-  const overdue = task.dueDate && isOverdue(task.dueDate) && !isCompleted;
-
-  return (
-    <Card className={`${isCompleted ? "opacity-60" : ""} ${overdue ? "border-red-200 bg-red-50 dark:bg-red-950/20" : ""}`}>
-      <CardContent className="flex items-center gap-3 py-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0"
-          onClick={onToggle}
-        >
-          {isCompleted ? (
-            <CheckCircle2 className="h-5 w-5 text-green-500" />
-          ) : (
-            <Circle className="h-5 w-5 text-muted-foreground" />
-          )}
-        </Button>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span
-              className={`text-sm font-medium ${
-                isCompleted ? "line-through" : ""
-              }`}
-            >
-              {task.title}
-            </span>
-            <PriorityBadge priority={task.priority} />
-            {overdue && (
-              <span className="text-xs text-destructive font-medium">Scaduto</span>
-            )}
-          </div>
-          {task.description && (
-            <p className="text-xs text-muted-foreground truncate mt-0.5">
-              {task.description}
-            </p>
-          )}
-          {task.dueDate && (
-            <p className={`text-xs mt-0.5 ${overdue ? "text-destructive" : "text-muted-foreground"}`}>
-              Scadenza: {formatDate(task.dueDate)}
-            </p>
-          )}
-        </div>
-
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" onClick={onEdit}>
-            <Pencil className="h-4 w-4" />
-          </Button>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="ghost" size="icon">
-                <Trash2 className="h-4 w-4 text-destructive" />
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Eliminare questo task?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Questa azione è irreversibile.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Annulla</AlertDialogCancel>
-                <AlertDialogAction onClick={onDelete}>Elimina</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 </file>
 
 <file path="app/(dashboard)/clienti/page.tsx">
@@ -1614,239 +1082,6 @@ export default function ClientiPage() {
 }
 </file>
 
-<file path="app/(dashboard)/dashboard/page.tsx">
-"use client";
-
-import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { StatusBadge } from "@/components/status-badge";
-import { formatDateTime, isOverdue } from "@/lib/utils";
-import { AlertTriangle, Users, TrendingUp, CalendarClock, FileText } from "lucide-react";
-import type { ClientStatus, NoteType } from "@/types";
-
-interface DashboardData {
-  statusCounts: Record<ClientStatus, number>;
-  totalClients: number;
-  overdueTasks: number;
-  upcomingTasks: number;
-  lastNotes: {
-    id: string;
-    content: string;
-    type: NoteType;
-    author: string;
-    createdAt: number;
-    clientId: string;
-    clientName: string | null;
-  }[];
-  trendData: { date: string; count: number }[];
-}
-
-export default function DashboardPage() {
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("/api/dashboard")
-      .then((r) => r.json())
-      .then(setData)
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">Caricamento...</p>
-      </div>
-    );
-  }
-
-  if (!data) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-destructive">Errore nel caricamento dei dati</p>
-      </div>
-    );
-  }
-
-  const maxTrend = Math.max(...data.trendData.map((d) => d.count), 1);
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Dashboard</h2>
-        <p className="text-muted-foreground">
-          Panoramica del tuo CRM FindFit
-        </p>
-      </div>
-
-      {/* Overdue banner */}
-      {data.overdueTasks > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
-          <AlertTriangle className="h-5 w-5 shrink-0" />
-          <p className="text-sm font-medium">
-            Attenzione: {data.overdueTasks} task scaduti richiedono la tua attenzione!
-          </p>
-        </div>
-      )}
-
-      {/* Stats cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Totale Clienti</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{data.totalClients}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Lead</CardTitle>
-            <Badge variant="info">Lead</Badge>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{data.statusCounts.lead}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Suspect</CardTitle>
-            <Badge variant="warning">Suspect</Badge>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{data.statusCounts.suspect}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Won</CardTitle>
-            <Badge variant="success">Won</Badge>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{data.statusCounts.won}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Close</CardTitle>
-            <Badge variant="muted">Close</Badge>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{data.statusCounts.close}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Task Scaduti</CardTitle>
-            <CalendarClock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-destructive">
-              {data.overdueTasks}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Task in Scadenza (3gg)</CardTitle>
-            <CalendarClock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-amber-500">
-              {data.upcomingTasks}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Trend chart & Last notes */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Trend chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <TrendingUp className="h-4 w-4" />
-              Trend Clienti (7 giorni)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-end gap-2 h-32">
-              {data.trendData.map((item) => (
-                <div
-                  key={item.date}
-                  className="flex flex-1 flex-col items-center gap-1"
-                >
-                  <div
-                    className="w-full rounded-md bg-primary/20 transition-all hover:bg-primary/30"
-                    style={{
-                      height: `${Math.max((item.count / maxTrend) * 100, 4)}%`,
-                    }}
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    {item.count}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {item.date}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Last notes */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              Ultime Note
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {data.lastNotes.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nessuna nota recente</p>
-            ) : (
-              <div className="space-y-3">
-                {data.lastNotes.map((note) => (
-                  <div key={note.id} className="border-b pb-2 last:border-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <StatusBadge
-                        status={
-                          note.type === "conversazione"
-                            ? "lead"
-                            : note.type === "promemoria"
-                            ? "suspect"
-                            : "won"
-                        }
-                      />
-                      <span className="text-xs text-muted-foreground">
-                        {note.clientName || "Cliente sconosciuto"}
-                      </span>
-                    </div>
-                    <p className="text-sm line-clamp-2">{note.content}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {formatDateTime(note.createdAt)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-}
-</file>
-
 <file path="app/(dashboard)/impostazioni/page.tsx">
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -1870,215 +1105,6 @@ export default function ImpostazioniPage() {
           </p>
         </CardContent>
       </Card>
-    </div>
-  );
-}
-</file>
-
-<file path="app/(dashboard)/kanban/page.tsx">
-"use client";
-
-import { useEffect, useState, useCallback } from "react";
-import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatusBadge } from "@/components/status-badge";
-import { useToast } from "@/components/ui/use-toast";
-import { clientStatuses, type ClientStatus } from "@/types";
-
-interface Client {
-  id: string;
-  name: string;
-  email: string | null;
-  company: string | null;
-  status: ClientStatus;
-}
-
-const columns: { id: ClientStatus; title: string }[] = [
-  { id: "lead", title: "Lead" },
-  { id: "suspect", title: "Suspect" },
-  { id: "won", title: "Won" },
-  { id: "close", title: "Close" },
-];
-
-export default function KanbanPage() {
-  const { toast } = useToast();
-  const [clients, setClients] = useState<Client[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchClients = useCallback(async () => {
-    try {
-      const res = await fetch("/api/clients?limit=100");
-      const data = await res.json();
-      setClients(data.data);
-    } catch {
-      toast({
-        title: "Errore",
-        description: "Impossibile caricare i clienti",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [toast]);
-
-  useEffect(() => {
-    fetchClients();
-  }, [fetchClients]);
-
-  const handleDragEnd = async (result: DropResult) => {
-    if (!result.destination) return;
-
-    const { draggableId, destination } = result;
-    const newStatus = destination.droppableId as ClientStatus;
-
-    // Optimistic update
-    setClients((prev) =>
-      prev.map((c) =>
-        c.id === draggableId ? { ...c, status: newStatus } : c
-      )
-    );
-
-    try {
-      const res = await fetch(`/api/clients/${draggableId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        toast({ title: "Errore", description: err.error, variant: "destructive" });
-        fetchClients(); // revert
-      }
-    } catch {
-      toast({
-        title: "Errore",
-        description: "Transizione fallita",
-        variant: "destructive",
-      });
-      fetchClients(); // revert
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">Caricamento...</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Kanban</h2>
-        <p className="text-muted-foreground">
-          Trascina i clienti tra le colonne per aggiornare lo status
-        </p>
-      </div>
-
-      <DragDropContext onDragEnd={handleDragEnd}>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {columns.map((column) => {
-            const columnClients = clients.filter(
-              (c) => c.status === column.id
-            );
-
-            return (
-              <div key={column.id} className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-sm">{column.title}</h3>
-                  <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                    {columnClients.length}
-                  </span>
-                </div>
-
-                <Droppable droppableId={column.id}>
-                  {(provided, snapshot) => (
-                    <div
-                      ref={provided.innerRef}
-                      {...provided.droppableProps}
-                      className={`min-h-[200px] rounded-lg border-2 border-dashed p-3 space-y-3 transition-colors ${
-                        snapshot.isDraggingOver
-                          ? "border-primary bg-primary/5"
-                          : "border-muted"
-                      }`}
-                    >
-                      {columnClients.length === 0 && !snapshot.isDraggingOver && (
-                        <p className="text-xs text-muted-foreground text-center py-8">
-                          Nessun cliente
-                        </p>
-                      )}
-
-                      {columnClients.map((client, index) => (
-                        <Draggable
-                          key={client.id}
-                          draggableId={client.id}
-                          index={index}
-                        >
-                          {(provided, snapshot) => (
-                            <div
-                              ref={provided.innerRef}
-                              {...(provided.draggableProps as any)}
-                              {...(provided.dragHandleProps as any)}
-                              className={`rounded-lg border bg-card text-card-foreground shadow-sm p-3 ${
-                                snapshot.isDragging
-                                  ? "shadow-lg ring-2 ring-primary"
-                                  : ""
-                              }`}
-                            >
-                              <p className="font-medium text-sm truncate">
-                                {client.name}
-                              </p>
-                              {client.company && (
-                                <p className="text-xs text-muted-foreground truncate">
-                                  {client.company}
-                                </p>
-                              )}
-                              {client.email && (
-                                <p className="text-xs text-muted-foreground truncate">
-                                  {client.email}
-                                </p>
-                              )}
-                            </div>
-                          )}
-                        </Draggable>
-                      ))}
-                      {provided.placeholder}
-                    </div>
-                  )}
-                </Droppable>
-              </div>
-            );
-          })}
-        </div>
-      </DragDropContext>
-    </div>
-  );
-}
-</file>
-
-<file path="app/(dashboard)/layout.tsx">
-"use client";
-
-import { useState } from "react";
-import { Sidebar } from "@/components/sidebar";
-import { Topbar } from "@/components/topbar";
-
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  return (
-    <div className="flex min-h-screen">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="flex flex-1 flex-col">
-        <Topbar onMenuClick={() => setSidebarOpen(true)} />
-        <main className="flex-1 p-4 lg:p-6">{children}</main>
-      </div>
     </div>
   );
 }
@@ -2480,182 +1506,6 @@ function TaskRow({
 }
 </file>
 
-<file path="app/api/clients/[id]/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { clients, tasks } from "@/lib/schema";
-import { clientSchema, allowedTransitions, requiresNoteForTransition } from "@/types";
-import { eq, and, sql } from "drizzle-orm";
-
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const client = await db
-      .select()
-      .from(clients)
-      .where(eq(clients.id, params.id))
-      .limit(1);
-
-    if (!client.length) {
-      return NextResponse.json(
-        { error: "Cliente non trovato" },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json(client[0]);
-  } catch (error) {
-    console.error("Error fetching client:", error);
-    return NextResponse.json(
-      { error: "Errore nel caricamento del cliente" },
-      { status: 500 }
-    );
-  }
-}
-
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const body = await request.json();
-    const existing = await db
-      .select()
-      .from(clients)
-      .where(eq(clients.id, params.id))
-      .limit(1);
-
-    if (!existing.length) {
-      return NextResponse.json(
-        { error: "Cliente non trovato" },
-        { status: 404 }
-      );
-    }
-
-    const currentClient = existing[0];
-
-    // Handle status transitions
-    if (body.status && body.status !== currentClient.status) {
-      const allowed = allowedTransitions[currentClient.status];
-      if (!allowed.includes(body.status)) {
-        return NextResponse.json(
-          {
-            error: `Transizione da "${currentClient.status}" a "${body.status}" non consentita`,
-          },
-          { status: 400 }
-        );
-      }
-
-      if (requiresNoteForTransition(currentClient.status, body.status) && !body.noteContent) {
-        return NextResponse.json(
-          {
-            error:
-              "Per chiudere un cliente è necessario aggiungere una nota di motivazione",
-          },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Prepare update data (only provided fields)
-    const updateData: Record<string, any> = {};
-    const allowedFields = ["name", "email", "phone", "company", "status", "notes"];
-    for (const field of allowedFields) {
-      if (body[field] !== undefined) {
-        updateData[field] = body[field] || null;
-      }
-    }
-    updateData.updatedAt = new Date();
-
-    const [updated] = await db
-      .update(clients)
-      .set(updateData)
-      .where(eq(clients.id, params.id))
-      .returning();
-
-    // Create note if transition requires it
-    if (body.status && body.status !== currentClient.status && body.noteContent) {
-      const { notes: notesTable } = await import("@/lib/schema");
-      await db.insert(notesTable).values({
-        clientId: params.id,
-        content: body.noteContent,
-        type: "decisione",
-        author: "Sistema",
-      });
-    }
-
-    // Create automatic tasks on new status
-    if (body.status === "suspect" && body.status !== currentClient.status) {
-      const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + 3);
-      await db.insert(tasks).values({
-        clientId: params.id,
-        title: "Chiamata qualificazione",
-        description: "Chiamata di qualificazione per il nuovo suspect",
-        dueDate,
-        priority: "high",
-      });
-    }
-
-    if (body.status === "won" && body.status !== currentClient.status) {
-      const dueContract = new Date();
-      dueContract.setDate(dueContract.getDate() + 2);
-      const dueOnboarding = new Date();
-      dueOnboarding.setDate(dueOnboarding.getDate() + 7);
-
-      await db.insert(tasks).values([
-        {
-          clientId: params.id,
-          title: "Invia contratto",
-          description: "Inviare il contratto al cliente",
-          dueDate: dueContract,
-          priority: "high",
-        },
-        {
-          clientId: params.id,
-          title: "Onboarding",
-          description: "Completare l'onboarding del cliente",
-          dueDate: dueOnboarding,
-          priority: "medium",
-        },
-      ]);
-    }
-
-    return NextResponse.json(updated);
-  } catch (error: any) {
-    if (error?.issues) {
-      return NextResponse.json(
-        { error: "Dati non validi", details: error.issues },
-        { status: 400 }
-      );
-    }
-    console.error("Error updating client:", error);
-    return NextResponse.json(
-      { error: "Errore nell'aggiornamento del cliente" },
-      { status: 500 }
-    );
-  }
-}
-
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    await db.delete(clients).where(eq(clients.id, params.id));
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Error deleting client:", error);
-    return NextResponse.json(
-      { error: "Errore nell'eliminazione del cliente" },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
 <file path="app/api/clients/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -2684,7 +1534,7 @@ export async function GET(request: NextRequest) {
         )
       );
     }
-    if (status) {
+    if (status && status !== "all") {
       conditions.push(eq(clients.status, status as any));
     }
 
@@ -2791,188 +1641,6 @@ export async function POST(request: NextRequest) {
 }
 </file>
 
-<file path="app/api/dashboard/route.ts">
-import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { clients, tasks, notes } from "@/lib/schema";
-import { eq, sql, lte, desc, and, gte } from "drizzle-orm";
-
-export async function GET() {
-  try {
-    const now = new Date();
-    const in3Days = new Date();
-    in3Days.setDate(in3Days.getDate() + 3);
-    const in7Days = new Date();
-    in7Days.setDate(in7Days.getDate() + 7);
-
-    // Count per status
-    const statusCounts = await db
-      .select({
-        status: clients.status,
-        count: sql<number>`count(*)`,
-      })
-      .from(clients)
-      .groupBy(clients.status);
-
-    const statusMap: Record<string, number> = {
-      lead: 0,
-      suspect: 0,
-      won: 0,
-      close: 0,
-    };
-    statusCounts.forEach((s) => {
-      statusMap[s.status] = Number(s.count);
-    });
-
-    // Overdue tasks
-    const overdueTasks = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(tasks)
-      .where(
-        and(
-          lte(tasks.dueDate, now),
-          sql`${tasks.status} IN ('todo', 'in_progress')`
-        )
-      );
-
-    // Tasks due in next 3 days
-    const upcomingTasks = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(tasks)
-      .where(
-        and(
-          gte(tasks.dueDate, now),
-          lte(tasks.dueDate, in3Days),
-          sql`${tasks.status} IN ('todo', 'in_progress')`
-        )
-      );
-
-    // Last 5 notes
-    const lastNotes = await db
-      .select({
-        id: notes.id,
-        content: notes.content,
-        type: notes.type,
-        author: notes.author,
-        createdAt: notes.createdAt,
-        clientId: notes.clientId,
-        clientName: clients.name,
-      })
-      .from(notes)
-      .leftJoin(clients, eq(notes.clientId, clients.id))
-      .orderBy(desc(notes.createdAt))
-      .limit(5);
-
-    // Trend: clients created in last 7 days
-    const trendData = [];
-    for (let i = 6; i >= 0; i--) {
-      const day = new Date();
-      day.setDate(day.getDate() - i);
-      const dayStart = new Date(day);
-      dayStart.setHours(0, 0, 0, 0);
-      const dayEnd = new Date(day);
-      dayEnd.setHours(23, 59, 59, 999);
-
-      const [countResult] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(clients)
-        .where(
-          and(gte(clients.createdAt, dayStart), lte(clients.createdAt, dayEnd))
-        );
-
-      trendData.push({
-        date: day.toLocaleDateString("it-IT", {
-          day: "2-digit",
-          month: "2-digit",
-        }),
-        count: Number(countResult?.count || 0),
-      });
-    }
-
-    // Total clients
-    const [totalResult] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(clients);
-
-    return NextResponse.json({
-      statusCounts: statusMap,
-      totalClients: Number(totalResult?.count || 0),
-      overdueTasks: Number(overdueTasks[0]?.count || 0),
-      upcomingTasks: Number(upcomingTasks[0]?.count || 0),
-      lastNotes,
-      trendData,
-    });
-  } catch (error) {
-    console.error("Error fetching dashboard data:", error);
-    return NextResponse.json(
-      { error: "Errore nel caricamento della dashboard" },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
-<file path="app/api/note/[id]/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { notes } from "@/lib/schema";
-import { noteSchema } from "@/types";
-import { eq } from "drizzle-orm";
-
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const body = await request.json();
-    const parsed = noteSchema.partial().parse(body);
-
-    const [updated] = await db
-      .update(notes)
-      .set({ ...parsed, updatedAt: new Date() })
-      .where(eq(notes.id, params.id))
-      .returning();
-
-    if (!updated) {
-      return NextResponse.json(
-        { error: "Nota non trovata" },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json(updated);
-  } catch (error: any) {
-    if (error?.issues) {
-      return NextResponse.json(
-        { error: "Dati non validi", details: error.issues },
-        { status: 400 }
-      );
-    }
-    console.error("Error updating note:", error);
-    return NextResponse.json(
-      { error: "Errore nell'aggiornamento della nota" },
-      { status: 500 }
-    );
-  }
-}
-
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    await db.delete(notes).where(eq(notes.id, params.id));
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Error deleting note:", error);
-    return NextResponse.json(
-      { error: "Errore nell'eliminazione della nota" },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
 <file path="app/api/note/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -3060,90 +1728,6 @@ export async function POST(request: NextRequest) {
     console.error("Error creating note:", error);
     return NextResponse.json(
       { error: "Errore nella creazione della nota" },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
-<file path="app/api/tasks/[id]/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { tasks } from "@/lib/schema";
-import { taskSchema } from "@/types";
-import { eq } from "drizzle-orm";
-
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const body = await request.json();
-    const parsed = taskSchema.partial().parse(body);
-
-    // Get current task to check status change
-    const existing = await db
-      .select()
-      .from(tasks)
-      .where(eq(tasks.id, params.id))
-      .limit(1);
-
-    if (!existing.length) {
-      return NextResponse.json(
-        { error: "Task non trovato" },
-        { status: 404 }
-      );
-    }
-
-    const updateData: Record<string, any> = {
-      ...parsed,
-      updatedAt: new Date(),
-    };
-
-    // Handle completion
-    if (body.status === "completed" && existing[0].status !== "completed") {
-      updateData.completedAt = new Date();
-    } else if (body.status && body.status !== "completed") {
-      updateData.completedAt = null;
-    }
-
-    if (parsed.dueDate) {
-      updateData.dueDate = new Date(parsed.dueDate);
-    }
-
-    const [updated] = await db
-      .update(tasks)
-      .set(updateData)
-      .where(eq(tasks.id, params.id))
-      .returning();
-
-    return NextResponse.json(updated);
-  } catch (error: any) {
-    if (error?.issues) {
-      return NextResponse.json(
-        { error: "Dati non validi", details: error.issues },
-        { status: 400 }
-      );
-    }
-    console.error("Error updating task:", error);
-    return NextResponse.json(
-      { error: "Errore nell'aggiornamento del task" },
-      { status: 500 }
-    );
-  }
-}
-
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    await db.delete(tasks).where(eq(tasks.id, params.id));
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Error deleting task:", error);
-    return NextResponse.json(
-      { error: "Errore nell'eliminazione del task" },
       { status: 500 }
     );
   }
@@ -3382,123 +1966,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
       {children}
       <Toaster />
     </>
-  );
-}
-</file>
-
-<file path="components/sidebar.tsx">
-"use client";
-
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  LayoutDashboard,
-  Users,
-  Kanban,
-  CalendarCheck,
-  FileText,
-  Settings,
-  X,
-} from "lucide-react";
-
-interface SidebarProps {
-  open: boolean;
-  onClose: () => void;
-}
-
-const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/clienti", label: "Lista Clienti", icon: Users },
-  { href: "/kanban", label: "Kanban", icon: Kanban },
-  { href: "/task", label: "Task Scaduti", icon: CalendarCheck },
-  { href: "/note", label: "Note Recenti", icon: FileText },
-  { href: "/impostazioni", label: "Impostazioni", icon: Settings },
-];
-
-export function Sidebar({ open, onClose }: SidebarProps) {
-  const pathname = usePathname();
-
-  return (
-    <>
-      {/* Mobile overlay */}
-      {open && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
-          onClick={onClose}
-        />
-      )}
-
-      {/* Sidebar */}
-      <aside
-        className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r bg-background transition-transform duration-300 lg:static lg:translate-x-0",
-          open ? "translate-x-0" : "-translate-x-full"
-        )}
-      >
-        <div className="flex h-14 items-center justify-between border-b px-4 lg:hidden">
-          <span className="font-semibold">CRM FindFit</span>
-          <Button variant="ghost" size="icon" onClick={onClose}>
-            <X className="h-5 w-5" />
-          </Button>
-        </div>
-
-        <ScrollArea className="flex-1 px-3 py-4">
-          <nav className="flex flex-col gap-1">
-            {navItems.map((item) => {
-              const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={onClose}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
-                    isActive
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground"
-                  )}
-                >
-                  <Icon className="h-5 w-5 shrink-0" />
-                  <span className="hidden lg:inline">{item.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
-        </ScrollArea>
-
-        <div className="border-t p-4">
-          <p className="text-xs text-muted-foreground">CRM FindFit v1.0</p>
-        </div>
-      </aside>
-    </>
-  );
-}
-</file>
-
-<file path="components/status-badge.tsx">
-import { Badge } from "@/components/ui/badge";
-import type { ClientStatus } from "@/types";
-
-const statusConfig: Record<
-  ClientStatus,
-  { label: string; variant: "info" | "warning" | "success" | "muted" }
-> = {
-  lead: { label: "Lead", variant: "info" },
-  suspect: { label: "Suspect", variant: "warning" },
-  won: { label: "Won", variant: "success" },
-  close: { label: "Close", variant: "muted" },
-};
-
-export function StatusBadge({ status }: { status: ClientStatus }) {
-  const config = statusConfig[status];
-  return (
-    <Badge variant={config.variant} className="font-medium">
-      {config.label}
-    </Badge>
   );
 }
 </file>
@@ -5068,24 +3535,6 @@ function useToast() {
 export { useToast, toast };
 </file>
 
-<file path="drizzle.config.ts">
-import { config } from "dotenv";
-import { defineConfig } from "drizzle-kit";
-
-config({ path: ".env.local" });
-
-export default defineConfig({
-  schema: "./lib/schema.ts",
-  out: "./drizzle",
-  dialect: "sqlite",
-  driver: "turso",
-  dbCredentials: {
-    url: process.env.TURSO_DB_URL!,
-    authToken: process.env.TURSO_AUTH_TOKEN,
-  },
-});
-</file>
-
 <file path="lib/db.ts">
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
@@ -5097,95 +3546,6 @@ const client = createClient({
 });
 
 export const db = drizzle(client, { schema });
-</file>
-
-<file path="lib/schema.ts">
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
-
-// ── Clienti ──
-export const clients = sqliteTable("clients", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
-  name: text("name").notNull(),
-  email: text("email"),
-  phone: text("phone"),
-  company: text("company"),
-  status: text("status", {
-    enum: ["lead", "suspect", "won", "close"],
-  })
-    .notNull()
-    .default("lead"),
-  notes: text("notes"),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date())
-    .$onUpdateFn(() => new Date()),
-});
-
-// ── Note ──
-export const notes = sqliteTable("notes", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
-  clientId: text("client_id")
-    .notNull()
-    .references(() => clients.id, { onDelete: "cascade" }),
-  content: text("content").notNull(),
-  type: text("type", {
-    enum: ["conversazione", "promemoria", "decisione"],
-  })
-    .notNull()
-    .default("conversazione"),
-  author: text("author").notNull().default("Utente"),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date())
-    .$onUpdateFn(() => new Date()),
-});
-
-// ── Task ──
-export const tasks = sqliteTable("tasks", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
-  clientId: text("client_id")
-    .notNull()
-    .references(() => clients.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  description: text("description"),
-  dueDate: integer("due_date", { mode: "timestamp" }),
-  status: text("status", {
-    enum: ["todo", "in_progress", "completed", "cancelled"],
-  })
-    .notNull()
-    .default("todo"),
-  priority: text("priority", { enum: ["low", "medium", "high"] })
-    .notNull()
-    .default("medium"),
-  completedAt: integer("completed_at", { mode: "timestamp" }),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date())
-    .$onUpdateFn(() => new Date()),
-});
-
-// ── Tipi ──
-export type Client = typeof clients.$inferSelect;
-export type NewClient = typeof clients.$inferInsert;
-export type Note = typeof notes.$inferSelect;
-export type NewNote = typeof notes.$inferInsert;
-export type Task = typeof tasks.$inferSelect;
-export type NewTask = typeof tasks.$inferInsert;
 </file>
 
 <file path="lib/utils.ts">
@@ -5241,62 +3601,6 @@ const nextConfig = {
 };
 
 module.exports = nextConfig;
-</file>
-
-<file path="package.json">
-{
-  "name": "crm-findfit",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "db:generate": "drizzle-kit generate",
-    "db:push": "drizzle-kit push",
-    "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
-  },
-  "dependencies": {
-    "@hello-pangea/dnd": "^16.6.0",
-    "@libsql/client": "^0.14.0",
-    "@radix-ui/react-alert-dialog": "^1.1.1",
-    "@radix-ui/react-avatar": "^1.1.0",
-    "@radix-ui/react-dialog": "^1.1.1",
-    "@radix-ui/react-dropdown-menu": "^2.1.1",
-    "@radix-ui/react-label": "^2.1.0",
-    "@radix-ui/react-popover": "^1.1.1",
-    "@radix-ui/react-scroll-area": "^1.1.0",
-    "@radix-ui/react-select": "^2.1.1",
-    "@radix-ui/react-separator": "^1.1.0",
-    "@radix-ui/react-slot": "^1.1.0",
-    "@radix-ui/react-toast": "^1.2.1",
-    "@radix-ui/react-tooltip": "^1.1.2",
-    "class-variance-authority": "^0.7.0",
-    "clsx": "^2.1.1",
-    "date-fns": "^3.6.0",
-    "drizzle-orm": "^0.31.0",
-    "lucide-react": "^0.379.0",
-    "next": "^14.2.3",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "tailwind-merge": "^2.3.0",
-    "tailwindcss-animate": "^1.0.7",
-    "zod": "^3.23.8"
-  },
-  "devDependencies": {
-    "@types/node": "^20.12.12",
-    "@types/react": "^18.3.2",
-    "@types/react-dom": "^18.3.0",
-    "autoprefixer": "^10.5.0",
-    "dotenv": "^17.4.2",
-    "drizzle-kit": "^0.22.0",
-    "postcss": "^8.4.38",
-    "tailwindcss": "^3.4.3",
-    "typescript": "^5.4.5"
-  }
-}
 </file>
 
 <file path="postcss.config.js">
@@ -5572,11 +3876,2115 @@ export default config;
 }
 </file>
 
+<file path="app/(dashboard)/clienti/[id]/page.tsx">
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { StatusBadge } from "@/components/status-badge";
+import { PriorityBadge } from "@/components/priority-badge";
+import { useToast } from "@/components/ui/use-toast";
+import {
+  clientSchema,
+  clientStatuses,
+  noteSchema,
+  taskSchema,
+  allowedTransitions,
+  requiresNoteForTransition,
+  type ClientStatus,
+  type NoteType,
+  type Priority,
+} from "@/types";
+import { formatDate, formatDateTime, isOverdue } from "@/lib/utils";
+import {
+  ArrowLeft,
+  Plus,
+  Pencil,
+  Trash2,
+  CheckCircle2,
+  Circle,
+} from "lucide-react";
+
+type Tab = "dettagli" | "note" | "task";
+
+interface Client {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+  status: ClientStatus;
+  notes: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface Note {
+  id: string;
+  content: string;
+  type: NoteType;
+  author: string;
+  clientId: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface Task {
+  id: string;
+  title: string;
+  description: string | null;
+  dueDate: number | null;
+  status: "todo" | "in_progress" | "completed" | "cancelled";
+  priority: Priority;
+  completedAt: number | null;
+  clientId: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export default function ClientDetailPage() {
+  const params = useParams();
+  const router = useRouter();
+  const { toast } = useToast();
+  const [client, setClient] = useState<Client | null>(null);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<Tab>("dettagli");
+  const [noteModalOpen, setNoteModalOpen] = useState(false);
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [editNote, setEditNote] = useState<Note | null>(null);
+  const [editTask, setEditTask] = useState<Task | null>(null);
+  const [transitionNote, setTransitionNote] = useState("");
+  const [showTransitionDialog, setShowTransitionDialog] = useState(false);
+  const [pendingTransition, setPendingTransition] = useState<ClientStatus | null>(null);
+
+  // Form state for edit
+  const [editForm, setEditForm] = useState({ name: "", email: "", phone: "", company: "", notes: "" });
+
+  // Note form
+  const [noteForm, setNoteForm] = useState({ content: "", type: "conversazione" as NoteType, author: "Utente" });
+  const [noteErrors, setNoteErrors] = useState<Record<string, string>>({});
+
+  // Task form
+  const [taskForm, setTaskForm] = useState({
+    title: "",
+    description: "",
+    dueDate: "",
+    priority: "medium" as Priority,
+  });
+  const [taskErrors, setTaskErrors] = useState<Record<string, string>>({});
+
+  const fetchClient = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/clients/${params.id}`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setClient(data);
+      setEditForm({
+        name: data.name,
+        email: data.email || "",
+        phone: data.phone || "",
+        company: data.company || "",
+        notes: data.notes || "",
+      });
+    } catch {
+      toast({ title: "Errore", description: "Cliente non trovato", variant: "destructive" });
+      router.push("/clienti");
+    }
+  }, [params.id, toast, router]);
+
+  const fetchNotes = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/note?clientId=${params.id}&days=365`);
+      const data = await res.json();
+      setNotes(data);
+    } catch {}
+  }, [params.id]);
+
+  const fetchTasks = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/tasks?clientId=${params.id}`);
+      const data = await res.json();
+      setTasks(data);
+    } catch {}
+  }, [params.id]);
+
+  useEffect(() => {
+    Promise.all([fetchClient(), fetchNotes(), fetchTasks()]).finally(() =>
+      setLoading(false)
+    );
+  }, [fetchClient, fetchNotes, fetchTasks]);
+
+  // ── Status transition ──
+  const handleStatusChange = async (newStatus: ClientStatus) => {
+    if (!client) return;
+
+    if (requiresNoteForTransition(client.status, newStatus)) {
+      setPendingTransition(newStatus);
+      setTransitionNote("");
+      setShowTransitionDialog(true);
+      return;
+    }
+
+    await performTransition(newStatus);
+  };
+
+  const performTransition = async (newStatus: ClientStatus, noteContent?: string) => {
+    if (!client) return;
+
+    try {
+      const res = await fetch(`/api/clients/${client.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: newStatus,
+          noteContent,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        toast({ title: "Errore", description: err.error, variant: "destructive" });
+        return;
+      }
+
+      toast({ title: "Status aggiornato", variant: "success" as any });
+      setShowTransitionDialog(false);
+      setPendingTransition(null);
+      fetchClient();
+      fetchTasks();
+    } catch {
+      toast({ title: "Errore", description: "Transizione fallita", variant: "destructive" });
+    }
+  };
+
+  // ── Update client details ──
+  const handleUpdateClient = async () => {
+    if (!client) return;
+
+    try {
+      const res = await fetch(`/api/clients/${client.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editForm),
+      });
+
+      if (!res.ok) throw new Error();
+      toast({ title: "Cliente aggiornato", variant: "success" as any });
+      fetchClient();
+    } catch {
+      toast({ title: "Errore", description: "Aggiornamento fallito", variant: "destructive" });
+    }
+  };
+
+  // ── Note CRUD ──
+  const handleNoteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setNoteErrors({});
+
+    const result = noteSchema.safeParse(noteForm);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((i) => {
+        if (i.path[0]) errors[String(i.path[0])] = i.message;
+      });
+      setNoteErrors(errors);
+      return;
+    }
+
+    try {
+      const url = editNote ? `/api/note/${editNote.id}` : "/api/note";
+      const method = editNote ? "PATCH" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...result.data, clientId: params.id }),
+      });
+
+      if (!res.ok) throw new Error();
+
+      toast({
+        title: editNote ? "Nota aggiornata" : "Nota creata",
+        variant: "success" as any,
+      });
+      setNoteModalOpen(false);
+      setEditNote(null);
+      setNoteForm({ content: "", type: "conversazione", author: "Utente" });
+      fetchNotes();
+    } catch {
+      toast({ title: "Errore", description: "Operazione fallita", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteNote = async (id: string) => {
+    try {
+      await fetch(`/api/note/${id}`, { method: "DELETE" });
+      toast({ title: "Nota eliminata", variant: "success" as any });
+      fetchNotes();
+    } catch {
+      toast({ title: "Errore", description: "Eliminazione fallita", variant: "destructive" });
+    }
+  };
+
+  // ── Task CRUD ──
+  const handleTaskSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTaskErrors({});
+
+    const result = taskSchema.safeParse(taskForm);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((i) => {
+        if (i.path[0]) errors[String(i.path[0])] = i.message;
+      });
+      setTaskErrors(errors);
+      return;
+    }
+
+    try {
+      const url = editTask ? `/api/tasks/${editTask.id}` : "/api/tasks";
+      const method = editTask ? "PATCH" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...result.data, clientId: params.id }),
+      });
+
+      if (!res.ok) throw new Error();
+
+      toast({
+        title: editTask ? "Task aggiornato" : "Task creato",
+        variant: "success" as any,
+      });
+      setTaskModalOpen(false);
+      setEditTask(null);
+      setTaskForm({ title: "", description: "", dueDate: "", priority: "medium" });
+      fetchTasks();
+    } catch {
+      toast({ title: "Errore", description: "Operazione fallita", variant: "destructive" });
+    }
+  };
+
+  const handleToggleTask = async (task: Task) => {
+    try {
+      const newStatus = task.status === "completed" ? "todo" : "completed";
+      await fetch(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      fetchTasks();
+    } catch {
+      toast({ title: "Errore", description: "Aggiornamento task fallito", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteTask = async (id: string) => {
+    try {
+      await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+      toast({ title: "Task eliminato", variant: "success" as any });
+      fetchTasks();
+    } catch {
+      toast({ title: "Errore", description: "Eliminazione fallita", variant: "destructive" });
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">Caricamento...</p>
+      </div>
+    );
+  }
+
+  if (!client) return null;
+
+  const allowedNext = allowedTransitions[client.status];
+
+  // Group tasks
+  const todoTasks = tasks.filter((t) => t.status === "todo" || t.status === "in_progress");
+  const overdueTasksList = tasks.filter(
+    (t) => t.status !== "completed" && t.status !== "cancelled" && t.dueDate && isOverdue(t.dueDate)
+  );
+  const completedTasks = tasks.filter((t) => t.status === "completed");
+
+  const tabs: { key: Tab; label: string }[] = [
+    { key: "dettagli", label: "Dettagli" },
+    { key: "note", label: `Note (${notes.length})` },
+    { key: "task", label: `Task (${tasks.length})` },
+  ];
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <Button variant="ghost" size="icon" onClick={() => router.push("/clienti")}>
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <div className="flex-1">
+          <div className="flex items-center gap-3">
+            <h2 className="text-2xl font-bold tracking-tight">{client.name}</h2>
+            <StatusBadge status={client.status} />
+          </div>
+          <p className="text-muted-foreground">
+            Creato il {formatDate(client.createdAt)}
+          </p>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 border-b">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              activeTab === tab.key
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── TAB: Dettagli ── */}
+      {activeTab === "dettagli" && (
+        <div className="grid gap-6 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Informazioni</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Nome</Label>
+                <Input
+                  value={editForm.name}
+                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Email</Label>
+                <Input
+                  value={editForm.email}
+                  onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Telefono</Label>
+                <Input
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Azienda</Label>
+                <Input
+                  value={editForm.company}
+                  onChange={(e) => setEditForm({ ...editForm, company: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Note interne</Label>
+                <Textarea
+                  value={editForm.notes}
+                  onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                  rows={3}
+                />
+              </div>
+              <Button onClick={handleUpdateClient}>Salva modifiche</Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Stato Cliente</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label>Status attuale</Label>
+                <div className="mt-1">
+                  <StatusBadge status={client.status} />
+                </div>
+              </div>
+
+              {allowedNext.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Transizioni disponibili</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {allowedNext.map((status) => (
+                      <Button
+                        key={status}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleStatusChange(status)}
+                      >
+                        {status === "closed_lost"
+                          ? "Chiudi cliente"
+                          : `Sposta a ${status}`}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {client.status === "closed_lost" && (
+                <p className="text-sm text-muted-foreground">
+                  Questo cliente è chiuso. Non sono possibili ulteriori transizioni.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ── TAB: Note ── */}
+      {activeTab === "note" && (
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <Dialog open={noteModalOpen} onOpenChange={setNoteModalOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  onClick={() => {
+                    setEditNote(null);
+                    setNoteForm({ content: "", type: "conversazione", author: "Utente" });
+                  }}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Nuova nota
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{editNote ? "Modifica nota" : "Nuova nota"}</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleNoteSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Contenuto</Label>
+                    <Textarea
+                      value={noteForm.content}
+                      onChange={(e) => setNoteForm({ ...noteForm, content: e.target.value })}
+                      rows={4}
+                    />
+                    {noteErrors.content && (
+                      <p className="text-xs text-destructive">{noteErrors.content}</p>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Tipo</Label>
+                      <Select
+                        value={noteForm.type}
+                        onValueChange={(v) => setNoteForm({ ...noteForm, type: v as NoteType })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="conversazione">Conversazione</SelectItem>
+                          <SelectItem value="promemoria">Promemoria</SelectItem>
+                          <SelectItem value="decisione">Decisione</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Autore</Label>
+                      <Input
+                        value={noteForm.author}
+                        onChange={(e) => setNoteForm({ ...noteForm, author: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={() => setNoteModalOpen(false)}>
+                      Annulla
+                    </Button>
+                    <Button type="submit">
+                      {editNote ? "Salva" : "Crea nota"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          {/* Note list */}
+          {notes.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">Nessuna nota</p>
+          ) : (
+            <div className="space-y-3">
+              {notes.map((note) => (
+                <Card key={note.id}>
+                  <CardContent className="pt-6">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <StatusBadge
+                            status={
+                              note.type === "conversazione"
+                                ? "lead"
+                                : note.type === "promemoria"
+                                ? "suspect"
+                                : "won"
+                            }
+                          />
+                          <span className="text-sm font-medium">{note.author}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {formatDateTime(note.createdAt)}
+                          </span>
+                        </div>
+                        <p className="text-sm whitespace-pre-wrap">{note.content}</p>
+                      </div>
+                      <div className="flex items-center gap-1 ml-4">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setEditNote(note);
+                            setNoteForm({
+                              content: note.content,
+                              type: note.type,
+                              author: note.author,
+                            });
+                            setNoteModalOpen(true);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Eliminare questa nota?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Questa azione è irreversibile.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Annulla</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleDeleteNote(note.id)}>
+                                Elimina
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: Task ── */}
+      {activeTab === "task" && (
+        <div className="space-y-6">
+          <div className="flex justify-end">
+            <Dialog open={taskModalOpen} onOpenChange={setTaskModalOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  onClick={() => {
+                    setEditTask(null);
+                    setTaskForm({ title: "", description: "", dueDate: "", priority: "medium" });
+                  }}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Nuovo task
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{editTask ? "Modifica task" : "Nuovo task"}</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleTaskSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Titolo</Label>
+                    <Input
+                      value={taskForm.title}
+                      onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })}
+                    />
+                    {taskErrors.title && (
+                      <p className="text-xs text-destructive">{taskErrors.title}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Descrizione</Label>
+                    <Textarea
+                      value={taskForm.description}
+                      onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
+                      rows={3}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Scadenza</Label>
+                      <Input
+                        type="date"
+                        value={taskForm.dueDate}
+                        onChange={(e) => setTaskForm({ ...taskForm, dueDate: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Priorità</Label>
+                      <Select
+                        value={taskForm.priority}
+                        onValueChange={(v) => setTaskForm({ ...taskForm, priority: v as Priority })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="low">Bassa</SelectItem>
+                          <SelectItem value="medium">Media</SelectItem>
+                          <SelectItem value="high">Alta</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={() => setTaskModalOpen(false)}>
+                      Annulla
+                    </Button>
+                    <Button type="submit">
+                      {editTask ? "Salva" : "Crea task"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          {/* Overdue tasks */}
+          {overdueTasksList.length > 0 && (
+            <div>
+              <h3 className="text-sm font-medium text-destructive mb-3">
+                Scaduti ({overdueTasksList.length})
+              </h3>
+              <div className="space-y-2">
+                {overdueTasksList.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onToggle={() => handleToggleTask(task)}
+                    onEdit={() => {
+                      setEditTask(task);
+                      setTaskForm({
+                        title: task.title,
+                        description: task.description || "",
+                        dueDate: task.dueDate
+                          ? new Date(task.dueDate).toISOString().split("T")[0]
+                          : "",
+                        priority: task.priority,
+                      });
+                      setTaskModalOpen(true);
+                    }}
+                    onDelete={() => handleDeleteTask(task.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Todo tasks */}
+          <div>
+            <h3 className="text-sm font-medium mb-3">
+              Da fare ({todoTasks.length})
+            </h3>
+            {todoTasks.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nessun task da fare</p>
+            ) : (
+              <div className="space-y-2">
+                {todoTasks.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onToggle={() => handleToggleTask(task)}
+                    onEdit={() => {
+                      setEditTask(task);
+                      setTaskForm({
+                        title: task.title,
+                        description: task.description || "",
+                        dueDate: task.dueDate
+                          ? new Date(task.dueDate).toISOString().split("T")[0]
+                          : "",
+                        priority: task.priority,
+                      });
+                      setTaskModalOpen(true);
+                    }}
+                    onDelete={() => handleDeleteTask(task.id)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Completed tasks */}
+          {completedTasks.length > 0 && (
+            <div>
+              <h3 className="text-sm font-medium mb-3">
+                Completati ({completedTasks.length})
+              </h3>
+              <div className="space-y-2">
+                {completedTasks.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onToggle={() => handleToggleTask(task)}
+                    onEdit={() => {
+                      setEditTask(task);
+                      setTaskForm({
+                        title: task.title,
+                        description: task.description || "",
+                        dueDate: task.dueDate
+                          ? new Date(task.dueDate).toISOString().split("T")[0]
+                          : "",
+                        priority: task.priority,
+                      });
+                      setTaskModalOpen(true);
+                    }}
+                    onDelete={() => handleDeleteTask(task.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Transition note dialog */}
+      <AlertDialog open={showTransitionDialog} onOpenChange={setShowTransitionDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Nota obbligatoria</AlertDialogTitle>
+            <AlertDialogDescription>
+              Per chiudere questo cliente è necessario aggiungere una nota di motivazione.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Textarea
+            placeholder="Inserisci il motivo della chiusura..."
+            value={transitionNote}
+            onChange={(e) => setTransitionNote(e.target.value)}
+            rows={3}
+            className="my-4"
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingTransition(null)}>
+              Annulla
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!transitionNote.trim()}
+              onClick={() =>
+                pendingTransition && performTransition(pendingTransition, transitionNote)
+              }
+            >
+              Conferma chiusura
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+// ── Task Card sub-component ──
+function TaskCard({
+  task,
+  onToggle,
+  onEdit,
+  onDelete,
+}: {
+  task: Task;
+  onToggle: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const isCompleted = task.status === "completed";
+  const overdue = task.dueDate && isOverdue(task.dueDate) && !isCompleted;
+
+  return (
+    <Card className={`${isCompleted ? "opacity-60" : ""} ${overdue ? "border-red-200 bg-red-50 dark:bg-red-950/20" : ""}`}>
+      <CardContent className="flex items-center gap-3 py-3">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0"
+          onClick={onToggle}
+        >
+          {isCompleted ? (
+            <CheckCircle2 className="h-5 w-5 text-green-500" />
+          ) : (
+            <Circle className="h-5 w-5 text-muted-foreground" />
+          )}
+        </Button>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-sm font-medium ${
+                isCompleted ? "line-through" : ""
+              }`}
+            >
+              {task.title}
+            </span>
+            <PriorityBadge priority={task.priority} />
+            {overdue && (
+              <span className="text-xs text-destructive font-medium">Scaduto</span>
+            )}
+          </div>
+          {task.description && (
+            <p className="text-xs text-muted-foreground truncate mt-0.5">
+              {task.description}
+            </p>
+          )}
+          {task.dueDate && (
+            <p className={`text-xs mt-0.5 ${overdue ? "text-destructive" : "text-muted-foreground"}`}>
+              Scadenza: {formatDate(task.dueDate)}
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" onClick={onEdit}>
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="icon">
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Eliminare questo task?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Questa azione è irreversibile.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Annulla</AlertDialogCancel>
+                <AlertDialogAction onClick={onDelete}>Elimina</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+</file>
+
+<file path="app/(dashboard)/dashboard/page.tsx">
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { PriorityBadge } from "@/components/priority-badge";
+import { formatDate, isOverdue } from "@/lib/utils";
+import { AlertTriangle, TrendingUp, AlertCircle, Calendar } from "lucide-react";
+import type { ClientStatus, Priority } from "@/types";
+
+interface TaskItem {
+  id: string;
+  title: string;
+  priority: Priority;
+  dueDate: number | null;
+  clientId: string;
+  clientName: string | null;
+  clientPhone: string | null;
+}
+
+interface DashboardData {
+  statusCounts: Record<ClientStatus, number>;
+  overdueCount: number;
+  overdueTasks: TaskItem[];
+  dueTodayTasks: TaskItem[];
+  trendData: { date: string; count: number }[];
+}
+
+export default function DashboardPage() {
+  const router = useRouter();
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    console.log("[Dashboard] Fetch avviato");
+    fetch("/api/dashboard")
+      .then((r) => {
+        console.log("[Dashboard] Response status:", r.status);
+        if (!r.ok) throw new Error(`Errore HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((json) => {
+        console.log("[Dashboard] JSON ricevuto:", json);
+        if (json.error) throw new Error(json.error);
+        setData(json);
+      })
+      .catch((err) => {
+        console.error("[Dashboard] Errore fetch:", err.message);
+        setError(err.message);
+      })
+      .finally(() => {
+        console.log("[Dashboard] Fetch completato");
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">Caricamento...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center space-y-2">
+          <p className="text-destructive font-medium">Errore di caricamento</p>
+          <p className="text-sm text-muted-foreground">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="text-sm text-primary hover:underline"
+          >
+            Riprova
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-destructive">Nessun dato disponibile</p>
+      </div>
+    );
+  }
+
+  const maxTrend = Math.max(...data.trendData.map((d) => d.count), 1);
+
+  const statusCards: { key: ClientStatus; label: string; variant: "info" | "warning" | "success" | "muted"; bgClass: string }[] = [
+    { key: "lead", label: "Lead", variant: "info", bgClass: "bg-blue-50" },
+    { key: "suspect", label: "Suspect", variant: "warning", bgClass: "bg-yellow-50" },
+    { key: "won", label: "Won", variant: "success", bgClass: "bg-green-50" },
+    { key: "closed_lost", label: "Closed Lost", variant: "muted", bgClass: "bg-gray-50" },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">Dashboard</h2>
+        <p className="text-muted-foreground">
+          Panoramica del tuo CRM FindFit
+        </p>
+      </div>
+
+      {/* Overdue banner */}
+      {data.overdueCount > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+          <AlertTriangle className="h-5 w-5 shrink-0" />
+          <p className="text-sm font-medium">
+            Attenzione: {data.overdueCount} task scaduti richiedono la tua attenzione!
+          </p>
+        </div>
+      )}
+
+      {/* Status cards: solo 4 */}
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+        {statusCards.map(({ key, label, variant, bgClass }) => (
+          <Card key={key} className={bgClass}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">{label}</CardTitle>
+              <Badge variant={variant}>{label}</Badge>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{data.statusCounts[key]}</div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Task lists */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* Task scaduti */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-destructive" />
+              Task scaduti
+            </CardTitle>
+            <span className="text-xs text-muted-foreground">
+              {data.overdueTasks.length} task
+            </span>
+          </CardHeader>
+          <CardContent>
+            {data.overdueTasks.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                Nessun task scaduto
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {data.overdueTasks.map((task) => (
+                  <button
+                    key={task.id}
+                    onClick={() => router.push(`/clienti/${task.clientId}`)}
+                    className="w-full flex items-center gap-3 rounded-lg border border-red-100 bg-red-50/50 p-3 text-left text-sm transition-colors hover:bg-red-100 dark:border-red-900 dark:bg-red-950/20 dark:hover:bg-red-950/40"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{task.title}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        <span className="font-medium">{task.clientName || "Sconosciuto"}</span>
+                        {task.clientPhone && <> · {task.clientPhone}</>}
+                        {task.dueDate && <> · scad. {formatDate(task.dueDate)}</>}
+                      </p>
+                    </div>
+                    <PriorityBadge priority={task.priority} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Task in scadenza oggi */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-amber-500" />
+              Task in scadenza oggi
+            </CardTitle>
+            <span className="text-xs text-muted-foreground">
+              {data.dueTodayTasks.length} task
+            </span>
+          </CardHeader>
+          <CardContent>
+            {data.dueTodayTasks.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                Nessun task in scadenza oggi
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {data.dueTodayTasks.map((task) => (
+                  <button
+                    key={task.id}
+                    onClick={() => router.push(`/clienti/${task.clientId}`)}
+                    className="w-full flex items-center gap-3 rounded-lg border border-amber-100 bg-amber-50/50 p-3 text-left text-sm transition-colors hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/20 dark:hover:bg-amber-950/40"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{task.title}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        <span className="font-medium">{task.clientName || "Sconosciuto"}</span>
+                        {task.clientPhone && <> · {task.clientPhone}</>}
+                        {task.dueDate && <> · scad. {formatDate(task.dueDate)}</>}
+                      </p>
+                    </div>
+                    <PriorityBadge priority={task.priority} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Trend chart — barre verticali */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <TrendingUp className="h-4 w-4" />
+            Nuovi Clienti (7 giorni)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-end gap-3 h-[200px]">
+            {data.trendData.map((item) => {
+              const pct = maxTrend > 0 ? (item.count / maxTrend) * 100 : 0;
+              return (
+                <div
+                  key={item.date}
+                  className="flex flex-1 flex-col items-center justify-end h-full"
+                >
+                  {/* Etichetta conteggio sopra la barra */}
+                  <span className="mb-1 text-xs font-semibold text-foreground">
+                    {item.count}
+                  </span>
+                  {/* Barra */}
+                  <div
+                    className="w-full max-w-[48px] rounded-t-md bg-primary transition-all duration-300 hover:opacity-80"
+                    style={{ height: `${Math.max(pct, 2)}%` }}
+                  />
+                  {/* Etichetta giorno sotto */}
+                  <span className="mt-2 text-[11px] text-muted-foreground text-center leading-tight">
+                    {item.date}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+</file>
+
+<file path="app/(dashboard)/kanban/page.tsx">
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
+import { StatusBadge } from "@/components/status-badge";
+import { useToast } from "@/components/ui/use-toast";
+import { clientStatuses, allowedTransitions, requiresNoteForTransition, type ClientStatus } from "@/types";
+
+interface Client {
+  id: string;
+  name: string;
+  phone: string | null;
+  company: string | null;
+  status: ClientStatus;
+}
+
+const columns: { id: ClientStatus; title: string; bgClass: string }[] = [
+  { id: "lead", title: "Lead", bgClass: "bg-blue-50" },
+  { id: "suspect", title: "Suspect", bgClass: "bg-yellow-50" },
+  { id: "won", title: "Won", bgClass: "bg-green-50" },
+  { id: "closed_lost", title: "Closed Lost", bgClass: "bg-gray-50" },
+];
+
+export default function KanbanPage() {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [clients, setClients] = useState<Client[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Close transition modal state
+  const [closeModal, setCloseModal] = useState<{
+    clientId: string;
+    currentStatus: ClientStatus;
+  } | null>(null);
+  const [closeNote, setCloseNote] = useState("");
+
+  const fetchClients = useCallback(async () => {
+    try {
+      const res = await fetch("/api/clients?limit=100");
+      const data = await res.json();
+      setClients(data.data);
+    } catch {
+      toast({
+        title: "Errore",
+        description: "Impossibile caricare i clienti",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchClients();
+  }, [fetchClients]);
+
+  const performCloseTransition = async () => {
+    if (!closeModal) return;
+    if (!closeNote.trim()) {
+      toast({
+        title: "Nota obbligatoria",
+        description: "Inserisci una nota di motivazione per la chiusura",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const { clientId, currentStatus } = closeModal;
+
+    // Optimistic update
+    setClients((prev) =>
+      prev.map((c) =>
+        c.id === clientId ? { ...c, status: "closed_lost" } : c
+      )
+    );
+    setCloseModal(null);
+    setCloseNote("");
+
+    try {
+      const res = await fetch(`/api/clients/${clientId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "closed_lost", noteContent: closeNote.trim() }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        toast({ title: "Errore", description: err.error, variant: "destructive" });
+        fetchClients();
+      }
+    } catch {
+      toast({
+        title: "Errore",
+        description: "Transizione fallita",
+        variant: "destructive",
+      });
+      fetchClients();
+    }
+  };
+
+  const handleDragEnd = async (result: DropResult) => {
+    if (!result.destination) return;
+
+    const { draggableId, source, destination } = result;
+    const newStatus = destination.droppableId as ClientStatus;
+    const currentStatus = source.droppableId as ClientStatus;
+
+    // Check if transition is allowed
+    const allowed = allowedTransitions[currentStatus];
+    if (!allowed.includes(newStatus)) {
+      toast({
+        title: "Transizione non consentita",
+        description: `Da "${currentStatus}" a "${newStatus}" non è permessa`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Intercept close transitions that require a note
+    if (requiresNoteForTransition(currentStatus, newStatus)) {
+      setCloseModal({ clientId: draggableId, currentStatus });
+      setCloseNote("");
+      return;
+    }
+
+    // Optimistic update for normal transitions
+    setClients((prev) =>
+      prev.map((c) =>
+        c.id === draggableId ? { ...c, status: newStatus } : c
+      )
+    );
+
+    try {
+      const res = await fetch(`/api/clients/${draggableId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        toast({ title: "Errore", description: err.error, variant: "destructive" });
+        fetchClients();
+      }
+    } catch {
+      toast({
+        title: "Errore",
+        description: "Transizione fallita",
+        variant: "destructive",
+      });
+      fetchClients();
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">Caricamento...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">Trattative</h2>
+        <p className="text-muted-foreground">
+          Trascina i clienti tra le colonne per aggiornare lo status
+        </p>
+      </div>
+
+      <DragDropContext onDragEnd={handleDragEnd}>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {columns.map((column) => {
+            const columnClients = clients.filter(
+              (c) => c.status === column.id
+            );
+
+            return (
+              <div key={column.id} className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-sm">{column.title}</h3>
+                  <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                    {columnClients.length}
+                  </span>
+                </div>
+
+                <Droppable droppableId={column.id}>
+                  {(provided, snapshot) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.droppableProps}
+                      className={`min-h-[200px] rounded-lg border-2 border-dashed p-3 space-y-3 transition-colors ${column.bgClass} ${
+                        snapshot.isDraggingOver
+                          ? "border-primary bg-primary/10"
+                          : "border-muted"
+                      }`}
+                    >
+                      {columnClients.length === 0 && !snapshot.isDraggingOver && (
+                        <p className="text-xs text-muted-foreground text-center py-8">
+                          Nessun cliente
+                        </p>
+                      )}
+
+                      {columnClients.map((client, index) => (
+                        <Draggable
+                          key={client.id}
+                          draggableId={client.id}
+                          index={index}
+                        >
+                          {(provided, snapshot) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...(provided.draggableProps as any)}
+                              {...(provided.dragHandleProps as any)}
+                              onClick={() => router.push(`/clienti/${client.id}`)}
+                              className={`rounded-lg border bg-card text-card-foreground shadow-sm p-3 cursor-pointer hover:bg-accent/50 ${
+                                snapshot.isDragging
+                                  ? "shadow-lg ring-2 ring-primary"
+                                  : ""
+                              }`}
+                            >
+                              <p className="font-medium text-sm truncate">
+                                {client.name}
+                              </p>
+                              {client.company && (
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {client.company}
+                                </p>
+                              )}
+                              {client.phone && (
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {client.phone}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </Draggable>
+                      ))}
+                      {provided.placeholder}
+                    </div>
+                  )}
+                </Droppable>
+              </div>
+            );
+          })}
+        </div>
+      </DragDropContext>
+
+      {/* Close transition note modal */}
+      <AlertDialog
+        open={closeModal !== null}
+        onOpenChange={(open) => {
+          if (!open) setCloseModal(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Nota obbligatoria</AlertDialogTitle>
+            <AlertDialogDescription>
+              Per chiudere questo cliente è necessario aggiungere una nota di motivazione.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="closeNote">Nota di chiusura</Label>
+            <Textarea
+              id="closeNote"
+              placeholder="Inserisci il motivo della chiusura..."
+              value={closeNote}
+              onChange={(e) => setCloseNote(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setCloseModal(null)}>
+              Annulla
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={performCloseTransition}>
+              Conferma chiusura
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+</file>
+
+<file path="app/(dashboard)/layout.tsx">
+"use client";
+
+import { useState } from "react";
+import { Sidebar } from "@/components/sidebar";
+import { Topbar } from "@/components/topbar";
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  return (
+    <div className="flex h-screen">
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <Topbar onMenuClick={() => setSidebarOpen(true)} />
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6">{children}</main>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="app/api/dashboard/route.ts">
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { clients, tasks } from "@/lib/schema";
+import { eq, sql, lte, desc, and, gte } from "drizzle-orm";
+
+const priorityOrder = sql`CASE ${tasks.priority}
+  WHEN 'high' THEN 1
+  WHEN 'medium' THEN 2
+  WHEN 'low' THEN 3
+END`;
+
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  console.log("[Dashboard API] Chiamata ricevuta");
+  console.log("[Dashboard API] TURSO_DB_URL presente:", !!process.env.TURSO_DB_URL);
+  console.log("[Dashboard API] TURSO_AUTH_TOKEN presente:", !!process.env.TURSO_AUTH_TOKEN);
+
+  try {
+    if (!process.env.TURSO_DB_URL) {
+      console.error("[Dashboard API] TURSO_DB_URL mancante");
+      return NextResponse.json(
+        { error: "Database Turso non configurato. Imposta TURSO_DB_URL e TURSO_AUTH_TOKEN in .env.local" },
+        { status: 500 }
+      );
+    }
+
+    const now = new Date();
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+
+    // Count per status
+    const statusCounts = await db
+      .select({
+        status: clients.status,
+        count: sql<number>`count(*)`,
+      })
+      .from(clients)
+      .groupBy(clients.status);
+
+    const statusMap: Record<string, number> = {
+      lead: 0,
+      suspect: 0,
+      won: 0,
+      closed_lost: 0,
+    };
+    statusCounts.forEach((s) => {
+      statusMap[s.status] = Number(s.count);
+    });
+
+    // Overdue tasks banner count
+    const overdueCount = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(tasks)
+      .where(
+        and(
+          lte(tasks.dueDate, now),
+          sql`${tasks.status} IN ('todo', 'in_progress')`
+        )
+      );
+
+    // Top 10 overdue tasks (due before today, not completed), ordered by priority
+    const overdueTodayTasks = await db
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        priority: tasks.priority,
+        dueDate: tasks.dueDate,
+        clientId: tasks.clientId,
+        clientName: clients.name,
+        clientPhone: clients.phone,
+      })
+      .from(tasks)
+      .leftJoin(clients, eq(tasks.clientId, clients.id))
+      .where(
+        and(
+          lte(tasks.dueDate, startOfToday),
+          sql`${tasks.status} IN ('todo', 'in_progress')`
+        )
+      )
+      .orderBy(priorityOrder, desc(tasks.dueDate))
+      .limit(10);
+
+    // Top 10 tasks due today (not yet overdue), ordered by priority
+    const dueTodayTasks = await db
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        priority: tasks.priority,
+        dueDate: tasks.dueDate,
+        clientId: tasks.clientId,
+        clientName: clients.name,
+        clientPhone: clients.phone,
+      })
+      .from(tasks)
+      .leftJoin(clients, eq(tasks.clientId, clients.id))
+      .where(
+        and(
+          gte(tasks.dueDate, startOfToday),
+          lte(tasks.dueDate, endOfToday),
+          sql`${tasks.status} IN ('todo', 'in_progress')`
+        )
+      )
+      .orderBy(priorityOrder, desc(tasks.dueDate))
+      .limit(10);
+
+    // Trend: clients created in last 7 days
+    const trendData = [];
+    for (let i = 6; i >= 0; i--) {
+      const day = new Date();
+      day.setDate(day.getDate() - i);
+      const dayStart = new Date(day);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(day);
+      dayEnd.setHours(23, 59, 59, 999);
+
+      const [countResult] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(clients)
+        .where(
+          and(gte(clients.createdAt, dayStart), lte(clients.createdAt, dayEnd))
+        );
+
+      trendData.push({
+        date: day.toLocaleDateString("it-IT", {
+          day: "2-digit",
+          month: "2-digit",
+        }),
+        count: Number(countResult?.count || 0),
+      });
+    }
+
+    return NextResponse.json({
+      statusCounts: statusMap,
+      overdueCount: Number(overdueCount[0]?.count || 0),
+      overdueTasks: overdueTodayTasks.map((t) => ({
+        ...t,
+        dueDate: t.dueDate ? t.dueDate.getTime() : null,
+      })),
+      dueTodayTasks: dueTodayTasks.map((t) => ({
+        ...t,
+        dueDate: t.dueDate ? t.dueDate.getTime() : null,
+      })),
+      trendData,
+    });
+  } catch (error) {
+    console.error("Error fetching dashboard data:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento della dashboard" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/note/[id]/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { notes } from "@/lib/schema";
+import { noteSchema } from "@/types";
+import { eq } from "drizzle-orm";
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const body = await request.json();
+    const parsed = noteSchema.partial().parse(body);
+
+    const [updated] = await db
+      .update(notes)
+      .set({ ...parsed, updatedAt: new Date() })
+      .where(eq(notes.id, id))
+      .returning();
+
+    if (!updated) {
+      return NextResponse.json(
+        { error: "Nota non trovata" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json(updated);
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error updating note:", error);
+    return NextResponse.json(
+      { error: "Errore nell'aggiornamento della nota" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    await db.delete(notes).where(eq(notes.id, id));
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting note:", error);
+    return NextResponse.json(
+      { error: "Errore nell'eliminazione della nota" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/tasks/[id]/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { tasks } from "@/lib/schema";
+import { taskSchema } from "@/types";
+import { eq } from "drizzle-orm";
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const body = await request.json();
+    const parsed = taskSchema.partial().parse(body);
+
+    // Get current task to check status change
+    const existing = await db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.id, id))
+      .limit(1);
+
+    if (!existing.length) {
+      return NextResponse.json(
+        { error: "Task non trovato" },
+        { status: 404 }
+      );
+    }
+
+    const updateData: Record<string, any> = {
+      ...parsed,
+      updatedAt: new Date(),
+    };
+
+    // Handle completion
+    if (body.status === "completed" && existing[0].status !== "completed") {
+      updateData.completedAt = new Date();
+    } else if (body.status && body.status !== "completed") {
+      updateData.completedAt = null;
+    }
+
+    if (parsed.dueDate) {
+      updateData.dueDate = new Date(parsed.dueDate);
+    }
+
+    const [updated] = await db
+      .update(tasks)
+      .set(updateData)
+      .where(eq(tasks.id, id))
+      .returning();
+
+    return NextResponse.json(updated);
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error updating task:", error);
+    return NextResponse.json(
+      { error: "Errore nell'aggiornamento del task" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    await db.delete(tasks).where(eq(tasks.id, id));
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting task:", error);
+    return NextResponse.json(
+      { error: "Errore nell'eliminazione del task" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="components/sidebar.tsx">
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import {
+  LayoutDashboard,
+  Users,
+  Kanban,
+  CalendarCheck,
+  FileText,
+  Settings,
+  Mail,
+  X,
+} from "lucide-react";
+
+interface SidebarProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+const navItems = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/clienti", label: "Lista Clienti", icon: Users },
+  { href: "/kanban", label: "Trattative", icon: Kanban },
+  { href: "/task", label: "Task Scaduti", icon: CalendarCheck },
+  { href: "/note", label: "Note Recenti", icon: FileText },
+  { href: "/test-email", label: "Test Email", icon: Mail },
+  { href: "/impostazioni", label: "Impostazioni", icon: Settings },
+];
+
+export function Sidebar({ open, onClose }: SidebarProps) {
+  const pathname = usePathname();
+
+  return (
+    <>
+      {/* Mobile overlay */}
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={onClose}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r bg-background transition-transform duration-300 lg:static lg:translate-x-0",
+          open ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        <div className="flex h-14 items-center justify-between border-b px-4 lg:hidden">
+          <span className="font-semibold">CRM FindFit</span>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-3 py-4">
+          <nav className="flex flex-col gap-1">
+            {navItems.map((item) => {
+              const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={onClose}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                    isActive
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  <Icon className="h-5 w-5 shrink-0" />
+                  <span className="hidden lg:inline">{item.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
+
+        <div className="border-t p-4">
+          <p className="text-xs text-muted-foreground">CRM FindFit v1.0</p>
+        </div>
+      </aside>
+    </>
+  );
+}
+</file>
+
+<file path="components/status-badge.tsx">
+import { Badge } from "@/components/ui/badge";
+import type { ClientStatus } from "@/types";
+
+const statusConfig: Record<
+  ClientStatus,
+  { label: string; variant: "info" | "warning" | "success" | "muted" }
+> = {
+  lead: { label: "Lead", variant: "info" },
+  suspect: { label: "Suspect", variant: "warning" },
+  won: { label: "Won", variant: "success" },
+  closed_lost: { label: "Closed Lost", variant: "muted" },
+};
+
+export function StatusBadge({ status }: { status: ClientStatus }) {
+  const config = statusConfig[status];
+  return (
+    <Badge variant={config.variant} className="font-medium">
+      {config.label}
+    </Badge>
+  );
+}
+</file>
+
+<file path="lib/schema.ts">
+import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+
+// ── Clienti ──
+export const clients = sqliteTable("clients", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  email: text("email"),
+  phone: text("phone"),
+  company: text("company"),
+  status: text("status", {
+    enum: ["lead", "suspect", "won", "closed_lost"],
+  })
+    .notNull()
+    .default("lead"),
+  notes: text("notes"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
+// ── Note ──
+export const notes = sqliteTable("notes", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  clientId: text("client_id")
+    .notNull()
+    .references(() => clients.id, { onDelete: "cascade" }),
+  content: text("content").notNull(),
+  type: text("type", {
+    enum: ["conversazione", "promemoria", "decisione"],
+  })
+    .notNull()
+    .default("conversazione"),
+  author: text("author").notNull().default("Utente"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
+// ── Task ──
+export const tasks = sqliteTable("tasks", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  clientId: text("client_id")
+    .notNull()
+    .references(() => clients.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  dueDate: integer("due_date", { mode: "timestamp" }),
+  status: text("status", {
+    enum: ["todo", "in_progress", "completed", "cancelled"],
+  })
+    .notNull()
+    .default("todo"),
+  priority: text("priority", { enum: ["low", "medium", "high"] })
+    .notNull()
+    .default("medium"),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
+// ── Tipi ──
+export type Client = typeof clients.$inferSelect;
+export type NewClient = typeof clients.$inferInsert;
+export type Note = typeof notes.$inferSelect;
+export type NewNote = typeof notes.$inferInsert;
+export type Task = typeof tasks.$inferSelect;
+export type NewTask = typeof tasks.$inferInsert;
+</file>
+
+<file path="package.json">
+{
+  "name": "crm-findfit",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@hello-pangea/dnd": "^16.6.0",
+    "@libsql/client": "^0.14.0",
+    "@radix-ui/react-alert-dialog": "^1.1.1",
+    "@radix-ui/react-avatar": "^1.1.0",
+    "@radix-ui/react-dialog": "^1.1.1",
+    "@radix-ui/react-dropdown-menu": "^2.1.1",
+    "@radix-ui/react-label": "^2.1.0",
+    "@radix-ui/react-popover": "^1.1.1",
+    "@radix-ui/react-scroll-area": "^1.1.0",
+    "@radix-ui/react-select": "^2.1.1",
+    "@radix-ui/react-separator": "^1.1.0",
+    "@radix-ui/react-slot": "^1.1.0",
+    "@radix-ui/react-toast": "^1.2.1",
+    "@radix-ui/react-tooltip": "^1.1.2",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "drizzle-orm": "^0.31.0",
+    "imapflow": "^1.4.0",
+    "lucide-react": "^0.379.0",
+    "mailparser": "^3.9.9",
+    "next": "^14.2.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.3.0",
+    "tailwindcss-animate": "^1.0.7",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "@types/react": "^18.3.2",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.5.0",
+    "dotenv": "^17.4.2",
+    "drizzle-kit": "^0.31.10",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "tsx": "^4.22.4",
+    "typescript": "^5.4.5"
+  }
+}
+</file>
+
 <file path="types/index.ts">
 import { z } from "zod";
 
 // ── Client ──
-export const clientStatuses = ["lead", "suspect", "won", "close"] as const;
+export const clientStatuses = ["lead", "suspect", "won", "closed_lost"] as const;
 export type ClientStatus = (typeof clientStatuses)[number];
 
 export const clientSchema = z.object({
@@ -5626,18 +6034,213 @@ export type TaskFormData = z.infer<typeof taskSchema>;
 
 // ── Transizioni status ──
 export const allowedTransitions: Record<ClientStatus, ClientStatus[]> = {
-  lead: ["suspect", "close"],
-  suspect: ["won", "close"],
-  won: ["close"],
-  close: [],
+  lead: ["suspect", "won", "closed_lost"],
+  suspect: ["lead", "won", "closed_lost"],
+  won: [],
+  closed_lost: ["lead", "suspect", "won"],
 };
 
 export function requiresNoteForTransition(
   from: ClientStatus,
   to: ClientStatus
 ): boolean {
-  return (from === "lead" || from === "suspect") && to === "close";
+  return (from === "lead" || from === "suspect") && to === "closed_lost";
 }
+</file>
+
+<file path="app/api/clients/[id]/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { clients, tasks } from "@/lib/schema";
+import { clientSchema, allowedTransitions, requiresNoteForTransition } from "@/types";
+import { eq } from "drizzle-orm";
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const client = await db
+      .select()
+      .from(clients)
+      .where(eq(clients.id, id))
+      .limit(1);
+
+    if (!client.length) {
+      return NextResponse.json(
+        { error: "Cliente non trovato" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json(client[0]);
+  } catch (error) {
+    console.error("Error fetching client:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento del cliente" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const body = await request.json();
+    const existing = await db
+      .select()
+      .from(clients)
+      .where(eq(clients.id, id))
+      .limit(1);
+
+    if (!existing.length) {
+      return NextResponse.json(
+        { error: "Cliente non trovato" },
+        { status: 404 }
+      );
+    }
+
+    const currentClient = existing[0];
+
+    // Handle status transitions
+    if (body.status && body.status !== currentClient.status) {
+      const allowed = allowedTransitions[currentClient.status];
+      if (!allowed.includes(body.status)) {
+        return NextResponse.json(
+          {
+            error: `Transizione da "${currentClient.status}" a "${body.status}" non consentita`,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (requiresNoteForTransition(currentClient.status, body.status) && !body.noteContent) {
+        return NextResponse.json(
+          {
+            error:
+              "Per chiudere un cliente è necessario aggiungere una nota di motivazione",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Prepare update data (only provided fields)
+    const updateData: Record<string, any> = {};
+    const allowedFields = ["name", "email", "phone", "company", "status", "notes"];
+    for (const field of allowedFields) {
+      if (body[field] !== undefined) {
+        updateData[field] = body[field] || null;
+      }
+    }
+    updateData.updatedAt = new Date();
+
+    const [updated] = await db
+      .update(clients)
+      .set(updateData)
+      .where(eq(clients.id, id))
+      .returning();
+
+    // Create note if transition requires it
+    if (body.status && body.status !== currentClient.status && body.noteContent) {
+      const { notes: notesTable } = await import("@/lib/schema");
+      await db.insert(notesTable).values({
+        clientId: id,
+        content: body.noteContent,
+        type: "decisione",
+        author: "Sistema",
+      });
+    }
+
+    // Create automatic tasks on new status
+    if (body.status === "suspect" && body.status !== currentClient.status) {
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 3);
+      await db.insert(tasks).values({
+        clientId: id,
+        title: "Chiamata qualificazione",
+        description: "Chiamata di qualificazione per il nuovo suspect",
+        dueDate,
+        priority: "high",
+      });
+    }
+
+    if (body.status === "won" && body.status !== currentClient.status) {
+      const dueContract = new Date();
+      dueContract.setDate(dueContract.getDate() + 2);
+      const dueOnboarding = new Date();
+      dueOnboarding.setDate(dueOnboarding.getDate() + 7);
+
+      await db.insert(tasks).values([
+        {
+          clientId: id,
+          title: "Invia contratto",
+          description: "Inviare il contratto al cliente",
+          dueDate: dueContract,
+          priority: "high",
+        },
+        {
+          clientId: id,
+          title: "Onboarding",
+          description: "Completare l'onboarding del cliente",
+          dueDate: dueOnboarding,
+          priority: "medium",
+        },
+      ]);
+    }
+
+    return NextResponse.json(updated);
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error updating client:", error);
+    return NextResponse.json(
+      { error: "Errore nell'aggiornamento del cliente" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    await db.delete(clients).where(eq(clients.id, id));
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting client:", error);
+    return NextResponse.json(
+      { error: "Errore nell'eliminazione del cliente" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="drizzle.config.ts">
+import { config } from "dotenv";
+import { defineConfig } from "drizzle-kit";
+
+config({ path: ".env.local" });
+
+export default defineConfig({
+  schema: "./lib/schema.ts",
+  out: "./drizzle",
+  dialect: "sqlite",
+  dbCredentials: {
+    url: process.env.TURSO_DB_URL!,
+  },
+});
 </file>
 
 </files>
