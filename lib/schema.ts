@@ -1,10 +1,11 @@
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { randomUUID } from "crypto";
 
 // ── Utenti ──
 export const users = sqliteTable("users", {
   id: text("id")
     .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
+    .$defaultFn(() => randomUUID()),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
@@ -27,7 +28,7 @@ export const users = sqliteTable("users", {
 export const clients = sqliteTable("clients", {
   id: text("id")
     .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
+    .$defaultFn(() => randomUUID()),
   name: text("name").notNull(),
   email: text("email"),
   phone: text("phone"),
@@ -52,7 +53,7 @@ export const clients = sqliteTable("clients", {
 export const notes = sqliteTable("notes", {
   id: text("id")
     .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
+    .$defaultFn(() => randomUUID()),
   clientId: text("client_id")
     .notNull()
     .references(() => clients.id, { onDelete: "cascade" }),
@@ -76,7 +77,7 @@ export const notes = sqliteTable("notes", {
 export const tasks = sqliteTable("tasks", {
   id: text("id")
     .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
+    .$defaultFn(() => randomUUID()),
   clientId: text("client_id")
     .notNull()
     .references(() => clients.id, { onDelete: "cascade" }),

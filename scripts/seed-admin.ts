@@ -1,6 +1,7 @@
 import { createClient } from "@libsql/client";
 import { config } from "dotenv";
 import bcrypt from "bcryptjs";
+import { randomUUID } from "crypto";
 
 config({ path: ".env.local" });
 
@@ -14,14 +15,15 @@ async function main() {
   const password = process.argv[3] || "admin123";
   const name = process.argv[4] || "Amministratore";
 
-  const hash = await bcrypt.hash(password, 12);
+  // Se ADMIN_PASSWORD_HASH è impostato in env, usalo direttamente (utile su Vercel)
+  const hash = process.env.ADMIN_PASSWORD_HASH || await bcrypt.hash(password, 12);
 
   try {
     await client.execute({
       sql: `INSERT INTO users (id, email, password_hash, name, role, is_active, created_at, updated_at)
             VALUES (?, ?, ?, ?, 'admin', 1, ?, ?)`,
       args: [
-        crypto.randomUUID(),
+        randomUUID(),
         email,
         hash,
         name,
