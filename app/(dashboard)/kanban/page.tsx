@@ -27,6 +27,7 @@ interface Client {
   phone: string | null;
   company: string | null;
   status: ClientStatus;
+  userId: string | null;
 }
 
 const columns: { id: ClientStatus; title: string; bgClass: string }[] = [
@@ -41,6 +42,28 @@ export default function KanbanPage() {
   const { toast } = useToast();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
+  const [usersMap, setUsersMap] = useState<Record<string, string>>({});
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.user) setCurrentUserId(json.user.id);
+      })
+      .catch(() => {});
+
+    fetch("/api/users")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.data) {
+          const map: Record<string, string> = {};
+          json.data.forEach((u: any) => { map[u.id] = u.name; });
+          setUsersMap(map);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Close transition modal state
   const [closeModal, setCloseModal] = useState<{
@@ -229,25 +252,37 @@ export default function KanbanPage() {
                               {...(provided.draggableProps as any)}
                               {...(provided.dragHandleProps as any)}
                               onClick={() => router.push(`/clienti/${client.id}`)}
-                              className={`rounded-lg border bg-card text-card-foreground shadow-sm p-3 cursor-pointer hover:bg-accent/50 ${
+                              className={`rounded-lg border bg-card text-card-foreground shadow-sm p-3 cursor-pointer hover:bg-accent/50 relative ${
                                 snapshot.isDragging
                                   ? "shadow-lg ring-2 ring-primary"
                                   : ""
                               }`}
                             >
-                              <p className="font-medium text-sm truncate">
-                                {client.name}
-                              </p>
-                              {client.company && (
-                                <p className="text-xs text-muted-foreground truncate">
-                                  {client.company}
-                                </p>
-                              )}
-                              {client.phone && (
-                                <p className="text-xs text-muted-foreground truncate">
-                                  {client.phone}
-                                </p>
-                              )}
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium text-sm truncate">
+                                    {client.name || client.company}
+                                  </p>
+                                  {client.name && client.company && (
+                                    <p className="text-xs text-muted-foreground truncate">
+                                      {client.company}
+                                    </p>
+                                  )}
+                                  {client.phone && (
+                                    <p className="text-xs text-muted-foreground truncate">
+                                      {client.phone}
+                                    </p>
+                                  )}
+                                </div>
+                                {client.userId && usersMap[client.userId] && (
+                                  <div
+                                    className="shrink-0 flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary"
+                                    title={`Assegnato a: ${usersMap[client.userId]}`}
+                                  >
+                                    {usersMap[client.userId].charAt(0).toUpperCase()}
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           )}
                         </Draggable>

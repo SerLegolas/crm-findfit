@@ -71,8 +71,15 @@ interface Client {
   company: string | null;
   status: ClientStatus;
   notes: string | null;
+  userId: string | null;
   createdAt: number;
   updatedAt: number;
+}
+
+interface User {
+  id: string;
+  name: string;
+  email: string;
 }
 
 interface Note {
@@ -117,6 +124,10 @@ export default function ClientDetailPage() {
 
   // Form state for edit
   const [editForm, setEditForm] = useState({ name: "", email: "", phone: "", company: "", notes: "" });
+
+  // Current user & admin user list
+  const [currentUser, setCurrentUser] = useState<{ id: string; role: string } | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
 
   // Note form
   const [noteForm, setNoteForm] = useState({ content: "", type: "conversazione" as NoteType, author: "Utente" });
@@ -167,6 +178,23 @@ export default function ClientDetailPage() {
   }, [params.id]);
 
   useEffect(() => {
+    // Fetch current user
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.user) {
+          setCurrentUser(json.user);
+          // Se admin, carica lista utenti
+          if (json.user.role === "admin") {
+            fetch("/api/users")
+              .then((r) => r.json())
+              .then((d) => setUsers(d.data || []))
+              .catch(() => {});
+          }
+        }
+      })
+      .catch(() => {});
+
     Promise.all([fetchClient(), fetchNotes(), fetchTasks()]).finally(() =>
       setLoading(false)
     );
@@ -348,6 +376,23 @@ export default function ClientDetailPage() {
     }
   };
 
+  // ── Assign user ──
+  const handleAssignUser = async (userId: string) => {
+    if (!client) return;
+    try {
+      const res = await fetch(`/api/clients/${client.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: userId || null }),
+      });
+      if (!res.ok) throw new Error();
+      toast({ title: "Assegnazione aggiornata", variant: "success" as any });
+      fetchClient();
+    } catch {
+      toast({ title: "Errore", description: "Assegnazione fallita", variant: "destructive" });
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -492,6 +537,29 @@ export default function ClientDetailPage() {
                 <p className="text-sm text-muted-foreground">
                   Questo cliente è chiuso. Non sono possibili ulteriori transizioni.
                 </p>
+              )}
+
+              {/* Assegnazione utente (solo admin) */}
+              {currentUser?.role === "admin" && (
+                <div className="space-y-2 pt-4 border-t">
+                  <Label>Assegnato a</Label>
+                  <Select
+                    value={client.userId || "__none__"}
+                    onValueChange={(val) => handleAssignUser(val === "__none__" ? "" : val)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Nessuno (non assegnato)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Nessuno</SelectItem>
+                      {users.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.name} ({u.email})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               )}
             </CardContent>
           </Card>

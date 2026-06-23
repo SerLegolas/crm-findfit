@@ -62,6 +62,7 @@ interface Client {
   company: string | null;
   status: ClientStatus;
   notes: string | null;
+  userId: string | null;
   createdAt: number;
 }
 
@@ -78,6 +79,8 @@ export default function ClientiPage() {
   const [order, setOrder] = useState("desc");
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+  const [usersMap, setUsersMap] = useState<Record<string, string>>({});
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [editClient, setEditClient] = useState<Client | null>(null);
 
   // Form state
@@ -119,6 +122,24 @@ export default function ClientiPage() {
   }, [page, limit, search, statusFilter, sort, order, toast]);
 
   useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.user) setCurrentUserId(json.user.id);
+      })
+      .catch(() => {});
+
+    fetch("/api/users")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.data) {
+          const map: Record<string, string> = {};
+          json.data.forEach((u: any) => { map[u.id] = u.name; });
+          setUsersMap(map);
+        }
+      })
+      .catch(() => {});
+
     fetchClients();
   }, [fetchClients]);
 
@@ -305,27 +326,30 @@ export default function ClientiPage() {
                   <ArrowUpDown className="h-3 w-3" />
                 </div>
               </TableHead>
+              <TableHead>Assegnato a</TableHead>
               <TableHead>Azioni</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8">
+                <TableCell colSpan={7} className="text-center py-8">
                   Caricamento...
                 </TableCell>
               </TableRow>
             ) : clients.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8">
+                <TableCell colSpan={7} className="text-center py-8">
                   Nessun cliente trovato
                 </TableCell>
               </TableRow>
             ) : (
-              clients.map((client) => (
+              clients.map((client) => {
+                const isMyRow = currentUserId && client.userId === currentUserId;
+                return (
                 <TableRow
                   key={client.id}
-                  className="cursor-pointer"
+                  className={`cursor-pointer ${isMyRow ? "bg-primary/5 hover:bg-primary/10" : ""}`}
                   onClick={() => router.push(`/clienti/${client.id}`)}
                 >
                   <TableCell className="font-medium">{client.name}</TableCell>
@@ -334,6 +358,11 @@ export default function ClientiPage() {
                   <TableCell>{client.company || "—"}</TableCell>
                   <TableCell>
                     <StatusBadge status={client.status} />
+                  </TableCell>
+                  <TableCell>
+                    {client.userId && usersMap[client.userId]
+                      ? usersMap[client.userId]
+                      : "—"}
                   </TableCell>
                   <TableCell>
                     <div
@@ -381,7 +410,8 @@ export default function ClientiPage() {
                     </div>
                   </TableCell>
                 </TableRow>
-              ))
+              );
+            })
             )}
           </TableBody>
         </Table>

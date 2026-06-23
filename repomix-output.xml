@@ -56,6 +56,7 @@ app/api/clients/route.ts
 app/api/dashboard/route.ts
 app/api/email/sync/route.ts
 app/api/email/test/route.ts
+app/api/imap-settings/route.ts
 app/api/note/[id]/route.ts
 app/api/note/route.ts
 app/api/tasks/[id]/route.ts
@@ -85,7 +86,10 @@ components/ui/toast.tsx
 components/ui/toaster.tsx
 components/ui/use-toast.ts
 drizzle.config.ts
+lib/crypto.ts
 lib/db.ts
+lib/email-parser.ts
+lib/imap-config.ts
 lib/schema.ts
 lib/utils.ts
 next.config.js
@@ -99,413 +103,6 @@ types/index.ts
 
 <files>
 This section contains the contents of the repository's files.
-
-<file path="app/(dashboard)/test-email/page.tsx">
-"use client";
-
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Mail, Loader2, AlertCircle } from "lucide-react";
-
-interface Email {
-  mittente: string;
-  oggetto: string;
-  bodyText: string;
-  data: string;
-}
-
-export default function TestEmailPage() {
-  const [emails, setEmails] = useState<Email[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [totali, setTotali] = useState<number>(0);
-  const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
-
-  const fetchEmails = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/email/test");
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error || "Errore sconosciuto");
-        setEmails([]);
-      } else {
-        setEmails(data.emails || []);
-        setTotali(data.totali || 0);
-      }
-    } catch (err: any) {
-      setError(err.message || "Errore di connessione");
-      setEmails([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Test Email</h1>
-          <p className="text-muted-foreground">
-            Leggi le ultime email non lette dalla casella IMAP Aruba
-          </p>
-        </div>
-        <Button onClick={fetchEmails} disabled={loading}>
-          {loading ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Lettura in corso...
-            </>
-          ) : (
-            <>
-              <Mail className="mr-2 h-4 w-4" />
-              Leggi Email
-            </>
-          )}
-        </Button>
-      </div>
-
-      {error && (
-        <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-400">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {!loading && emails.length > 0 && (
-        <p className="text-sm text-muted-foreground">
-          Mostrate {emails.length} email su {totali} non lette totali.
-        </p>
-      )}
-
-      {!loading && emails.length === 0 && !error && (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
-          <Mail className="mb-2 h-8 w-8 text-muted-foreground/50" />
-          <p className="text-sm text-muted-foreground">
-            Premi "Leggi Email" per recuperare le ultime email non lette.
-          </p>
-        </div>
-      )}
-
-      {emails.length > 0 && (
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Mittente</TableHead>
-                <TableHead>Oggetto</TableHead>
-                <TableHead>Corpo</TableHead>
-                <TableHead>Data</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {emails.map((email, index) => (
-                <TableRow
-                  key={index}
-                  className="cursor-pointer hover:bg-accent/50"
-                  onClick={() => {
-                    setSelectedEmail(email);
-                    setModalOpen(true);
-                  }}
-                >
-                  <TableCell className="max-w-[200px] truncate font-medium">
-                    {email.mittente}
-                  </TableCell>
-                  <TableCell className="max-w-[200px] truncate">
-                    {email.oggetto}
-                  </TableCell>
-                  <TableCell className="max-w-[300px] truncate text-muted-foreground">
-                    {email.bodyText
-                      ? email.bodyText.length > 200
-                        ? email.bodyText.substring(0, 200) + "..."
-                        : email.bodyText
-                      : "(corpo non disponibile)"}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                    {email.data}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-
-      {/* Dialog dettaglio email */}
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-lg">Dettaglio Email</DialogTitle>
-          </DialogHeader>
-          {selectedEmail && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-                <span className="font-medium text-muted-foreground">Mittente</span>
-                <span>{selectedEmail.mittente}</span>
-                <span className="font-medium text-muted-foreground">Oggetto</span>
-                <span>{selectedEmail.oggetto}</span>
-                <span className="font-medium text-muted-foreground">Data</span>
-                <span>{selectedEmail.data}</span>
-              </div>
-              <hr />
-              <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">
-                {selectedEmail.bodyText || "(corpo non disponibile)"}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-</file>
-
-<file path="app/api/email/sync/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { ImapFlow } from "imapflow";
-import { simpleParser } from "mailparser";
-
-export const runtime = "nodejs";
-
-export async function GET(_request: NextRequest) {
-  try {
-    const host = process.env.IMAP_HOST;
-    const port = parseInt(process.env.IMAP_PORT || "993");
-    const user = process.env.IMAP_USER;
-    const password = process.env.IMAP_PASSWORD;
-
-    if (!host || !user || !password) {
-      return NextResponse.json(
-        { error: "Credenziali IMAP mancanti. Configura IMAP_HOST, IMAP_USER, IMAP_PASSWORD nelle variabili d'ambiente." },
-        { status: 500 }
-      );
-    }
-
-    const filterFrom = (process.env.ARUBA_FILTER_FROM || "").toLowerCase();
-
-    const client = new ImapFlow({
-      host,
-      port,
-      secure: port === 993,
-      auth: { user, pass: password },
-      logger: false,
-    });
-
-    await client.connect();
-
-    const lock = await client.getMailboxLock("INBOX");
-    try {
-      const searchResult = await client.search({ unseen: true });
-
-      const uidList = searchResult.length > 0 ? searchResult : [];
-
-      const emails: {
-        mittente: string;
-        oggetto: string;
-        bodyText: string;
-        data: string;
-      }[] = [];
-      let filtrate = 0;
-
-      for (const uid of uidList) {
-        // Recupera source grezzo
-        const message = await client.fetchOne(uid, { source: true });
-
-        // Parsing completo con mailparser
-        let parsed;
-        try {
-          parsed = await simpleParser(message.source as Buffer);
-        } catch {
-          continue;
-        }
-
-        // Filtra per mittente
-        const fromAddress =
-          parsed.from && parsed.from.value && parsed.from.value.length > 0
-            ? parsed.from.value[0].address?.toLowerCase() || ""
-            : "";
-
-        if (filterFrom && fromAddress !== filterFrom) {
-          filtrate++;
-          continue;
-        }
-
-        // Mittente formattato
-        const mittente =
-          parsed.from && parsed.from.value && parsed.from.value.length > 0
-            ? `${parsed.from.value[0].name || ""} <${parsed.from.value[0].address}>`.trim()
-            : "Sconosciuto";
-
-        // Oggetto
-        const oggetto = parsed.subject || "(nessun oggetto)";
-
-        // Data
-        const data = parsed.date
-          ? new Date(parsed.date).toLocaleString("it-IT")
-          : "";
-
-        // Corpo
-        const bodyText = (parsed.text || parsed.html || "(corpo non disponibile)").trim();
-
-        emails.push({ mittente, oggetto, bodyText, data });
-
-        // Segna l'email come letta su Aruba
-        await client.messageFlagsAdd(uid, ["\\Seen"]);
-      }
-
-      return NextResponse.json({
-        emails,
-        totali: searchResult.length,
-        filtrate,
-        sincronizzate: emails.length,
-      });
-    } finally {
-      lock.release();
-      await client.logout();
-    }
-  } catch (error: any) {
-    console.error("Errore IMAP sync:", error);
-    return NextResponse.json(
-      {
-        error: `Errore durante la sincronizzazione IMAP: ${error.message || "Errore sconosciuto"}`,
-      },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
-<file path="app/api/email/test/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { ImapFlow } from "imapflow";
-import { simpleParser } from "mailparser";
-
-export const runtime = "nodejs";
-
-export async function GET(_request: NextRequest) {
-  try {
-    const host = process.env.IMAP_HOST;
-    const port = parseInt(process.env.IMAP_PORT || "993");
-    const user = process.env.IMAP_USER;
-    const password = process.env.IMAP_PASSWORD;
-
-    if (!host || !user || !password) {
-      return NextResponse.json(
-        { error: "Credenziali IMAP mancanti. Configura IMAP_HOST, IMAP_USER, IMAP_PASSWORD nelle variabili d'ambiente." },
-        { status: 500 }
-      );
-    }
-
-    const filterFrom = (process.env.ARUBA_FILTER_FROM || "").toLowerCase();
-
-    const client = new ImapFlow({
-      host,
-      port,
-      secure: port === 993,
-      auth: { user, pass: password },
-      logger: false,
-    });
-
-    await client.connect();
-
-    const lock = await client.getMailboxLock("INBOX");
-    try {
-      const searchResult = await client.search({ unseen: true });
-
-      const uidList = searchResult.length > 0 ? searchResult : [];
-
-      const emails: {
-        mittente: string;
-        oggetto: string;
-        bodyText: string;
-        data: string;
-      }[] = [];
-      let filtrate = 0;
-
-      for (const uid of uidList) {
-        // Recupera source grezzo
-        const message = await client.fetchOne(uid, { source: true });
-
-        // Parsing completo con mailparser
-        let parsed;
-        try {
-          parsed = await simpleParser(message.source as Buffer);
-        } catch {
-          continue;
-        }
-
-        // Filtra per mittente
-        const fromAddress =
-          parsed.from && parsed.from.value && parsed.from.value.length > 0
-            ? parsed.from.value[0].address?.toLowerCase() || ""
-            : "";
-
-        if (filterFrom && fromAddress !== filterFrom) {
-          filtrate++;
-          continue;
-        }
-
-        // Mittente formattato
-        const mittente =
-          parsed.from && parsed.from.value && parsed.from.value.length > 0
-            ? `${parsed.from.value[0].name || ""} <${parsed.from.value[0].address}>`.trim()
-            : "Sconosciuto";
-
-        // Oggetto
-        const oggetto = parsed.subject || "(nessun oggetto)";
-
-        // Data
-        const data = parsed.date
-          ? new Date(parsed.date).toLocaleString("it-IT")
-          : "";
-
-        // Corpo
-        const bodyText = (parsed.text || parsed.html || "(corpo non disponibile)").trim();
-
-        emails.push({ mittente, oggetto, bodyText, data });
-
-        // Segna l'email come letta su Aruba
-        await client.messageFlagsAdd(uid, ["\\Seen"]);
-      }
-
-      return NextResponse.json({
-        emails,
-        totali: searchResult.length,
-        filtrate,
-        letti: emails.length,
-      });
-    } finally {
-      lock.release();
-      await client.logout();
-    }
-  } catch (error: any) {
-    console.error("Errore IMAP:", error);
-    return NextResponse.json(
-      {
-        error: `Errore durante la connessione IMAP: ${error.message || "Errore sconosciuto"}`,
-      },
-      { status: 500 }
-    );
-  }
-}
-</file>
 
 <file path=".gitignore">
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
@@ -1082,34 +679,6 @@ export default function ClientiPage() {
 }
 </file>
 
-<file path="app/(dashboard)/impostazioni/page.tsx">
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
-export default function ImpostazioniPage() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Impostazioni</h2>
-        <p className="text-muted-foreground">
-          Configurazione del sistema CRM
-        </p>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Impostazioni Generali</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            Le impostazioni di configurazione saranno disponibili in una versione futura.
-          </p>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-</file>
-
 <file path="app/(dashboard)/note/page.tsx">
 "use client";
 
@@ -1506,138 +1075,180 @@ function TaskRow({
 }
 </file>
 
-<file path="app/api/clients/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { clients, tasks } from "@/lib/schema";
-import { clientSchema } from "@/types";
-import { eq, desc, like, or, and, sql } from "drizzle-orm";
+<file path="app/(dashboard)/test-email/page.tsx">
+"use client";
 
-export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const search = searchParams.get("search") || "";
-    const status = searchParams.get("status") || "";
-    const sort = searchParams.get("sort") || "createdAt";
-    const order = searchParams.get("order") || "desc";
-    const page = parseInt(searchParams.get("page") || "1");
-    const limit = parseInt(searchParams.get("limit") || "10");
-    const offset = (page - 1) * limit;
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Mail, Loader2, AlertCircle } from "lucide-react";
 
-    const conditions = [];
-    if (search) {
-      conditions.push(
-        or(
-          like(clients.name, `%${search}%`),
-          like(clients.email, `%${search}%`),
-          like(clients.company, `%${search}%`)
-        )
-      );
-    }
-    if (status && status !== "all") {
-      conditions.push(eq(clients.status, status as any));
-    }
-
-    const where = conditions.length > 0 ? and(...conditions) : undefined;
-
-    const orderBy =
-      order === "asc"
-        ? (sql`${clients[sort as keyof typeof clients]} ASC` as any)
-        : (sql`${clients[sort as keyof typeof clients]} DESC` as any);
-
-    const data = await db
-      .select()
-      .from(clients)
-      .where(where)
-      .orderBy(orderBy)
-      .limit(limit)
-      .offset(offset);
-
-    const totalResult = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(clients)
-      .where(where);
-
-    const total = Number(totalResult[0]?.count || 0);
-
-    return NextResponse.json({ data, total, page, limit });
-  } catch (error) {
-    console.error("Error fetching clients:", error);
-    return NextResponse.json(
-      { error: "Errore nel caricamento dei clienti" },
-      { status: 500 }
-    );
-  }
+interface Email {
+  mittente: string;
+  oggetto: string;
+  bodyText: string;
+  data: string;
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const parsed = clientSchema.parse(body);
+export default function TestEmailPage() {
+  const [emails, setEmails] = useState<Email[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [totali, setTotali] = useState<number>(0);
+  const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
 
-    const [client] = await db
-      .insert(clients)
-      .values({
-        name: parsed.name,
-        email: parsed.email || null,
-        phone: parsed.phone || null,
-        company: parsed.company || null,
-        status: parsed.status,
-        notes: parsed.notes || null,
-      })
-      .returning();
+  const fetchEmails = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/email/test");
+      const data = await res.json();
 
-    // Auto-create tasks for suspect and won
-    if (client.status === "suspect") {
-      const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + 3);
-      await db.insert(tasks).values({
-        clientId: client.id,
-        title: "Chiamata qualificazione",
-        description: "Chiamata di qualificazione per il nuovo suspect",
-        dueDate,
-        priority: "high",
-      });
+      if (!res.ok) {
+        setError(data.error || "Errore sconosciuto");
+        setEmails([]);
+      } else {
+        setEmails(data.emails || []);
+        setTotali(data.totali || 0);
+      }
+    } catch (err: any) {
+      setError(err.message || "Errore di connessione");
+      setEmails([]);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    if (client.status === "won") {
-      const dueContract = new Date();
-      dueContract.setDate(dueContract.getDate() + 2);
-      const dueOnboarding = new Date();
-      dueOnboarding.setDate(dueOnboarding.getDate() + 7);
+  return (
+    <div className="space-y-6 p-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Test Email</h1>
+          <p className="text-muted-foreground">
+            Leggi le ultime email non lette dalla casella IMAP Aruba
+          </p>
+        </div>
+        <Button onClick={fetchEmails} disabled={loading}>
+          {loading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Lettura in corso...
+            </>
+          ) : (
+            <>
+              <Mail className="mr-2 h-4 w-4" />
+              Leggi Email
+            </>
+          )}
+        </Button>
+      </div>
 
-      await db.insert(tasks).values([
-        {
-          clientId: client.id,
-          title: "Invia contratto",
-          description: "Inviare il contratto al cliente",
-          dueDate: dueContract,
-          priority: "high",
-        },
-        {
-          clientId: client.id,
-          title: "Onboarding",
-          description: "Completare l'onboarding del cliente",
-          dueDate: dueOnboarding,
-          priority: "medium",
-        },
-      ]);
-    }
+      {error && (
+        <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-400">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
 
-    return NextResponse.json(client, { status: 201 });
-  } catch (error: any) {
-    if (error?.issues) {
-      return NextResponse.json(
-        { error: "Dati non validi", details: error.issues },
-        { status: 400 }
-      );
-    }
-    console.error("Error creating client:", error);
-    return NextResponse.json(
-      { error: "Errore nella creazione del cliente" },
-      { status: 500 }
-    );
-  }
+      {!loading && emails.length > 0 && (
+        <p className="text-sm text-muted-foreground">
+          Mostrate {emails.length} email su {totali} non lette totali.
+        </p>
+      )}
+
+      {!loading && emails.length === 0 && !error && (
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
+          <Mail className="mb-2 h-8 w-8 text-muted-foreground/50" />
+          <p className="text-sm text-muted-foreground">
+            Premi "Leggi Email" per recuperare le ultime email non lette.
+          </p>
+        </div>
+      )}
+
+      {emails.length > 0 && (
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Mittente</TableHead>
+                <TableHead>Oggetto</TableHead>
+                <TableHead>Corpo</TableHead>
+                <TableHead>Data</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {emails.map((email, index) => (
+                <TableRow
+                  key={index}
+                  className="cursor-pointer hover:bg-accent/50"
+                  onClick={() => {
+                    setSelectedEmail(email);
+                    setModalOpen(true);
+                  }}
+                >
+                  <TableCell className="max-w-[200px] truncate font-medium">
+                    {email.mittente}
+                  </TableCell>
+                  <TableCell className="max-w-[200px] truncate">
+                    {email.oggetto}
+                  </TableCell>
+                  <TableCell className="max-w-[300px] truncate text-muted-foreground">
+                    {email.bodyText
+                      ? email.bodyText.length > 200
+                        ? email.bodyText.substring(0, 200) + "..."
+                        : email.bodyText
+                      : "(corpo non disponibile)"}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                    {email.data}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      {/* Dialog dettaglio email */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg">Dettaglio Email</DialogTitle>
+          </DialogHeader>
+          {selectedEmail && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+                <span className="font-medium text-muted-foreground">Mittente</span>
+                <span>{selectedEmail.mittente}</span>
+                <span className="font-medium text-muted-foreground">Oggetto</span>
+                <span>{selectedEmail.oggetto}</span>
+                <span className="font-medium text-muted-foreground">Data</span>
+                <span>{selectedEmail.data}</span>
+              </div>
+              <hr />
+              <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                {selectedEmail.bodyText || "(corpo non disponibile)"}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
 }
 </file>
 
@@ -3535,6 +3146,56 @@ function useToast() {
 export { useToast, toast };
 </file>
 
+<file path="lib/crypto.ts">
+import crypto from "crypto";
+
+const ALGORITHM = "aes-256-gcm";
+const IV_LENGTH = 16;
+
+function getKey(): Buffer {
+  const key = process.env.ENCRYPTION_KEY;
+  if (!key) {
+    throw new Error(
+      "ENCRYPTION_KEY non configurata nelle variabili d'ambiente"
+    );
+  }
+  return Buffer.from(key, "hex");
+}
+
+/**
+ * Cripta un testo in chiaro usando AES-256-GCM.
+ * Restituisce una stringa nel formato `iv:authTag:ciphertext` (tutto in hex).
+ */
+export function encrypt(text: string): string {
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const key = getKey();
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+  let encrypted = cipher.update(text, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  const authTag = cipher.getAuthTag().toString("hex");
+  return `${iv.toString("hex")}:${authTag}:${encrypted}`;
+}
+
+/**
+ * Decripta una stringa prodotta da `encrypt()`.
+ * Se la stringa è vuota o non nel formato atteso, la ritorna così com'è.
+ */
+export function decrypt(encryptedData: string): string {
+  if (!encryptedData) return encryptedData;
+  const parts = encryptedData.split(":");
+  if (parts.length !== 3) return encryptedData;
+  const iv = Buffer.from(parts[0], "hex");
+  const authTag = Buffer.from(parts[1], "hex");
+  const encrypted = parts[2];
+  const key = getKey();
+  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+  decipher.setAuthTag(authTag);
+  let decrypted = decipher.update(encrypted, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  return decrypted;
+}
+</file>
+
 <file path="lib/db.ts">
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
@@ -3546,6 +3207,155 @@ const client = createClient({
 });
 
 export const db = drizzle(client, { schema });
+</file>
+
+<file path="lib/email-parser.ts">
+import { db } from "@/lib/db";
+import { clients, tasks } from "@/lib/schema";
+import { eq } from "drizzle-orm";
+
+export type ContactRequest = {
+  nome: string;
+  email: string;
+  messaggio: string;
+};
+
+/**
+ * Analizza il corpo dell'email per estrarre i dati di un nuovo contatto.
+ * Atteso formato:
+ *   Nuovo contatto da
+ *   Nome: Mario Rossi
+ *   Email: mario@example.com
+ *   Messaggio: Testo del messaggio
+ */
+export function parseContactRequest(bodyText: string): ContactRequest | null {
+  if (!bodyText.includes("Nuovo contatto da")) return null;
+
+  const nomeMatch = bodyText.match(/Nome:\s*(.+)/i);
+  const emailMatch = bodyText.match(/Email:\s*(.+)/i);
+  const msgMatch = bodyText.match(/Messaggio:\s*([\s\S]*)/i);
+
+  if (!nomeMatch || !emailMatch) return null;
+
+  return {
+    nome: nomeMatch[1].trim(),
+    email: emailMatch[1].trim(),
+    messaggio: msgMatch ? msgMatch[1].trim() : "",
+  };
+}
+
+/**
+ * Verifica se un cliente esiste già per email, altrimenti lo crea.
+ * In entrambi i casi crea un task appropriato.
+ * Restituisce un summary testuale delle operazioni fatte.
+ */
+export async function processContactRequest(data: ContactRequest): Promise<string> {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  // Cerca cliente per email
+  const existing = await db
+    .select()
+    .from(clients)
+    .where(eq(clients.email, data.email))
+    .limit(1);
+
+  if (existing.length === 0) {
+    // Nuovo cliente
+    const [newClient] = await db
+      .insert(clients)
+      .values({
+        name: data.nome,
+        email: data.email,
+        notes: `Richiesta via email: ${data.messaggio}`,
+        status: "lead",
+      })
+      .returning();
+
+    // Task presentazione
+    await db.insert(tasks).values({
+      clientId: newClient.id,
+      title: "Inviare email di presentazione",
+      description: `Contatto ricevuto via email da ${data.nome} (${data.email}). Messaggio: ${data.messaggio}`,
+      dueDate: today,
+      priority: "high",
+      status: "todo",
+    });
+
+    return `Nuovo cliente "${data.nome}" creato + task presentazione`;
+  }
+
+  // Cliente esistente → task qualificazione
+  const client = existing[0];
+  await db.insert(tasks).values({
+    clientId: client.id,
+    title: "Chiamata di qualificazione da email",
+    description: `Nuova email di richiesta dal cliente. Messaggio: ${data.messaggio}`,
+    dueDate: today,
+    priority: "high",
+    status: "todo",
+  });
+
+  return `Task qualificazione aggiunto per cliente esistente "${client.name}"`;
+}
+</file>
+
+<file path="lib/imap-config.ts">
+import { db } from "@/lib/db";
+import { imapSettings } from "@/lib/schema";
+import { decrypt } from "@/lib/crypto";
+
+export type ImapConfig = {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  filterFrom: string;
+  filterSubject: string;
+};
+
+/**
+ * Legge le impostazioni IMAP dal database (decriptate).
+ * Se non presenti nel DB, cade sul fallback delle variabili d'ambiente.
+ */
+export async function getImapConfig(): Promise<ImapConfig | null> {
+  try {
+    const rows = await db.select().from(imapSettings).limit(1);
+    if (rows.length === 0) {
+      // Fallback su env
+      const host = process.env.IMAP_HOST;
+      const port = parseInt(process.env.IMAP_PORT || "993");
+      const user = process.env.IMAP_USER;
+      const password = process.env.IMAP_PASSWORD;
+      const filterFrom = process.env.ARUBA_FILTER_FROM || "";
+
+      if (!host || !user || !password) return null;
+
+      return { host, port, user, password, filterFrom, filterSubject: "" };
+    }
+
+    const row = rows[0];
+    return {
+      host: decrypt(row.host),
+      port: parseInt(decrypt(row.port)),
+      user: decrypt(row.user),
+      password: decrypt(row.password),
+      filterFrom: decrypt(row.filterFrom),
+      filterSubject: decrypt(row.filterSubject),
+    };
+  } catch {
+    // Fallback su env in caso di errori
+    const host = process.env.IMAP_HOST;
+    const port = parseInt(process.env.IMAP_PORT || "993");
+    const user = process.env.IMAP_USER;
+    const password = process.env.IMAP_PASSWORD;
+    const filterFrom = process.env.ARUBA_FILTER_FROM || "";
+
+    if (!host || !user || !password) return null;
+
+    return { host, port, user, password, filterFrom, filterSubject: "" };
+  }
+}
 </file>
 
 <file path="lib/utils.ts">
@@ -3848,32 +3658,6 @@ const config: Config = {
 };
 
 export default config;
-</file>
-
-<file path="tsconfig.json">
-{
-  "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "forceConsistentCasingInFileNames": true,
-    "noEmit": true,
-    "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
-    "incremental": true,
-    "plugins": [{ "name": "next" }],
-    "paths": {
-      "@/*": ["./*"]
-    }
-  },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
-}
 </file>
 
 <file path="app/(dashboard)/clienti/[id]/page.tsx">
@@ -4818,260 +4602,296 @@ function TaskCard({
 }
 </file>
 
-<file path="app/(dashboard)/dashboard/page.tsx">
+<file path="app/(dashboard)/impostazioni/page.tsx">
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { PriorityBadge } from "@/components/priority-badge";
-import { formatDate, isOverdue } from "@/lib/utils";
-import { AlertTriangle, TrendingUp, AlertCircle, Calendar } from "lucide-react";
-import type { ClientStatus, Priority } from "@/types";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/use-toast";
+import { Loader2, Save, Eye, EyeOff, Server } from "lucide-react";
 
-interface TaskItem {
-  id: string;
-  title: string;
-  priority: Priority;
-  dueDate: number | null;
-  clientId: string;
-  clientName: string | null;
-  clientPhone: string | null;
-}
+type Tab = "generali" | "imap";
 
-interface DashboardData {
-  statusCounts: Record<ClientStatus, number>;
-  overdueCount: number;
-  overdueTasks: TaskItem[];
-  dueTodayTasks: TaskItem[];
-  trendData: { date: string; count: number }[];
-}
+type ImapFormData = {
+  host: string;
+  port: string;
+  user: string;
+  password: string;
+  filterFrom: string;
+  filterSubject: string;
+};
 
-export default function DashboardPage() {
-  const router = useRouter();
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export default function ImpostazioniPage() {
+  const [activeTab, setActiveTab] = useState<Tab>("generali");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const { toast } = useToast();
 
+  // Stato del form IMAP
+  const [form, setForm] = useState<ImapFormData>({
+    host: "",
+    port: "993",
+    user: "",
+    password: "",
+    filterFrom: "",
+    filterSubject: "",
+  });
+
+  // Carica impostazioni esistenti
   useEffect(() => {
-    console.log("[Dashboard] Fetch avviato");
-    fetch("/api/dashboard")
-      .then((r) => {
-        console.log("[Dashboard] Response status:", r.status);
-        if (!r.ok) throw new Error(`Errore HTTP ${r.status}`);
-        return r.json();
+    if (activeTab !== "imap") return;
+    setLoading(true);
+    fetch("/api/imap-settings")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.settings) {
+          setForm({
+            host: data.settings.host || "",
+            port: data.settings.port || "993",
+            user: data.settings.user || "",
+            password: data.settings.password || "",
+            filterFrom: data.settings.filterFrom || "",
+            filterSubject: data.settings.filterSubject || "",
+          });
+        }
       })
-      .then((json) => {
-        console.log("[Dashboard] JSON ricevuto:", json);
-        if (json.error) throw new Error(json.error);
-        setData(json);
+      .catch(() => {
+        toast({
+          title: "Errore",
+          description: "Impossibile caricare le impostazioni IMAP.",
+          variant: "destructive",
+        });
       })
-      .catch((err) => {
-        console.error("[Dashboard] Errore fetch:", err.message);
-        setError(err.message);
-      })
-      .finally(() => {
-        console.log("[Dashboard] Fetch completato");
-        setLoading(false);
+      .finally(() => setLoading(false));
+  }, [activeTab, toast]);
+
+  const handleChange = (field: keyof ImapFormData, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/imap-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
       });
-  }, []);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">Caricamento...</p>
-      </div>
-    );
-  }
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Errore durante il salvataggio");
+      }
 
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center space-y-2">
-          <p className="text-destructive font-medium">Errore di caricamento</p>
-          <p className="text-sm text-muted-foreground">{error}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="text-sm text-primary hover:underline"
-          >
-            Riprova
-          </button>
-        </div>
-      </div>
-    );
-  }
+      toast({
+        title: "Salvato",
+        description: "Impostazioni IMAP salvate con successo.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Errore",
+        description: error.message || "Errore durante il salvataggio.",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
 
-  if (!data) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-destructive">Nessun dato disponibile</p>
-      </div>
-    );
-  }
-
-  const maxTrend = Math.max(...data.trendData.map((d) => d.count), 1);
-
-  const statusCards: { key: ClientStatus; label: string; variant: "info" | "warning" | "success" | "muted"; bgClass: string }[] = [
-    { key: "lead", label: "Lead", variant: "info", bgClass: "bg-blue-50" },
-    { key: "suspect", label: "Suspect", variant: "warning", bgClass: "bg-yellow-50" },
-    { key: "won", label: "Won", variant: "success", bgClass: "bg-green-50" },
-    { key: "closed_lost", label: "Closed Lost", variant: "muted", bgClass: "bg-gray-50" },
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "generali", label: "Generali" },
+    { id: "imap", label: "IMAP Email" },
   ];
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">Dashboard</h2>
+        <h2 className="text-2xl font-bold tracking-tight">Impostazioni</h2>
         <p className="text-muted-foreground">
-          Panoramica del tuo CRM FindFit
+          Configurazione del sistema CRM
         </p>
       </div>
 
-      {/* Overdue banner */}
-      {data.overdueCount > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
-          <AlertTriangle className="h-5 w-5 shrink-0" />
-          <p className="text-sm font-medium">
-            Attenzione: {data.overdueCount} task scaduti richiedono la tua attenzione!
-          </p>
-        </div>
-      )}
-
-      {/* Status cards: solo 4 */}
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        {statusCards.map(({ key, label, variant, bgClass }) => (
-          <Card key={key} className={bgClass}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{label}</CardTitle>
-              <Badge variant={variant}>{label}</Badge>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{data.statusCounts[key]}</div>
-            </CardContent>
-          </Card>
+      {/* Tabs */}
+      <div className="flex gap-1 border-b">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              activeTab === tab.id
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tab.label}
+          </button>
         ))}
       </div>
 
-      {/* Task lists */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Task scaduti */}
+      {/* Tab: Generali */}
+      {activeTab === "generali" && (
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 text-destructive" />
-              Task scaduti
-            </CardTitle>
-            <span className="text-xs text-muted-foreground">
-              {data.overdueTasks.length} task
-            </span>
+          <CardHeader>
+            <CardTitle>Impostazioni Generali</CardTitle>
           </CardHeader>
           <CardContent>
-            {data.overdueTasks.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                Nessun task scaduto
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {data.overdueTasks.map((task) => (
-                  <button
-                    key={task.id}
-                    onClick={() => router.push(`/clienti/${task.clientId}`)}
-                    className="w-full flex items-center gap-3 rounded-lg border border-red-100 bg-red-50/50 p-3 text-left text-sm transition-colors hover:bg-red-100 dark:border-red-900 dark:bg-red-950/20 dark:hover:bg-red-950/40"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{task.title}</p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        <span className="font-medium">{task.clientName || "Sconosciuto"}</span>
-                        {task.clientPhone && <> · {task.clientPhone}</>}
-                        {task.dueDate && <> · scad. {formatDate(task.dueDate)}</>}
-                      </p>
-                    </div>
-                    <PriorityBadge priority={task.priority} />
-                  </button>
-                ))}
-              </div>
-            )}
+            <p className="text-sm text-muted-foreground">
+              Le impostazioni di configurazione saranno disponibili in una
+              versione futura.
+            </p>
           </CardContent>
         </Card>
+      )}
 
-        {/* Task in scadenza oggi */}
+      {/* Tab: IMAP Email */}
+      {activeTab === "imap" && (
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-amber-500" />
-              Task in scadenza oggi
-            </CardTitle>
-            <span className="text-xs text-muted-foreground">
-              {data.dueTodayTasks.length} task
-            </span>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Server className="h-5 w-5 text-muted-foreground" />
+              <CardTitle>Configurazione IMAP</CardTitle>
+            </div>
           </CardHeader>
           <CardContent>
-            {data.dueTodayTasks.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                Nessun task in scadenza oggi
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {data.dueTodayTasks.map((task) => (
-                  <button
-                    key={task.id}
-                    onClick={() => router.push(`/clienti/${task.clientId}`)}
-                    className="w-full flex items-center gap-3 rounded-lg border border-amber-100 bg-amber-50/50 p-3 text-left text-sm transition-colors hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/20 dark:hover:bg-amber-950/40"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{task.title}</p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        <span className="font-medium">{task.clientName || "Sconosciuto"}</span>
-                        {task.clientPhone && <> · {task.clientPhone}</>}
-                        {task.dueDate && <> · scad. {formatDate(task.dueDate)}</>}
-                      </p>
-                    </div>
-                    <PriorityBadge priority={task.priority} />
-                  </button>
-                ))}
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            ) : (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSave();
+                }}
+                className="space-y-4"
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {/* Host */}
+                  <div className="space-y-2">
+                    <Label htmlFor="host">Host IMAP</Label>
+                    <Input
+                      id="host"
+                      placeholder="imaps.aruba.it"
+                      value={form.host}
+                      onChange={(e) => handleChange("host", e.target.value)}
+                      required
+                    />
+                  </div>
 
-      {/* Trend chart — barre verticali */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <TrendingUp className="h-4 w-4" />
-            Nuovi Clienti (7 giorni)
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-end gap-3 h-[200px]">
-            {data.trendData.map((item) => {
-              const pct = maxTrend > 0 ? (item.count / maxTrend) * 100 : 0;
-              return (
-                <div
-                  key={item.date}
-                  className="flex flex-1 flex-col items-center justify-end h-full"
-                >
-                  {/* Etichetta conteggio sopra la barra */}
-                  <span className="mb-1 text-xs font-semibold text-foreground">
-                    {item.count}
-                  </span>
-                  {/* Barra */}
-                  <div
-                    className="w-full max-w-[48px] rounded-t-md bg-primary transition-all duration-300 hover:opacity-80"
-                    style={{ height: `${Math.max(pct, 2)}%` }}
-                  />
-                  {/* Etichetta giorno sotto */}
-                  <span className="mt-2 text-[11px] text-muted-foreground text-center leading-tight">
-                    {item.date}
-                  </span>
+                  {/* Port */}
+                  <div className="space-y-2">
+                    <Label htmlFor="port">Porta</Label>
+                    <Input
+                      id="port"
+                      placeholder="993"
+                      value={form.port}
+                      onChange={(e) => handleChange("port", e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  {/* User */}
+                  <div className="space-y-2">
+                    <Label htmlFor="user">Utente</Label>
+                    <Input
+                      id="user"
+                      placeholder="services@easyasso.cloud"
+                      value={form.user}
+                      onChange={(e) => handleChange("user", e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  {/* Password */}
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        type={showPassword ? "text" : "password"}
+                        placeholder="••••••••"
+                        value={form.password}
+                        onChange={(e) =>
+                          handleChange("password", e.target.value)
+                        }
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Filter From */}
+                  <div className="space-y-2">
+                    <Label htmlFor="filterFrom">
+                      Filtra mittente (opzionale)
+                    </Label>
+                    <Input
+                      id="filterFrom"
+                      placeholder="e-ross1971@live.it"
+                      value={form.filterFrom}
+                      onChange={(e) =>
+                        handleChange("filterFrom", e.target.value)
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Solo email da questo mittente.
+                    </p>
+                  </div>
+
+                  {/* Filter Subject */}
+                  <div className="space-y-2">
+                    <Label htmlFor="filterSubject">
+                      Filtra oggetto (opzionale)
+                    </Label>
+                    <Input
+                      id="filterSubject"
+                      placeholder="parola chiave nell'oggetto"
+                      value={form.filterSubject}
+                      onChange={(e) =>
+                        handleChange("filterSubject", e.target.value)
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Solo email con questa parola nell'oggetto.
+                    </p>
+                  </div>
                 </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
+
+                <div className="flex justify-end pt-2">
+                  <Button type="submit" disabled={saving}>
+                    {saving ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Salvataggio...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="mr-2 h-4 w-4" />
+                        Salva impostazioni
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </form>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
@@ -5407,6 +5227,141 @@ export default function DashboardLayout({
 }
 </file>
 
+<file path="app/api/clients/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { clients, tasks } from "@/lib/schema";
+import { clientSchema } from "@/types";
+import { eq, desc, like, or, and, sql } from "drizzle-orm";
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const search = searchParams.get("search") || "";
+    const status = searchParams.get("status") || "";
+    const sort = searchParams.get("sort") || "createdAt";
+    const order = searchParams.get("order") || "desc";
+    const page = parseInt(searchParams.get("page") || "1");
+    const limit = parseInt(searchParams.get("limit") || "10");
+    const offset = (page - 1) * limit;
+
+    const conditions = [];
+    if (search) {
+      conditions.push(
+        or(
+          like(clients.name, `%${search}%`),
+          like(clients.email, `%${search}%`),
+          like(clients.company, `%${search}%`)
+        )
+      );
+    }
+    if (status && status !== "all") {
+      conditions.push(eq(clients.status, status as any));
+    }
+
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const orderBy =
+      order === "asc"
+        ? (sql`${clients[sort as keyof typeof clients]} ASC` as any)
+        : (sql`${clients[sort as keyof typeof clients]} DESC` as any);
+
+    const data = await db
+      .select()
+      .from(clients)
+      .where(where)
+      .orderBy(orderBy)
+      .limit(limit)
+      .offset(offset);
+
+    const totalResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(clients)
+      .where(where);
+
+    const total = Number(totalResult[0]?.count || 0);
+
+    return NextResponse.json({ data, total, page, limit });
+  } catch (error) {
+    console.error("Error fetching clients:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento dei clienti" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const parsed = clientSchema.parse(body);
+
+    const [client] = await db
+      .insert(clients)
+      .values({
+        name: parsed.name,
+        email: parsed.email || null,
+        phone: parsed.phone || null,
+        company: parsed.company || null,
+        status: parsed.status,
+        notes: parsed.notes || null,
+      })
+      .returning();
+
+    // Auto-create tasks for suspect and won
+    if (client.status === "suspect") {
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 3);
+      await db.insert(tasks).values({
+        clientId: client.id,
+        title: "Chiamata qualificazione",
+        description: "Chiamata di qualificazione per il nuovo suspect",
+        dueDate,
+        priority: "high",
+      });
+    }
+
+    if (client.status === "won") {
+      const dueContract = new Date();
+      dueContract.setDate(dueContract.getDate() + 2);
+      const dueOnboarding = new Date();
+      dueOnboarding.setDate(dueOnboarding.getDate() + 7);
+
+      await db.insert(tasks).values([
+        {
+          clientId: client.id,
+          title: "Invia contratto",
+          description: "Inviare il contratto al cliente",
+          dueDate: dueContract,
+          priority: "high",
+        },
+        {
+          clientId: client.id,
+          title: "Onboarding",
+          description: "Completare l'onboarding del cliente",
+          dueDate: dueOnboarding,
+          priority: "medium",
+        },
+      ]);
+    }
+
+    return NextResponse.json(client, { status: 201 });
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error creating client:", error);
+    return NextResponse.json(
+      { error: "Errore nella creazione del cliente" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
 <file path="app/api/dashboard/route.ts">
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -5565,6 +5520,240 @@ export async function GET() {
 }
 </file>
 
+<file path="app/api/email/sync/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { ImapFlow } from "imapflow";
+import { simpleParser } from "mailparser";
+import { getImapConfig } from "@/lib/imap-config";
+import { parseContactRequest, processContactRequest } from "@/lib/email-parser";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET(_request: NextRequest) {
+  try {
+    const config = await getImapConfig();
+
+    if (!config) {
+      return NextResponse.json(
+        { error: "Credenziali IMAP mancanti. Configura le impostazioni IMAP nella pagina Impostazioni." },
+        { status: 500 }
+      );
+    }
+
+    const { host, port, user, password, filterFrom, filterSubject } = config;
+    const filterFromLower = filterFrom.toLowerCase();
+    const filterSubjectLower = filterSubject.toLowerCase();
+
+    const client = new ImapFlow({
+      host,
+      port,
+      secure: port === 993,
+      auth: { user, pass: password },
+      logger: false,
+    });
+
+    await client.connect();
+
+    const lock = await client.getMailboxLock("INBOX");
+    try {
+      const rawResult = await client.search({ unseen: true } as any);
+      const searchResult: number[] = Array.isArray(rawResult) ? rawResult : [];
+      const uidList = searchResult;
+
+      const emails: {
+        mittente: string;
+        oggetto: string;
+        bodyText: string;
+        data: string;
+        crmAction?: string;
+      }[] = [];
+      let filtrate = 0;
+
+      for (const uid of uidList) {
+        // Recupera source grezzo
+        const message = (await client.fetchOne(uid, { source: true })) as any;
+
+        // Parsing completo con mailparser
+        let parsed;
+        try {
+          parsed = await simpleParser(message.source as Buffer);
+        } catch {
+          continue;
+        }
+
+        // Filtra per mittente
+        const fromAddress =
+          parsed.from && parsed.from.value && parsed.from.value.length > 0
+            ? parsed.from.value[0].address?.toLowerCase() || ""
+            : "";
+
+        if (filterFromLower && fromAddress !== filterFromLower) {
+          filtrate++;
+          continue;
+        }
+
+        // Filtra per oggetto
+        const oggetto = parsed.subject || "";
+        if (filterSubjectLower && !oggetto.toLowerCase().includes(filterSubjectLower)) {
+          filtrate++;
+          continue;
+        }
+
+        // Mittente formattato
+        const mittente =
+          parsed.from && parsed.from.value && parsed.from.value.length > 0
+            ? `${parsed.from.value[0].name || ""} <${parsed.from.value[0].address}>`.trim()
+            : "Sconosciuto";
+
+        // Oggetto (gia calcolato sopra)
+
+        // Data
+        const data = parsed.date
+          ? new Date(parsed.date).toLocaleString("it-IT")
+          : "";
+
+        // Corpo
+        const bodyText = (parsed.text || parsed.html || "").trim();
+
+        // Parsing richiesta contatto
+        let crmAction: string | undefined;
+        const contactData = parseContactRequest(bodyText);
+        if (contactData) {
+          try {
+            crmAction = await processContactRequest(contactData);
+          } catch (err: any) {
+            console.error("Errore processContactRequest:", err);
+          }
+        }
+
+        emails.push({ mittente, oggetto, bodyText, data, crmAction });
+
+        // Segna l'email come letta su Aruba
+        await client.messageFlagsAdd(uid, ["\\Seen"]);
+      }
+
+      return NextResponse.json({
+        emails,
+        totali: uidList.length,
+        filtrate,
+        sincronizzate: emails.length,
+      });
+    } finally {
+      lock.release();
+      await client.logout();
+    }
+  } catch (error: any) {
+    console.error("Errore IMAP sync:", error);
+    return NextResponse.json(
+      {
+        error: `Errore durante la sincronizzazione IMAP: ${error.message || "Errore sconosciuto"}`,
+      },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/imap-settings/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { imapSettings } from "@/lib/schema";
+import { encrypt, decrypt } from "@/lib/crypto";
+import { eq } from "drizzle-orm";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/** GET: recupera le impostazioni IMAP (decriptate) */
+export async function GET() {
+  try {
+    const rows = await db.select().from(imapSettings).limit(1);
+    if (rows.length === 0) {
+      return NextResponse.json({ settings: null });
+    }
+
+    const row = rows[0];
+    const settings = {
+      id: row.id,
+      host: decrypt(row.host),
+      port: decrypt(row.port),
+      user: decrypt(row.user),
+      password: decrypt(row.password),
+      filterFrom: decrypt(row.filterFrom),
+      filterSubject: decrypt(row.filterSubject),
+    };
+
+    return NextResponse.json({ settings });
+  } catch (error: any) {
+    console.error("Errore lettura impostazioni IMAP:", error);
+    return NextResponse.json(
+      { error: `Errore: ${error.message || "Errore sconosciuto"}` },
+      { status: 500 }
+    );
+  }
+}
+
+/** PUT: salva (upsert) le impostazioni IMAP (criptate) */
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { host, port, user, password, filterFrom, filterSubject } = body;
+
+    if (!host || !port || !user || !password) {
+      return NextResponse.json(
+        { error: "I campi host, port, user e password sono obbligatori" },
+        { status: 400 }
+      );
+    }
+
+    const encrypted = {
+      host: encrypt(host),
+      port: encrypt(port),
+      user: encrypt(user),
+      password: encrypt(password),
+      filterFrom: encrypt(filterFrom || ""),
+      filterSubject: encrypt(filterSubject || ""),
+    };
+
+    // Upsert: verifica se esiste già una riga
+    const existing = await db.select().from(imapSettings).limit(1);
+
+    if (existing.length > 0) {
+      await db
+        .update(imapSettings)
+        .set({
+          host: encrypted.host,
+          port: encrypted.port,
+          user: encrypted.user,
+          password: encrypted.password,
+          filterFrom: encrypted.filterFrom,
+          filterSubject: encrypted.filterSubject,
+          updatedAt: new Date(),
+        })
+        .where(eq(imapSettings.id, existing[0].id));
+    } else {
+      await db.insert(imapSettings).values({
+        host: encrypted.host,
+        port: encrypted.port,
+        user: encrypted.user,
+        password: encrypted.password,
+        filterFrom: encrypted.filterFrom,
+        filterSubject: encrypted.filterSubject,
+      });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error("Errore salvataggio impostazioni IMAP:", error);
+    return NextResponse.json(
+      { error: `Errore: ${error.message || "Errore sconosciuto"}` },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
 <file path="app/api/note/[id]/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -5714,100 +5903,6 @@ export async function DELETE(
 }
 </file>
 
-<file path="components/sidebar.tsx">
-"use client";
-
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import {
-  LayoutDashboard,
-  Users,
-  Kanban,
-  CalendarCheck,
-  FileText,
-  Settings,
-  Mail,
-  X,
-} from "lucide-react";
-
-interface SidebarProps {
-  open: boolean;
-  onClose: () => void;
-}
-
-const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/clienti", label: "Lista Clienti", icon: Users },
-  { href: "/kanban", label: "Trattative", icon: Kanban },
-  { href: "/task", label: "Task Scaduti", icon: CalendarCheck },
-  { href: "/note", label: "Note Recenti", icon: FileText },
-  { href: "/test-email", label: "Test Email", icon: Mail },
-  { href: "/impostazioni", label: "Impostazioni", icon: Settings },
-];
-
-export function Sidebar({ open, onClose }: SidebarProps) {
-  const pathname = usePathname();
-
-  return (
-    <>
-      {/* Mobile overlay */}
-      {open && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
-          onClick={onClose}
-        />
-      )}
-
-      {/* Sidebar */}
-      <aside
-        className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r bg-background transition-transform duration-300 lg:static lg:translate-x-0",
-          open ? "translate-x-0" : "-translate-x-full"
-        )}
-      >
-        <div className="flex h-14 items-center justify-between border-b px-4 lg:hidden">
-          <span className="font-semibold">CRM FindFit</span>
-          <Button variant="ghost" size="icon" onClick={onClose}>
-            <X className="h-5 w-5" />
-          </Button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-3 py-4">
-          <nav className="flex flex-col gap-1">
-            {navItems.map((item) => {
-              const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={onClose}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
-                    isActive
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground"
-                  )}
-                >
-                  <Icon className="h-5 w-5 shrink-0" />
-                  <span className="hidden lg:inline">{item.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
-
-        <div className="border-t p-4">
-          <p className="text-xs text-muted-foreground">CRM FindFit v1.0</p>
-        </div>
-      </aside>
-    </>
-  );
-}
-</file>
-
 <file path="components/status-badge.tsx">
 import { Badge } from "@/components/ui/badge";
 import type { ClientStatus } from "@/types";
@@ -5832,151 +5927,29 @@ export function StatusBadge({ status }: { status: ClientStatus }) {
 }
 </file>
 
-<file path="lib/schema.ts">
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
-
-// ── Clienti ──
-export const clients = sqliteTable("clients", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
-  name: text("name").notNull(),
-  email: text("email"),
-  phone: text("phone"),
-  company: text("company"),
-  status: text("status", {
-    enum: ["lead", "suspect", "won", "closed_lost"],
-  })
-    .notNull()
-    .default("lead"),
-  notes: text("notes"),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date())
-    .$onUpdateFn(() => new Date()),
-});
-
-// ── Note ──
-export const notes = sqliteTable("notes", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
-  clientId: text("client_id")
-    .notNull()
-    .references(() => clients.id, { onDelete: "cascade" }),
-  content: text("content").notNull(),
-  type: text("type", {
-    enum: ["conversazione", "promemoria", "decisione"],
-  })
-    .notNull()
-    .default("conversazione"),
-  author: text("author").notNull().default("Utente"),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date())
-    .$onUpdateFn(() => new Date()),
-});
-
-// ── Task ──
-export const tasks = sqliteTable("tasks", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
-  clientId: text("client_id")
-    .notNull()
-    .references(() => clients.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  description: text("description"),
-  dueDate: integer("due_date", { mode: "timestamp" }),
-  status: text("status", {
-    enum: ["todo", "in_progress", "completed", "cancelled"],
-  })
-    .notNull()
-    .default("todo"),
-  priority: text("priority", { enum: ["low", "medium", "high"] })
-    .notNull()
-    .default("medium"),
-  completedAt: integer("completed_at", { mode: "timestamp" }),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date())
-    .$onUpdateFn(() => new Date()),
-});
-
-// ── Tipi ──
-export type Client = typeof clients.$inferSelect;
-export type NewClient = typeof clients.$inferInsert;
-export type Note = typeof notes.$inferSelect;
-export type NewNote = typeof notes.$inferInsert;
-export type Task = typeof tasks.$inferSelect;
-export type NewTask = typeof tasks.$inferInsert;
-</file>
-
-<file path="package.json">
+<file path="tsconfig.json">
 {
-  "name": "crm-findfit",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "db:generate": "drizzle-kit generate",
-    "db:push": "drizzle-kit push",
-    "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [{ "name": "next" }],
+    "paths": {
+      "@/*": ["./*"]
+    }
   },
-  "dependencies": {
-    "@hello-pangea/dnd": "^16.6.0",
-    "@libsql/client": "^0.14.0",
-    "@radix-ui/react-alert-dialog": "^1.1.1",
-    "@radix-ui/react-avatar": "^1.1.0",
-    "@radix-ui/react-dialog": "^1.1.1",
-    "@radix-ui/react-dropdown-menu": "^2.1.1",
-    "@radix-ui/react-label": "^2.1.0",
-    "@radix-ui/react-popover": "^1.1.1",
-    "@radix-ui/react-scroll-area": "^1.1.0",
-    "@radix-ui/react-select": "^2.1.1",
-    "@radix-ui/react-separator": "^1.1.0",
-    "@radix-ui/react-slot": "^1.1.0",
-    "@radix-ui/react-toast": "^1.2.1",
-    "@radix-ui/react-tooltip": "^1.1.2",
-    "class-variance-authority": "^0.7.0",
-    "clsx": "^2.1.1",
-    "date-fns": "^3.6.0",
-    "drizzle-orm": "^0.31.0",
-    "imapflow": "^1.4.0",
-    "lucide-react": "^0.379.0",
-    "mailparser": "^3.9.9",
-    "next": "^14.2.3",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "tailwind-merge": "^2.3.0",
-    "tailwindcss-animate": "^1.0.7",
-    "zod": "^3.23.8"
-  },
-  "devDependencies": {
-    "@types/node": "^20.12.12",
-    "@types/react": "^18.3.2",
-    "@types/react-dom": "^18.3.0",
-    "autoprefixer": "^10.5.0",
-    "dotenv": "^17.4.2",
-    "drizzle-kit": "^0.31.10",
-    "postcss": "^8.4.38",
-    "tailwindcss": "^3.4.3",
-    "tsx": "^4.22.4",
-    "typescript": "^5.4.5"
-  }
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules", "drizzle.config.ts"]
 }
 </file>
 
@@ -6045,6 +6018,265 @@ export function requiresNoteForTransition(
   to: ClientStatus
 ): boolean {
   return (from === "lead" || from === "suspect") && to === "closed_lost";
+}
+</file>
+
+<file path="app/(dashboard)/dashboard/page.tsx">
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { PriorityBadge } from "@/components/priority-badge";
+import { formatDate, isOverdue } from "@/lib/utils";
+import { AlertTriangle, TrendingUp, AlertCircle, Calendar } from "lucide-react";
+import type { ClientStatus, Priority } from "@/types";
+
+interface TaskItem {
+  id: string;
+  title: string;
+  priority: Priority;
+  dueDate: number | null;
+  clientId: string;
+  clientName: string | null;
+  clientPhone: string | null;
+}
+
+interface DashboardData {
+  statusCounts: Record<ClientStatus, number>;
+  overdueCount: number;
+  overdueTasks: TaskItem[];
+  dueTodayTasks: TaskItem[];
+  trendData: { date: string; count: number }[];
+}
+
+export default function DashboardPage() {
+  const router = useRouter();
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    console.log("[Dashboard] Fetch avviato");
+    fetch("/api/dashboard")
+      .then((r) => {
+        console.log("[Dashboard] Response status:", r.status);
+        if (!r.ok) throw new Error(`Errore HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((json) => {
+        console.log("[Dashboard] JSON ricevuto:", json);
+        if (json.error) throw new Error(json.error);
+        setData(json);
+      })
+      .catch((err) => {
+        console.error("[Dashboard] Errore fetch:", err.message);
+        setError(err.message);
+      })
+      .finally(() => {
+        console.log("[Dashboard] Fetch completato");
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">Caricamento...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center space-y-2">
+          <p className="text-destructive font-medium">Errore di caricamento</p>
+          <p className="text-sm text-muted-foreground">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="text-sm text-primary hover:underline"
+          >
+            Riprova
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-destructive">Nessun dato disponibile</p>
+      </div>
+    );
+  }
+
+  const maxTrend = Math.max(...data.trendData.map((d) => d.count), 1);
+
+  const statusCards: { key: ClientStatus; label: string; variant: "info" | "warning" | "success" | "muted"; bgClass: string }[] = [
+    { key: "lead", label: "Lead", variant: "info", bgClass: "bg-blue-50" },
+    { key: "suspect", label: "Suspect", variant: "warning", bgClass: "bg-yellow-50" },
+    { key: "won", label: "Won", variant: "success", bgClass: "bg-green-50" },
+    { key: "closed_lost", label: "Closed Lost", variant: "muted", bgClass: "bg-gray-50" },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">Dashboard</h2>
+        <p className="text-muted-foreground">
+          Panoramica del tuo CRM FindFit
+        </p>
+      </div>
+
+      {/* Overdue banner */}
+      {data.overdueCount > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+          <AlertTriangle className="h-5 w-5 shrink-0" />
+          <p className="text-sm font-medium">
+            Attenzione: {data.overdueCount} task scaduti richiedono la tua attenzione!
+          </p>
+        </div>
+      )}
+
+      {/* Status cards: solo 4 */}
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+        {statusCards.map(({ key, label, variant, bgClass }) => (
+          <Card key={key} className={bgClass}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">{label}</CardTitle>
+              <Badge variant={variant}>{label}</Badge>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{data.statusCounts[key]}</div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Task lists */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* Task scaduti */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-destructive" />
+              Task scaduti
+            </CardTitle>
+            <span className="text-xs text-muted-foreground">
+              {data.overdueTasks.length} task
+            </span>
+          </CardHeader>
+          <CardContent>
+            {data.overdueTasks.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                Nessun task scaduto
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {data.overdueTasks.map((task) => (
+                  <button
+                    key={task.id}
+                    onClick={() => router.push(`/clienti/${task.clientId}`)}
+                    className="w-full flex items-center gap-3 rounded-lg border border-red-100 bg-red-50/50 p-3 text-left text-sm transition-colors hover:bg-red-100 dark:border-red-900 dark:bg-red-950/20 dark:hover:bg-red-950/40"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{task.title}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        <span className="font-medium">{task.clientName || "Sconosciuto"}</span>
+                        {task.clientPhone && <> · {task.clientPhone}</>}
+                        {task.dueDate && <> · scad. {formatDate(task.dueDate)}</>}
+                      </p>
+                    </div>
+                    <PriorityBadge priority={task.priority} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Task in scadenza oggi */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-amber-500" />
+              Task in scadenza oggi
+            </CardTitle>
+            <span className="text-xs text-muted-foreground">
+              {data.dueTodayTasks.length} task
+            </span>
+          </CardHeader>
+          <CardContent>
+            {data.dueTodayTasks.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                Nessun task in scadenza oggi
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {data.dueTodayTasks.map((task) => (
+                  <button
+                    key={task.id}
+                    onClick={() => router.push(`/clienti/${task.clientId}`)}
+                    className="w-full flex items-center gap-3 rounded-lg border border-amber-100 bg-amber-50/50 p-3 text-left text-sm transition-colors hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/20 dark:hover:bg-amber-950/40"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{task.title}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        <span className="font-medium">{task.clientName || "Sconosciuto"}</span>
+                        {task.clientPhone && <> · {task.clientPhone}</>}
+                        {task.dueDate && <> · scad. {formatDate(task.dueDate)}</>}
+                      </p>
+                    </div>
+                    <PriorityBadge priority={task.priority} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Trend chart — barre verticali */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <TrendingUp className="h-4 w-4" />
+            Nuovi Clienti (7 giorni)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-end gap-3 h-[200px]">
+            {data.trendData.map((item) => {
+              const pct = maxTrend > 0 ? (item.count / maxTrend) * 100 : 0;
+              return (
+                <div
+                  key={item.date}
+                  className="flex flex-1 flex-col items-center justify-end h-full"
+                >
+                  {/* Etichetta conteggio sopra la barra */}
+                  <span className="mb-1 text-xs font-semibold text-foreground">
+                    {item.count}
+                  </span>
+                  {/* Barra */}
+                  <div
+                    className="w-full max-w-[48px] rounded-t-md bg-primary transition-all duration-300 hover:opacity-80"
+                    style={{ height: `${Math.max(pct, 2)}%` }}
+                  />
+                  {/* Etichetta giorno sotto */}
+                  <span className="mt-2 text-[11px] text-muted-foreground text-center leading-tight">
+                    {item.date}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
 </file>
 
@@ -6227,6 +6459,419 @@ export async function DELETE(
 }
 </file>
 
+<file path="app/api/email/test/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { ImapFlow } from "imapflow";
+import { simpleParser } from "mailparser";
+import { getImapConfig } from "@/lib/imap-config";
+import { parseContactRequest, processContactRequest } from "@/lib/email-parser";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET(_request: NextRequest) {
+  try {
+    console.log("[TEST-EMAIL] Lettura configurazione IMAP dal DB...");
+    let config;
+    try {
+      config = await getImapConfig();
+    } catch (decryptErr: any) {
+      console.error("[TEST-EMAIL] Errore decriptazione impostazioni:", decryptErr.message);
+      return NextResponse.json(
+        { error: "Configura prima le impostazioni email in /impostazioni — dati criptati non validi." },
+        { status: 400 }
+      );
+    }
+
+    if (!config) {
+      console.warn("[TEST-EMAIL] Nessuna configurazione IMAP trovata (DB vuoto e nessun fallback env).");
+      return NextResponse.json(
+        { error: "Configura prima le impostazioni email in /impostazioni." },
+        { status: 400 }
+      );
+    }
+
+    console.log("[TEST-EMAIL] Config OK →", { host: config.host, user: config.user, filterFrom: config.filterFrom });
+
+    const { host, port, user, password, filterFrom, filterSubject } = config;
+    const filterFromLower = filterFrom.toLowerCase();
+    const filterSubjectLower = filterSubject.toLowerCase();
+
+    const client = new ImapFlow({
+      host,
+      port,
+      secure: port === 993,
+      auth: { user, pass: password },
+      logger: false,
+    });
+
+    await client.connect();
+
+    const lock = await client.getMailboxLock("INBOX");
+    try {
+      const rawResult = await client.search({ unseen: true } as any);
+      const searchResult: number[] = Array.isArray(rawResult) ? rawResult : [];
+      const uidList = searchResult;
+
+      const emails: {
+        mittente: string;
+        oggetto: string;
+        bodyText: string;
+        data: string;
+        crmAction?: string;
+      }[] = [];
+      let filtrate = 0;
+
+      for (const uid of uidList) {
+        // Recupera source grezzo
+        const message = (await client.fetchOne(uid, { source: true })) as any;
+
+        // Parsing completo con mailparser
+        let parsed;
+        try {
+          parsed = await simpleParser(message.source as Buffer);
+        } catch {
+          continue;
+        }
+
+        // Filtra per mittente
+        const fromAddress =
+          parsed.from && parsed.from.value && parsed.from.value.length > 0
+            ? parsed.from.value[0].address?.toLowerCase() || ""
+            : "";
+
+        if (filterFromLower && fromAddress !== filterFromLower) {
+          filtrate++;
+          continue;
+        }
+
+        // Filtra per oggetto
+        const oggetto = parsed.subject || "";
+        if (filterSubjectLower && !oggetto.toLowerCase().includes(filterSubjectLower)) {
+          filtrate++;
+          continue;
+        }
+
+        // Mittente formattato
+        const mittente =
+          parsed.from && parsed.from.value && parsed.from.value.length > 0
+            ? `${parsed.from.value[0].name || ""} <${parsed.from.value[0].address}>`.trim()
+            : "Sconosciuto";
+
+        // Oggetto (gia calcolato sopra)
+
+        // Data
+        const data = parsed.date
+          ? new Date(parsed.date).toLocaleString("it-IT")
+          : "";
+
+        // Corpo
+        const bodyText = (parsed.text || parsed.html || "").trim();
+
+        // Parsing richiesta contatto
+        let crmAction: string | undefined;
+        const contactData = parseContactRequest(bodyText);
+        if (contactData) {
+          try {
+            crmAction = await processContactRequest(contactData);
+          } catch (err: any) {
+            console.error("Errore processContactRequest:", err);
+          }
+        }
+
+        emails.push({ mittente, oggetto, bodyText, data, crmAction });
+
+        // Segna l'email come letta su Aruba
+        await client.messageFlagsAdd(uid, ["\\Seen"]);
+      }
+
+      return NextResponse.json({
+        emails,
+        totali: uidList.length,
+        filtrate,
+        letti: emails.length,
+      });
+    } finally {
+      lock.release();
+      await client.logout();
+    }
+  } catch (error: any) {
+    console.error("Errore IMAP:", error);
+    return NextResponse.json(
+      {
+        error: `Errore durante la connessione IMAP: ${error.message || "Errore sconosciuto"}`,
+      },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="components/sidebar.tsx">
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import {
+  LayoutDashboard,
+  Users,
+  Kanban,
+  CalendarCheck,
+  FileText,
+  Settings,
+  Mail,
+  X,
+} from "lucide-react";
+
+interface SidebarProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+const navItems = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/clienti", label: "Lista Clienti", icon: Users },
+  { href: "/kanban", label: "Trattative", icon: Kanban },
+  { href: "/task", label: "Task Scaduti", icon: CalendarCheck },
+  { href: "/note", label: "Note Recenti", icon: FileText },
+  { href: "/test-email", label: "Test Email", icon: Mail },
+  { href: "/impostazioni", label: "Impostazioni", icon: Settings },
+];
+
+export function Sidebar({ open, onClose }: SidebarProps) {
+  const pathname = usePathname();
+
+  return (
+    <>
+      {/* Mobile overlay */}
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={onClose}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r bg-background transition-transform duration-300 lg:static lg:translate-x-0",
+          open ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        <div className="flex h-14 items-center justify-between border-b px-4 lg:hidden">
+          <span className="font-semibold">CRM FindFit</span>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-3 py-4">
+          <nav className="flex flex-col gap-1">
+            {navItems.map((item) => {
+              const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={onClose}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                    isActive
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  <Icon className="h-5 w-5 shrink-0" />
+                  <span className="hidden lg:inline">{item.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
+
+        <div className="border-t p-4">
+          <p className="text-xs text-muted-foreground">CRM FindFit v1.0</p>
+        </div>
+      </aside>
+    </>
+  );
+}
+</file>
+
+<file path="lib/schema.ts">
+import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+
+// ── Clienti ──
+export const clients = sqliteTable("clients", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  email: text("email"),
+  phone: text("phone"),
+  company: text("company"),
+  status: text("status", {
+    enum: ["lead", "suspect", "won", "closed_lost"],
+  })
+    .notNull()
+    .default("lead"),
+  notes: text("notes"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
+// ── Note ──
+export const notes = sqliteTable("notes", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  clientId: text("client_id")
+    .notNull()
+    .references(() => clients.id, { onDelete: "cascade" }),
+  content: text("content").notNull(),
+  type: text("type", {
+    enum: ["conversazione", "promemoria", "decisione"],
+  })
+    .notNull()
+    .default("conversazione"),
+  author: text("author").notNull().default("Utente"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
+// ── Task ──
+export const tasks = sqliteTable("tasks", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  clientId: text("client_id")
+    .notNull()
+    .references(() => clients.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  dueDate: integer("due_date", { mode: "timestamp" }),
+  status: text("status", {
+    enum: ["todo", "in_progress", "completed", "cancelled"],
+  })
+    .notNull()
+    .default("todo"),
+  priority: text("priority", { enum: ["low", "medium", "high"] })
+    .notNull()
+    .default("medium"),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
+// ── Impostazioni IMAP ──
+export const imapSettings = sqliteTable("imap_settings", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => "default"),
+  host: text("host").notNull(),
+  port: text("port").notNull(),
+  user: text("user").notNull(),
+  password: text("password").notNull(),
+  filterFrom: text("filter_from").notNull(),
+  filterSubject: text("filter_subject").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
+// ── Tipi ──
+export type Client = typeof clients.$inferSelect;
+export type NewClient = typeof clients.$inferInsert;
+export type Note = typeof notes.$inferSelect;
+export type NewNote = typeof notes.$inferInsert;
+export type Task = typeof tasks.$inferSelect;
+export type NewTask = typeof tasks.$inferInsert;
+export type ImapSetting = typeof imapSettings.$inferSelect;
+export type NewImapSetting = typeof imapSettings.$inferInsert;
+</file>
+
+<file path="package.json">
+{
+  "name": "crm-findfit",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@hello-pangea/dnd": "^16.6.0",
+    "@libsql/client": "^0.14.0",
+    "@radix-ui/react-alert-dialog": "^1.1.1",
+    "@radix-ui/react-avatar": "^1.1.0",
+    "@radix-ui/react-dialog": "^1.1.1",
+    "@radix-ui/react-dropdown-menu": "^2.1.1",
+    "@radix-ui/react-label": "^2.1.0",
+    "@radix-ui/react-popover": "^1.1.1",
+    "@radix-ui/react-scroll-area": "^1.1.0",
+    "@radix-ui/react-select": "^2.1.1",
+    "@radix-ui/react-separator": "^1.1.0",
+    "@radix-ui/react-slot": "^1.1.0",
+    "@radix-ui/react-toast": "^1.2.1",
+    "@radix-ui/react-tooltip": "^1.1.2",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "drizzle-orm": "^0.45.2",
+    "imapflow": "^1.4.0",
+    "lucide-react": "^0.379.0",
+    "mailparser": "^3.9.9",
+    "next": "^14.2.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.3.0",
+    "tailwindcss-animate": "^1.0.7",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^20.12.12",
+    "@types/react": "^18.3.2",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.5.0",
+    "dotenv": "^17.4.2",
+    "drizzle-kit": "^0.31.10",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "tsx": "^4.22.4",
+    "typescript": "^5.4.5"
+  }
+}
+</file>
+
 <file path="drizzle.config.ts">
 import { config } from "dotenv";
 import { defineConfig } from "drizzle-kit";
@@ -6239,6 +6884,7 @@ export default defineConfig({
   dialect: "sqlite",
   dbCredentials: {
     url: process.env.TURSO_DB_URL!,
+    authToken: process.env.TURSO_AUTH_TOKEN,
   },
 });
 </file>

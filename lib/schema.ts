@@ -1,5 +1,28 @@
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 
+// ── Utenti ──
+export const users = sqliteTable("users", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  name: text("name").notNull(),
+  role: text("role", { enum: ["admin", "user"] })
+    .notNull()
+    .default("user"),
+  isActive: integer("is_active", { mode: "boolean" })
+    .notNull()
+    .default(true),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
 // ── Clienti ──
 export const clients = sqliteTable("clients", {
   id: text("id")
@@ -15,6 +38,7 @@ export const clients = sqliteTable("clients", {
     .notNull()
     .default("lead"),
   notes: text("notes"),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -98,6 +122,8 @@ export const imapSettings = sqliteTable("imap_settings", {
 });
 
 // ── Tipi ──
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
 export type Client = typeof clients.$inferSelect;
 export type NewClient = typeof clients.$inferInsert;
 export type Note = typeof notes.$inferSelect;

@@ -1,5 +1,27 @@
 import { z } from "zod";
 
+// ── Utente ──
+export const userRoles = ["admin", "user"] as const;
+export type UserRole = (typeof userRoles)[number];
+
+export const userSchema = z.object({
+  email: z.string().email("Email non valida"),
+  password: z.string().min(6, "Minimo 6 caratteri").optional().or(z.literal("")),
+  name: z.string().min(1, "Il nome è obbligatorio"),
+  role: z.enum(userRoles).default("user"),
+  isActive: z.boolean().default(true),
+});
+
+export type UserFormData = z.infer<typeof userSchema>;
+
+// ── Login ──
+export const loginSchema = z.object({
+  email: z.string().email("Email non valida"),
+  password: z.string().min(1, "La password è obbligatoria"),
+});
+
+export type LoginFormData = z.infer<typeof loginSchema>;
+
 // ── Client ──
 export const clientStatuses = ["lead", "suspect", "won", "closed_lost"] as const;
 export type ClientStatus = (typeof clientStatuses)[number];

@@ -3,9 +3,15 @@ import { db } from "@/lib/db";
 import { tasks, clients } from "@/lib/schema";
 import { taskSchema } from "@/types";
 import { eq, desc, and, lte, gte, or, sql } from "drizzle-orm";
+import { getAuthUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status") || "";
     const clientId = searchParams.get("clientId") || "";
@@ -19,6 +25,13 @@ export async function GET(request: NextRequest) {
 
     if (clientId) {
       conditions.push(eq(tasks.clientId, clientId));
+    }
+
+    // Filtra per user_id se non admin: vede i non assegnati + i propri
+    if (authUser.role !== "admin") {
+      conditions.push(
+        or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`)
+      );
     }
 
     // Default: show overdue or due within upcomingDays
@@ -72,8 +85,29 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
     const body = await request.json();
     const parsed = taskSchema.parse(body);
+
+    // Auto-assign: se utente non-admin e cliente senza userId, assegna a lui
+    if (authUser.role !== "admin" && body.clientId) {
+      const [client] = await db
+        .select({ userId: clients.userId })
+        .from(clients)
+        .where(eq(clients.id, body.clientId))
+        .limit(1);
+
+      if (client && !client.userId) {
+        await db
+          .update(clients)
+          .set({ userId: authUser.id, updatedAt: new Date() })
+          .where(eq(clients.id, body.clientId));
+      }
+    }
 
     const [task] = await db
       .insert(tasks)

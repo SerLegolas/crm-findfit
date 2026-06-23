@@ -3,9 +3,15 @@ import { db } from "@/lib/db";
 import { clients, tasks } from "@/lib/schema";
 import { clientSchema } from "@/types";
 import { eq, desc, like, or, and, sql } from "drizzle-orm";
+import { getAuthUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search") || "";
     const status = searchParams.get("status") || "";
@@ -27,6 +33,12 @@ export async function GET(request: NextRequest) {
     }
     if (status && status !== "all") {
       conditions.push(eq(clients.status, status as any));
+    }
+    // Filtra per user_id se l'utente non è admin: vede i non assegnati + i propri
+    if (authUser.role !== "admin") {
+      conditions.push(
+        or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`)
+      );
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -63,6 +75,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
     const body = await request.json();
     const parsed = clientSchema.parse(body);
 
@@ -75,6 +92,7 @@ export async function POST(request: NextRequest) {
         company: parsed.company || null,
         status: parsed.status,
         notes: parsed.notes || null,
+        userId: authUser.role === "admin" ? null : authUser.id,
       })
       .returning();
 

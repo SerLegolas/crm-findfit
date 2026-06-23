@@ -53,8 +53,9 @@ export async function processContactRequest(data: ContactRequest): Promise<strin
     const [newClient] = await db
       .insert(clients)
       .values({
-        name: data.nome,
+        name: "",
         email: data.email,
+        company: data.nome,
         notes: `Richiesta via email: ${data.messaggio}`,
         status: "lead",
       })

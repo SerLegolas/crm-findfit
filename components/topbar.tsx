@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -17,6 +18,30 @@ interface TopbarProps {
 }
 
 export function Topbar({ onMenuClick }: TopbarProps) {
+  const [user, setUser] = useState<{ name: string; email: string; role: string } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.user) setUser(json.user);
+      })
+      .catch(() => {});
+  }, []);
+
+  const initials = user
+    ? user.name
+        .split(" ")
+        .map((w) => w.charAt(0).toUpperCase())
+        .join("")
+        .slice(0, 2)
+    : "CF";
+
+  const handleLogout = async () => {
+    await fetch("/api/auth/me", { method: "DELETE" });
+    window.location.href = "/login";
+  };
+
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 lg:px-6">
       <Button
@@ -36,17 +61,25 @@ export function Topbar({ onMenuClick }: TopbarProps) {
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="icon" className="rounded-full">
             <Avatar className="h-8 w-8">
-              <AvatarFallback>CF</AvatarFallback>
+              <AvatarFallback>{initials}</AvatarFallback>
             </Avatar>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuLabel>Il mio account</DropdownMenuLabel>
+          <DropdownMenuLabel>
+            {user ? (
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">{user.name}</p>
+                <p className="text-xs font-normal text-muted-foreground">{user.email}</p>
+              </div>
+            ) : (
+              "Il mio account"
+            )}
+          </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>Profilo</DropdownMenuItem>
-          <DropdownMenuItem>Impostazioni</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem>Esci</DropdownMenuItem>
+          <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
+            Esci
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </header>

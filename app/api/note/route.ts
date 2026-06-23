@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { notes, clients } from "@/lib/schema";
 import { noteSchema } from "@/types";
-import { eq, desc, like, and, gte, sql } from "drizzle-orm";
+import { eq, desc, like, and, gte, sql, or } from "drizzle-orm";
+import { getAuthUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search") || "";
     const type = searchParams.get("type") || "";
@@ -23,6 +29,13 @@ export async function GET(request: NextRequest) {
 
     if (clientId) {
       conditions.push(eq(notes.clientId, clientId));
+    }
+
+    // Filtra per user_id se non admin: vede i non assegnati + i propri
+    if (authUser.role !== "admin") {
+      conditions.push(
+        sql`(${clients.userId} = ${authUser.id} OR ${clients.userId} IS NULL)`
+      );
     }
 
     const data = await db
@@ -60,8 +73,29 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
     const body = await request.json();
     const parsed = noteSchema.parse(body);
+
+    // Auto-assign: se utente non-admin e cliente senza userId, assegna a lui
+    if (authUser.role !== "admin" && body.clientId) {
+      const [client] = await db
+        .select({ userId: clients.userId })
+        .from(clients)
+        .where(eq(clients.id, body.clientId))
+        .limit(1);
+
+      if (client && !client.userId) {
+        await db
+          .update(clients)
+          .set({ userId: authUser.id, updatedAt: new Date() })
+          .where(eq(clients.id, body.clientId));
+      }
+    }
 
     const [note] = await db
       .insert(notes)

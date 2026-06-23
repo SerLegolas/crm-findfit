@@ -32,8 +32,16 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [user, setUser] = useState<{ name: string; email: string; role: string } | null>(null);
 
   useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.user) setUser(json.user);
+      })
+      .catch(() => {});
+
     console.log("[Dashboard] Fetch avviato");
     fetch("/api/dashboard")
       .then((r) => {
@@ -106,6 +114,22 @@ export default function DashboardPage() {
           Panoramica del tuo CRM FindFit
         </p>
       </div>
+
+      {/* Utente connesso */}
+      {user && (
+        <div className="flex items-center gap-3 rounded-lg border bg-card p-3 text-sm">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary font-semibold text-sm">
+            {user.name.charAt(0).toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium truncate">{user.name}</p>
+            <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+          </div>
+          <Badge variant={user.role === "admin" ? "default" : "secondary"}>
+            {user.role === "admin" ? "Admin" : "Utente"}
+          </Badge>
+        </div>
+      )}
 
       {/* Overdue banner */}
       {data.overdueCount > 0 && (
