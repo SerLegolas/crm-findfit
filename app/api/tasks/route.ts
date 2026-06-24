@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
 
     const conditions = [];
 
-    if (status) {
+    if (status && status !== "all") {
       conditions.push(eq(tasks.status, status as any));
     }
 
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Default: show overdue or due within upcomingDays
+    // Default: filtra solo todo/in_progress se nessun filtro status specificato
     const now = new Date();
     const futureDate = new Date();
     futureDate.setDate(futureDate.getDate() + upcomingDays);
@@ -65,6 +65,9 @@ export async function GET(request: NextRequest) {
         createdAt: tasks.createdAt,
         updatedAt: tasks.updatedAt,
         clientName: clients.name,
+        clientEmail: clients.email,
+        clientPhone: clients.phone,
+        clientCompany: clients.company,
       })
       .from(tasks)
       .leftJoin(clients, eq(tasks.clientId, clients.id))

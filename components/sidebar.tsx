@@ -9,10 +9,12 @@ import {
   Users,
   Kanban,
   CalendarCheck,
+  CalendarDays,
   FileText,
   Settings,
   Mail,
   Shield,
+  Server,
   LogOut,
   X,
 } from "lucide-react";
@@ -28,6 +30,7 @@ const navItems = [
   { href: "/clienti", label: "Lista Clienti", icon: Users },
   { href: "/kanban", label: "Trattative", icon: Kanban },
   { href: "/task", label: "Task Scaduti", icon: CalendarCheck },
+  { href: "/task-calendar", label: "Calendario Task", icon: CalendarDays },
   { href: "/note", label: "Note Recenti", icon: FileText },
   { href: "/test-email", label: "Test Email", icon: Mail },
   { href: "/impostazioni", label: "Impostazioni", icon: Settings },
@@ -112,13 +115,39 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   onClick={onClose}
                   className={cn(
                     "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
-                    pathname.startsWith("/admin")
+                    pathname === "/admin/users"
                       ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground"
                   )}
                 >
                   <Shield className="h-5 w-5 shrink-0" />
                   <span>Gestione Utenti</span>
+                </Link>
+                <Link
+                  href="/admin/imap"
+                  onClick={onClose}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                    pathname === "/admin/imap"
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  <Server className="h-5 w-5 shrink-0" />
+                  <span>Configurazione IMAP</span>
+                </Link>
+                <Link
+                  href="/admin/email-test"
+                  onClick={onClose}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                    pathname === "/admin/email-test"
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  <Mail className="h-5 w-5 shrink-0" />
+                  <span>Test Email</span>
                 </Link>
               </>
             )}

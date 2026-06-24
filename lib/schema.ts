@@ -113,6 +113,7 @@ export const imapSettings = sqliteTable("imap_settings", {
   password: text("password").notNull(),
   filterFrom: text("filter_from").notNull(),
   filterSubject: text("filter_subject").notNull(),
+  brevoApiKey: text("brevo_api_key"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),

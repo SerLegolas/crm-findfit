@@ -41,6 +41,7 @@ The content is organized as follows:
 
 <directory_structure>
 .gitignore
+app/(dashboard)/admin/users/page.tsx
 app/(dashboard)/clienti/[id]/page.tsx
 app/(dashboard)/clienti/page.tsx
 app/(dashboard)/dashboard/page.tsx
@@ -51,6 +52,8 @@ app/(dashboard)/note/page.tsx
 app/(dashboard)/page.tsx
 app/(dashboard)/task/page.tsx
 app/(dashboard)/test-email/page.tsx
+app/api/auth/login/route.ts
+app/api/auth/me/route.ts
 app/api/clients/[id]/route.ts
 app/api/clients/route.ts
 app/api/dashboard/route.ts
@@ -61,8 +64,11 @@ app/api/note/[id]/route.ts
 app/api/note/route.ts
 app/api/tasks/[id]/route.ts
 app/api/tasks/route.ts
+app/api/users/[id]/route.ts
+app/api/users/route.ts
 app/globals.css
 app/layout.tsx
+app/login/page.tsx
 components/priority-badge.tsx
 components/providers.tsx
 components/sidebar.tsx
@@ -86,16 +92,21 @@ components/ui/toast.tsx
 components/ui/toaster.tsx
 components/ui/use-toast.ts
 drizzle.config.ts
+lib/auth.ts
 lib/crypto.ts
 lib/db.ts
 lib/email-parser.ts
 lib/imap-config.ts
 lib/schema.ts
 lib/utils.ts
+middleware.ts
 next.config.js
 package.json
 postcss.config.js
 README.md
+scripts/generate-hash.ts
+scripts/migrate.ts
+scripts/seed-admin.ts
 tailwind.config.ts
 tsconfig.json
 types/index.ts
@@ -145,13 +156,13 @@ next-env.d.ts
 drizzle/
 </file>
 
-<file path="app/(dashboard)/clienti/page.tsx">
+<file path="app/(dashboard)/admin/users/page.tsx">
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -185,98 +196,101 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { StatusBadge } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
-import { clientSchema, clientStatuses, type ClientStatus } from "@/types";
+import { userSchema, type UserRole } from "@/types";
+import { Plus, Pencil, Trash2 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
-import {
-  Plus,
-  Search,
-  ChevronLeft,
-  ChevronRight,
-  Pencil,
-  Trash2,
-  Eye,
-  ArrowUpDown,
-} from "lucide-react";
 
-interface Client {
+interface User {
   id: string;
+  email: string;
   name: string;
-  email: string | null;
-  phone: string | null;
-  company: string | null;
-  status: ClientStatus;
-  notes: string | null;
+  role: UserRole;
+  isActive: boolean;
   createdAt: number;
 }
 
-export default function ClientiPage() {
-  const router = useRouter();
+export default function AdminUsersPage() {
   const { toast } = useToast();
-  const [clients, setClients] = useState<Client[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [limit] = useState(10);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [sort, setSort] = useState("createdAt");
-  const [order, setOrder] = useState("desc");
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
-  const [editClient, setEditClient] = useState<Client | null>(null);
+  const [editUser, setEditUser] = useState<User | null>(null);
 
-  // Form state
+  // Form
   const [formData, setFormData] = useState({
-    name: "",
     email: "",
-    phone: "",
-    company: "",
-    status: "lead" as ClientStatus,
-    notes: "",
+    password: "",
+    name: "",
+    role: "user" as UserRole,
+    isActive: true,
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
-  const fetchClients = useCallback(async () => {
-    setLoading(true);
+  const fetchUsers = useCallback(async () => {
     try {
-      const params = new URLSearchParams({
-        page: String(page),
-        limit: String(limit),
-        sort,
-        order,
-      });
-      if (search) params.set("search", search);
-      if (statusFilter) params.set("status", statusFilter);
-
-      const res = await fetch(`/api/clients?${params}`);
+      const res = await fetch("/api/users");
+      if (res.status === 403) {
+        toast({
+          title: "Accesso negato",
+          description: "Solo gli amministratori possono gestire gli utenti",
+          variant: "destructive",
+        });
+        return;
+      }
       const data = await res.json();
-      setClients(data.data);
-      setTotal(data.total);
+      setUsers(data.data);
     } catch {
       toast({
         title: "Errore",
-        description: "Impossibile caricare i clienti",
+        description: "Impossibile caricare gli utenti",
         variant: "destructive",
       });
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, statusFilter, sort, order, toast]);
+  }, [toast]);
 
   useEffect(() => {
-    fetchClients();
-  }, [fetchClients]);
+    fetchUsers();
+  }, [fetchUsers]);
 
-  const totalPages = Math.ceil(total / limit);
+  const resetForm = () => {
+    setFormData({
+      email: "",
+      password: "",
+      name: "",
+      role: "user",
+      isActive: true,
+    });
+    setFormErrors({});
+    setEditUser(null);
+  };
+
+  const openEdit = (user: User) => {
+    setEditUser(user);
+    setFormData({
+      email: user.email,
+      password: "",
+      name: user.name,
+      role: user.role,
+      isActive: user.isActive,
+    });
+    setFormErrors({});
+    setModalOpen(true);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormErrors({});
 
-    const result = clientSchema.safeParse(formData);
+    // Se modifica e password è vuota, toglila dalla validazione
+    const dataToValidate = editUser && !formData.password
+      ? { ...formData, password: undefined }
+      : formData;
+
+    const result = userSchema.safeParse(dataToValidate);
     if (!result.success) {
       const errors: Record<string, string> = {};
       result.error.issues.forEach((issue) => {
@@ -287,13 +301,27 @@ export default function ClientiPage() {
     }
 
     try {
-      const url = editClient ? `/api/clients/${editClient.id}` : "/api/clients";
-      const method = editClient ? "PATCH" : "POST";
+      const url = editUser ? `/api/users/${editUser.id}` : "/api/users";
+      const method = editUser ? "PATCH" : "POST";
+
+      // Invia solo i campi compilati per PATCH
+      const body = editUser
+        ? Object.fromEntries(
+            Object.entries(result.data).filter(
+              ([key, val]) => val !== undefined && val !== "" && key !== "password"
+            )
+          )
+        : result.data;
+
+      // Aggiungi password solo se presente
+      if (editUser && formData.password) {
+        (body as any).password = formData.password;
+      }
 
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(result.data),
+        body: JSON.stringify(body),
       });
 
       if (!res.ok) {
@@ -307,12 +335,12 @@ export default function ClientiPage() {
       }
 
       toast({
-        title: editClient ? "Cliente aggiornato" : "Cliente creato",
+        title: editUser ? "Utente aggiornato" : "Utente creato",
         variant: "success" as any,
       });
       setModalOpen(false);
       resetForm();
-      fetchClients();
+      fetchUsers();
     } catch {
       toast({
         title: "Errore",
@@ -324,10 +352,18 @@ export default function ClientiPage() {
 
   const handleDelete = async (id: string) => {
     try {
-      const res = await fetch(`/api/clients/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error();
-      toast({ title: "Cliente eliminato", variant: "success" as any });
-      fetchClients();
+      const res = await fetch(`/api/users/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json();
+        toast({
+          title: "Errore",
+          description: err.error || "Eliminazione fallita",
+          variant: "destructive",
+        });
+        return;
+      }
+      toast({ title: "Utente eliminato", variant: "success" as any });
+      fetchUsers();
     } catch {
       toast({
         title: "Errore",
@@ -337,189 +373,200 @@ export default function ClientiPage() {
     }
   };
 
-  const resetForm = () => {
-    setFormData({
-      name: "",
-      email: "",
-      phone: "",
-      company: "",
-      status: "lead",
-      notes: "",
-    });
-    setEditClient(null);
-    setFormErrors({});
-  };
-
-  const openEdit = (client: Client) => {
-    setEditClient(client);
-    setFormData({
-      name: client.name,
-      email: client.email || "",
-      phone: client.phone || "",
-      company: client.company || "",
-      status: client.status,
-      notes: client.notes || "",
-    });
-    setModalOpen(true);
-  };
-
-  const openCreate = () => {
-    resetForm();
-    setModalOpen(true);
-  };
-
-  const toggleSort = (field: string) => {
-    if (sort === field) {
-      setOrder(order === "asc" ? "desc" : "asc");
-    } else {
-      setSort(field);
-      setOrder("asc");
-    }
-  };
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">Caricamento...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Lista Clienti</h2>
+          <h2 className="text-2xl font-bold tracking-tight">Gestione Utenti</h2>
           <p className="text-muted-foreground">
-            Gestisci i tuoi clienti ({total} totali)
+            Crea e gestisci gli account degli operatori
           </p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nuovo Cliente
-        </Button>
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-col gap-4 sm:flex-row">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Cerca per nome, email o azienda..."
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            className="pl-9"
-          />
-        </div>
-        <Select
-          value={statusFilter}
-          onValueChange={(v) => {
-            setStatusFilter(v);
-            setPage(1);
+        <Dialog
+          open={modalOpen}
+          onOpenChange={(open) => {
+            setModalOpen(open);
+            if (!open) resetForm();
           }}
         >
-          <SelectTrigger className="w-full sm:w-40">
-            <SelectValue placeholder="Tutti gli status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tutti</SelectItem>
-            {clientStatuses.map((s) => (
-              <SelectItem key={s} value={s}>
-                {s.charAt(0).toUpperCase() + s.slice(1)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          <DialogTrigger asChild>
+            <Button onClick={resetForm}>
+              <Plus className="mr-2 h-4 w-4" />
+              Nuovo Utente
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {editUser ? "Modifica Utente" : "Nuovo Utente"}
+              </DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Nome</Label>
+                <Input
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) =>
+                    setFormData({ ...formData, name: e.target.value })
+                  }
+                />
+                {formErrors.name && (
+                  <p className="text-sm text-destructive">{formErrors.name}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) =>
+                    setFormData({ ...formData, email: e.target.value })
+                  }
+                />
+                {formErrors.email && (
+                  <p className="text-sm text-destructive">
+                    {formErrors.email}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">
+                  Password {editUser && "(lascia vuoto per mantenere)"}
+                </Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) =>
+                    setFormData({ ...formData, password: e.target.value })
+                  }
+                />
+                {formErrors.password && (
+                  <p className="text-sm text-destructive">
+                    {formErrors.password}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="role">Ruolo</Label>
+                <Select
+                  value={formData.role}
+                  onValueChange={(val) =>
+                    setFormData({ ...formData, role: val as UserRole })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="user">Utente</SelectItem>
+                    <SelectItem value="admin">Amministratore</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="isActive"
+                  checked={formData.isActive}
+                  onChange={(e) =>
+                    setFormData({ ...formData, isActive: e.target.checked })
+                  }
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <Label htmlFor="isActive">Utente attivo</Label>
+              </div>
+              <Button type="submit" className="w-full">
+                {editUser ? "Salva Modifiche" : "Crea Utente"}
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
 
-      {/* Table */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead
-                className="cursor-pointer"
-                onClick={() => toggleSort("name")}
-              >
-                <div className="flex items-center gap-1">
-                  Nome
-                  <ArrowUpDown className="h-3 w-3" />
-                </div>
-              </TableHead>
+              <TableHead>Nome</TableHead>
               <TableHead>Email</TableHead>
-              <TableHead>Telefono</TableHead>
-              <TableHead>Azienda</TableHead>
-              <TableHead
-                className="cursor-pointer"
-                onClick={() => toggleSort("status")}
-              >
-                <div className="flex items-center gap-1">
-                  Status
-                  <ArrowUpDown className="h-3 w-3" />
-                </div>
-              </TableHead>
-              <TableHead>Azioni</TableHead>
+              <TableHead>Ruolo</TableHead>
+              <TableHead>Stato</TableHead>
+              <TableHead>Creato il</TableHead>
+              <TableHead className="w-[100px]">Azioni</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading ? (
+            {users.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8">
-                  Caricamento...
-                </TableCell>
-              </TableRow>
-            ) : clients.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-8">
-                  Nessun cliente trovato
+                <TableCell colSpan={6} className="text-center text-muted-foreground">
+                  Nessun utente
                 </TableCell>
               </TableRow>
             ) : (
-              clients.map((client) => (
-                <TableRow
-                  key={client.id}
-                  className="cursor-pointer"
-                  onClick={() => router.push(`/clienti/${client.id}`)}
-                >
-                  <TableCell className="font-medium">{client.name}</TableCell>
-                  <TableCell>{client.email || "—"}</TableCell>
-                  <TableCell>{client.phone || "—"}</TableCell>
-                  <TableCell>{client.company || "—"}</TableCell>
+              users.map((user) => (
+                <TableRow key={user.id}>
+                  <TableCell className="font-medium">{user.name}</TableCell>
+                  <TableCell>{user.email}</TableCell>
                   <TableCell>
-                    <StatusBadge status={client.status} />
+                    <Badge
+                      variant={user.role === "admin" ? "default" : "secondary"}
+                    >
+                      {user.role === "admin" ? "Admin" : "Utente"}
+                    </Badge>
                   </TableCell>
                   <TableCell>
-                    <div
-                      className="flex items-center gap-2"
-                      onClick={(e) => e.stopPropagation()}
+                    <Badge
+                      variant={user.isActive ? "default" : "outline"}
+                      className={
+                        user.isActive
+                          ? "bg-green-100 text-green-800 hover:bg-green-100"
+                          : ""
+                      }
                     >
+                      {user.isActive ? "Attivo" : "Disattivo"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{formatDate(user.createdAt)}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1">
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => router.push(`/clienti/${client.id}`)}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => openEdit(client)}
+                        onClick={() => openEdit(user)}
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button variant="ghost" size="icon">
-                            <Trash2 className="h-4 w-4 text-destructive" />
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
-                            <AlertDialogTitle>Conferma eliminazione</AlertDialogTitle>
+                            <AlertDialogTitle>
+                              Elimina utente
+                            </AlertDialogTitle>
                             <AlertDialogDescription>
-                              Sei sicuro di voler eliminare "{client.name}"?
-                              Questa azione è irreversibile.
+                              Sei sicuro di voler eliminare "{user.name}"?
+                              Questa azione non può essere annullata.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>Annulla</AlertDialogCancel>
                             <AlertDialogAction
-                              onClick={() => handleDelete(client.id)}
+                              onClick={() => handleDelete(user.id)}
                             >
                               Elimina
                             </AlertDialogAction>
@@ -534,146 +581,6 @@ export default function ClientiPage() {
           </TableBody>
         </Table>
       </div>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            Pagina {page} di {totalPages}
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page <= 1}
-              onClick={() => setPage(page - 1)}
-            >
-              <ChevronLeft className="h-4 w-4" />
-              Precedente
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages}
-              onClick={() => setPage(page + 1)}
-            >
-              Successiva
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Create/Edit Modal */}
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>
-              {editClient ? "Modifica Cliente" : "Nuovo Cliente"}
-            </DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">
-                Nome <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="name"
-                value={formData.name}
-                onChange={(e) =>
-                  setFormData({ ...formData, name: e.target.value })
-                }
-              />
-              {formErrors.name && (
-                <p className="text-xs text-destructive">{formErrors.name}</p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) =>
-                    setFormData({ ...formData, email: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="phone">Telefono</Label>
-                <Input
-                  id="phone"
-                  value={formData.phone}
-                  onChange={(e) =>
-                    setFormData({ ...formData, phone: e.target.value })
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="company">Azienda</Label>
-              <Input
-                id="company"
-                value={formData.company}
-                onChange={(e) =>
-                  setFormData({ ...formData, company: e.target.value })
-                }
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="status">Status</Label>
-              <Select
-                value={formData.status}
-                onValueChange={(v) =>
-                  setFormData({ ...formData, status: v as ClientStatus })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {clientStatuses.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s.charAt(0).toUpperCase() + s.slice(1)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="notes">Note</Label>
-              <Textarea
-                id="notes"
-                value={formData.notes}
-                onChange={(e) =>
-                  setFormData({ ...formData, notes: e.target.value })
-                }
-              />
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setModalOpen(false);
-                  resetForm();
-                }}
-              >
-                Annulla
-              </Button>
-              <Button type="submit">
-                {editClient ? "Salva modifiche" : "Crea cliente"}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
@@ -1252,167 +1159,257 @@ export default function TestEmailPage() {
 }
 </file>
 
-<file path="app/api/note/route.ts">
+<file path="app/api/auth/login/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { notes, clients } from "@/lib/schema";
-import { noteSchema } from "@/types";
-import { eq, desc, like, and, gte, sql } from "drizzle-orm";
-
-export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const search = searchParams.get("search") || "";
-    const type = searchParams.get("type") || "";
-    const clientId = searchParams.get("clientId") || "";
-    const days = parseInt(searchParams.get("days") || "30");
-
-    const dateThreshold = new Date();
-    dateThreshold.setDate(dateThreshold.getDate() - days);
-
-    const conditions = [gte(notes.createdAt, dateThreshold)];
-
-    if (type) {
-      conditions.push(eq(notes.type, type as any));
-    }
-
-    if (clientId) {
-      conditions.push(eq(notes.clientId, clientId));
-    }
-
-    const data = await db
-      .select({
-        id: notes.id,
-        content: notes.content,
-        type: notes.type,
-        author: notes.author,
-        clientId: notes.clientId,
-        createdAt: notes.createdAt,
-        updatedAt: notes.updatedAt,
-        clientName: clients.name,
-      })
-      .from(notes)
-      .leftJoin(clients, eq(notes.clientId, clients.id))
-      .where(
-        search
-          ? and(
-              ...conditions,
-              like(notes.content, `%${search}%`)
-            )
-          : and(...conditions)
-      )
-      .orderBy(desc(notes.createdAt));
-
-    return NextResponse.json(data);
-  } catch (error) {
-    console.error("Error fetching notes:", error);
-    return NextResponse.json(
-      { error: "Errore nel caricamento delle note" },
-      { status: 500 }
-    );
-  }
-}
+import { users } from "@/lib/schema";
+import { eq } from "drizzle-orm";
+import { createSession, verifyPassword } from "@/lib/auth";
+import { loginSchema } from "@/types";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const parsed = noteSchema.parse(body);
+    const parsed = loginSchema.safeParse(body);
 
-    const [note] = await db
-      .insert(notes)
-      .values({
-        clientId: body.clientId,
-        content: parsed.content,
-        type: parsed.type,
-        author: parsed.author,
-      })
-      .returning();
-
-    return NextResponse.json(note, { status: 201 });
-  } catch (error: any) {
-    if (error?.issues) {
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "Dati non validi", details: error.issues },
+        { error: "Dati non validi", details: parsed.error.issues },
         { status: 400 }
       );
     }
-    console.error("Error creating note:", error);
+
+    const { email, password } = parsed.data;
+
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+
+    if (!user || !user.isActive) {
+      return NextResponse.json(
+        { error: "Credenziali non valide" },
+        { status: 401 }
+      );
+    }
+
+    const valid = await verifyPassword(password, user.passwordHash);
+    if (!valid) {
+      return NextResponse.json(
+        { error: "Credenziali non valide" },
+        { status: 401 }
+      );
+    }
+
+    await createSession({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role as "admin" | "user",
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Login error:", error);
     return NextResponse.json(
-      { error: "Errore nella creazione della nota" },
+      { error: "Errore durante il login" },
       { status: 500 }
     );
   }
 }
 </file>
 
-<file path="app/api/tasks/route.ts">
+<file path="app/api/auth/me/route.ts">
+import { NextResponse } from "next/server";
+import { getAuthUser, destroySession } from "@/lib/auth";
+
+export async function GET() {
+  try {
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json({ user: null });
+    }
+    return NextResponse.json({ user });
+  } catch (error) {
+    console.error("Me error:", error);
+    return NextResponse.json({ user: null });
+  }
+}
+
+export async function DELETE() {
+  await destroySession();
+  return NextResponse.json({ success: true });
+}
+</file>
+
+<file path="app/api/users/[id]/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { tasks, clients } from "@/lib/schema";
-import { taskSchema } from "@/types";
-import { eq, desc, and, lte, gte, or, sql } from "drizzle-orm";
+import { users } from "@/lib/schema";
+import { requireAdmin, hashPassword } from "@/lib/auth";
+import { eq } from "drizzle-orm";
+import { userSchema } from "@/types";
 
-export async function GET(request: NextRequest) {
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
-    const { searchParams } = new URL(request.url);
-    const status = searchParams.get("status") || "";
-    const clientId = searchParams.get("clientId") || "";
-    const upcomingDays = parseInt(searchParams.get("upcomingDays") || "7");
+    await requireAdmin();
 
-    const conditions = [];
+    const { id } = await params;
+    const body = await request.json();
 
-    if (status) {
-      conditions.push(eq(tasks.status, status as any));
-    }
+    const existing = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, id))
+      .limit(1);
 
-    if (clientId) {
-      conditions.push(eq(tasks.clientId, clientId));
-    }
-
-    // Default: show overdue or due within upcomingDays
-    const now = new Date();
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + upcomingDays);
-
-    if (!status && !clientId) {
-      conditions.push(
-        or(
-          and(
-            lte(tasks.dueDate, futureDate),
-            sql`${tasks.status} IN ('todo', 'in_progress')`
-          ),
-          eq(tasks.status, "todo"),
-          eq(tasks.status, "in_progress")
-        )
+    if (!existing.length) {
+      return NextResponse.json(
+        { error: "Utente non trovato" },
+        { status: 404 }
       );
     }
 
+    // Se si cambia email, verifica univocità
+    if (body.email && body.email !== existing[0].email) {
+      const duplicate = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, body.email))
+        .limit(1);
+
+      if (duplicate.length > 0) {
+        return NextResponse.json(
+          { error: "Email già utilizzata" },
+          { status: 409 }
+        );
+      }
+    }
+
+    const updateData: Record<string, any> = {};
+    const allowedFields = ["name", "email", "role", "isActive"];
+    for (const field of allowedFields) {
+      if (body[field] !== undefined) {
+        updateData[field] = body[field];
+      }
+    }
+
+    if (body.password) {
+      updateData.passwordHash = await hashPassword(body.password);
+    }
+
+    updateData.updatedAt = new Date();
+
+    const [updated] = await db
+      .update(users)
+      .set(updateData)
+      .where(eq(users.id, id))
+      .returning();
+
+    return NextResponse.json({
+      id: updated.id,
+      email: updated.email,
+      name: updated.name,
+      role: updated.role,
+      isActive: updated.isActive,
+      createdAt: updated.createdAt,
+    });
+  } catch (error: any) {
+    if (error.message === "Unauthorized" || error.message === "Forbidden") {
+      return NextResponse.json({ error: "Non autorizzato" }, { status: 403 });
+    }
+    console.error("Error updating user:", error);
+    return NextResponse.json(
+      { error: "Errore nell'aggiornamento dell'utente" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    await requireAdmin();
+
+    const { id } = await params;
+
+    // Impedisci auto-eliminazione
+    const { getAuthUser } = await import("@/lib/auth");
+    const currentUser = await getAuthUser();
+    if (currentUser?.id === id) {
+      return NextResponse.json(
+        { error: "Non puoi eliminare il tuo account" },
+        { status: 400 }
+      );
+    }
+
+    const existing = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, id))
+      .limit(1);
+
+    if (!existing.length) {
+      return NextResponse.json(
+        { error: "Utente non trovato" },
+        { status: 404 }
+      );
+    }
+
+    await db.delete(users).where(eq(users.id, id));
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    if (error.message === "Unauthorized" || error.message === "Forbidden") {
+      return NextResponse.json({ error: "Non autorizzato" }, { status: 403 });
+    }
+    console.error("Error deleting user:", error);
+    return NextResponse.json(
+      { error: "Errore nell'eliminazione dell'utente" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/users/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { users } from "@/lib/schema";
+import { requireAuth, requireAdmin, hashPassword } from "@/lib/auth";
+import { userSchema } from "@/types";
+import { eq, desc } from "drizzle-orm";
+
+export async function GET() {
+  try {
+    await requireAuth();
+
     const data = await db
       .select({
-        id: tasks.id,
-        title: tasks.title,
-        description: tasks.description,
-        dueDate: tasks.dueDate,
-        status: tasks.status,
-        priority: tasks.priority,
-        completedAt: tasks.completedAt,
-        clientId: tasks.clientId,
-        createdAt: tasks.createdAt,
-        updatedAt: tasks.updatedAt,
-        clientName: clients.name,
+        id: users.id,
+        email: users.email,
+        name: users.name,
+        role: users.role,
+        isActive: users.isActive,
+        createdAt: users.createdAt,
       })
-      .from(tasks)
-      .leftJoin(clients, eq(tasks.clientId, clients.id))
-      .where(
-        conditions.length > 0 ? and(...conditions) : undefined
-      )
-      .orderBy(desc(tasks.priority), desc(tasks.dueDate));
+      .from(users)
+      .orderBy(desc(users.createdAt));
 
-    return NextResponse.json(data);
-  } catch (error) {
-    console.error("Error fetching tasks:", error);
+    return NextResponse.json({ data });
+  } catch (error: any) {
+    if (error.message === "Unauthorized" || error.message === "Forbidden") {
+      return NextResponse.json({ error: "Non autorizzato" }, { status: 403 });
+    }
+    console.error("Error fetching users:", error);
     return NextResponse.json(
-      { error: "Errore nel caricamento dei task" },
+      { error: "Errore nel caricamento degli utenti" },
       { status: 500 }
     );
   }
@@ -1420,32 +1417,69 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    await requireAdmin();
+
     const body = await request.json();
-    const parsed = taskSchema.parse(body);
+    const parsed = userSchema.safeParse(body);
 
-    const [task] = await db
-      .insert(tasks)
-      .values({
-        clientId: body.clientId,
-        title: parsed.title,
-        description: parsed.description || null,
-        dueDate: parsed.dueDate ? new Date(parsed.dueDate) : null,
-        status: parsed.status,
-        priority: parsed.priority,
-      })
-      .returning();
-
-    return NextResponse.json(task, { status: 201 });
-  } catch (error: any) {
-    if (error?.issues) {
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "Dati non validi", details: error.issues },
+        { error: "Dati non validi", details: parsed.error.issues },
         { status: 400 }
       );
     }
-    console.error("Error creating task:", error);
+
+    const { email, password, name, role, isActive } = parsed.data;
+
+    // Verifica email univoca
+    const existing = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+
+    if (existing.length > 0) {
+      return NextResponse.json(
+        { error: "Email già utilizzata" },
+        { status: 409 }
+      );
+    }
+
+    if (!password) {
+      return NextResponse.json(
+        { error: "La password è obbligatoria" },
+        { status: 400 }
+      );
+    }
+
+    const passwordHash = await hashPassword(password);
+
+    const [user] = await db
+      .insert(users)
+      .values({
+        email,
+        passwordHash,
+        name,
+        role,
+        isActive,
+      })
+      .returning();
+
+    return NextResponse.json({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
+    });
+  } catch (error: any) {
+    if (error.message === "Unauthorized" || error.message === "Forbidden") {
+      return NextResponse.json({ error: "Non autorizzato" }, { status: 403 });
+    }
+    console.error("Error creating user:", error);
     return NextResponse.json(
-      { error: "Errore nella creazione del task" },
+      { error: "Errore nella creazione dell'utente" },
       { status: 500 }
     );
   }
@@ -1543,6 +1577,100 @@ export default function RootLayout({
 }
 </file>
 
+<file path="app/login/page.tsx">
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useToast } from "@/components/ui/use-toast";
+
+export default function LoginPage() {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        toast({
+          title: "Errore",
+          description: err.error || "Credenziali non valide",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      router.push("/dashboard");
+    } catch {
+      toast({
+        title: "Errore",
+        description: "Errore di connessione",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-muted/50 p-4">
+      <Card className="w-full max-w-sm">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl">CRM FindFit</CardTitle>
+          <CardDescription>Accedi con le tue credenziali</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="mario@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Accesso in corso..." : "Accedi"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+</file>
+
 <file path="components/priority-badge.tsx">
 import { Badge } from "@/components/ui/badge";
 import type { Priority } from "@/types";
@@ -1577,63 +1705,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
       {children}
       <Toaster />
     </>
-  );
-}
-</file>
-
-<file path="components/topbar.tsx">
-"use client";
-
-import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Menu } from "lucide-react";
-
-interface TopbarProps {
-  onMenuClick: () => void;
-}
-
-export function Topbar({ onMenuClick }: TopbarProps) {
-  return (
-    <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 lg:px-6">
-      <Button
-        variant="ghost"
-        size="icon"
-        className="lg:hidden"
-        onClick={onMenuClick}
-      >
-        <Menu className="h-5 w-5" />
-      </Button>
-
-      <h1 className="text-lg font-semibold">CRM FindFit</h1>
-
-      <div className="flex-1" />
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="rounded-full">
-            <Avatar className="h-8 w-8">
-              <AvatarFallback>CF</AvatarFallback>
-            </Avatar>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuLabel>Il mio account</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem>Profilo</DropdownMenuItem>
-          <DropdownMenuItem>Impostazioni</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem>Esci</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </header>
   );
 }
 </file>
@@ -3146,6 +3217,105 @@ function useToast() {
 export { useToast, toast };
 </file>
 
+<file path="lib/auth.ts">
+import { SignJWT, jwtVerify } from "jose";
+import { cookies } from "next/headers";
+import { db } from "@/lib/db";
+import { users } from "@/lib/schema";
+import { eq } from "drizzle-orm";
+import bcrypt from "bcryptjs";
+
+const JWT_SECRET = new TextEncoder().encode(
+  process.env.JWT_SECRET || "fallback-secret-change-in-production"
+);
+
+const COOKIE_NAME = "session";
+
+export type AuthUser = {
+  id: string;
+  email: string;
+  name: string;
+  role: "admin" | "user";
+};
+
+/** Crea un JWT e lo salva nei cookie */
+export async function createSession(user: AuthUser): Promise<string> {
+  const token = await new SignJWT({ ...user })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("7d")
+    .sign(JWT_SECRET);
+
+  const cookieStore = await cookies();
+  cookieStore.set(COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 7, // 7 giorni
+  });
+
+  return token;
+}
+
+/** Distrugge la sessione cancellando il cookie */
+export async function destroySession() {
+  const cookieStore = await cookies();
+  cookieStore.set(COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
+  });
+}
+
+/** Legge e verifica il JWT dal cookie. Restituisce l'utente o null. */
+export async function getAuthUser(): Promise<AuthUser | null> {
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(COOKIE_NAME)?.value;
+    if (!token) return null;
+
+    const { payload } = await jwtVerify(token, JWT_SECRET);
+    return payload as unknown as AuthUser;
+  } catch {
+    return null;
+  }
+}
+
+/** Verifica la password in chiaro contro l'hash */
+export async function verifyPassword(
+  plain: string,
+  hash: string
+): Promise<boolean> {
+  return bcrypt.compare(plain, hash);
+}
+
+/** Genera l'hash di una password */
+export async function hashPassword(plain: string): Promise<string> {
+  return bcrypt.hash(plain, 12);
+}
+
+/** Helper per API routes: estrae l'utente corrente o restituisce 401 */
+export async function requireAuth(): Promise<AuthUser> {
+  const user = await getAuthUser();
+  if (!user) {
+    throw new Error("Unauthorized");
+  }
+  return user;
+}
+
+/** Helper per API routes: richiede ruolo admin */
+export async function requireAdmin(): Promise<AuthUser> {
+  const user = await requireAuth();
+  if (user.role !== "admin") {
+    throw new Error("Forbidden");
+  }
+  return user;
+}
+</file>
+
 <file path="lib/crypto.ts">
 import crypto from "crypto";
 
@@ -3207,97 +3377,6 @@ const client = createClient({
 });
 
 export const db = drizzle(client, { schema });
-</file>
-
-<file path="lib/email-parser.ts">
-import { db } from "@/lib/db";
-import { clients, tasks } from "@/lib/schema";
-import { eq } from "drizzle-orm";
-
-export type ContactRequest = {
-  nome: string;
-  email: string;
-  messaggio: string;
-};
-
-/**
- * Analizza il corpo dell'email per estrarre i dati di un nuovo contatto.
- * Atteso formato:
- *   Nuovo contatto da
- *   Nome: Mario Rossi
- *   Email: mario@example.com
- *   Messaggio: Testo del messaggio
- */
-export function parseContactRequest(bodyText: string): ContactRequest | null {
-  if (!bodyText.includes("Nuovo contatto da")) return null;
-
-  const nomeMatch = bodyText.match(/Nome:\s*(.+)/i);
-  const emailMatch = bodyText.match(/Email:\s*(.+)/i);
-  const msgMatch = bodyText.match(/Messaggio:\s*([\s\S]*)/i);
-
-  if (!nomeMatch || !emailMatch) return null;
-
-  return {
-    nome: nomeMatch[1].trim(),
-    email: emailMatch[1].trim(),
-    messaggio: msgMatch ? msgMatch[1].trim() : "",
-  };
-}
-
-/**
- * Verifica se un cliente esiste già per email, altrimenti lo crea.
- * In entrambi i casi crea un task appropriato.
- * Restituisce un summary testuale delle operazioni fatte.
- */
-export async function processContactRequest(data: ContactRequest): Promise<string> {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-  // Cerca cliente per email
-  const existing = await db
-    .select()
-    .from(clients)
-    .where(eq(clients.email, data.email))
-    .limit(1);
-
-  if (existing.length === 0) {
-    // Nuovo cliente
-    const [newClient] = await db
-      .insert(clients)
-      .values({
-        name: data.nome,
-        email: data.email,
-        notes: `Richiesta via email: ${data.messaggio}`,
-        status: "lead",
-      })
-      .returning();
-
-    // Task presentazione
-    await db.insert(tasks).values({
-      clientId: newClient.id,
-      title: "Inviare email di presentazione",
-      description: `Contatto ricevuto via email da ${data.nome} (${data.email}). Messaggio: ${data.messaggio}`,
-      dueDate: today,
-      priority: "high",
-      status: "todo",
-    });
-
-    return `Nuovo cliente "${data.nome}" creato + task presentazione`;
-  }
-
-  // Cliente esistente → task qualificazione
-  const client = existing[0];
-  await db.insert(tasks).values({
-    clientId: client.id,
-    title: "Chiamata di qualificazione da email",
-    description: `Nuova email di richiesta dal cliente. Messaggio: ${data.messaggio}`,
-    dueDate: today,
-    priority: "high",
-    status: "todo",
-  });
-
-  return `Task qualificazione aggiunto per cliente esistente "${client.name}"`;
-}
 </file>
 
 <file path="lib/imap-config.ts">
@@ -3400,6 +3479,92 @@ export function daysUntil(date: Date | number | null | undefined): number {
   const diff = target.getTime() - now.getTime();
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
+</file>
+
+<file path="middleware.ts">
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { jwtVerify } from "jose";
+
+const JWT_SECRET = new TextEncoder().encode(
+  process.env.JWT_SECRET || "fallback-secret-change-in-production"
+);
+
+const COOKIE_NAME = "session";
+
+// Rotte protette che richiedono autenticazione
+const protectedPaths = ["/dashboard", "/clienti", "/kanban", "/task", "/note", "/impostazioni", "/admin"];
+
+// Rotte API protette (esclusa auth)
+const protectedApiPaths = ["/api/clients", "/api/dashboard", "/api/tasks", "/api/note", "/api/users"];
+
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Login page e auth API sono sempre accessibili
+  if (pathname === "/login" || pathname.startsWith("/api/auth")) {
+    // Se già autenticato e va al login, reindirizza a dashboard
+    if (pathname === "/login") {
+      const token = request.cookies.get(COOKIE_NAME)?.value;
+      if (token) {
+        try {
+          await jwtVerify(token, JWT_SECRET);
+          return NextResponse.redirect(new URL("/dashboard", request.url));
+        } catch {
+          // Token non valido, continua
+        }
+      }
+    }
+    return NextResponse.next();
+  }
+
+  // Verifica se la rotta è protetta
+  const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
+  const isProtectedApi = protectedApiPaths.some((p) => pathname.startsWith(p));
+
+  if (isProtected || isProtectedApi) {
+    const token = request.cookies.get(COOKIE_NAME)?.value;
+
+    if (!token) {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+      }
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
+
+    try {
+      await jwtVerify(token, JWT_SECRET);
+    } catch {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json({ error: "Sessione non valida" }, { status: 401 });
+      }
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: [
+    // Rotte dashboard
+    "/dashboard/:path*",
+    "/clienti/:path*",
+    "/kanban/:path*",
+    "/task/:path*",
+    "/note/:path*",
+    "/impostazioni/:path*",
+    "/admin/:path*",
+    "/login",
+    // Rotte API
+    "/api/clients/:path*",
+    "/api/dashboard/:path*",
+    "/api/tasks/:path*",
+    "/api/note/:path*",
+    "/api/users/:path*",
+    "/api/auth/:path*",
+  ],
+};
 </file>
 
 <file path="next.config.js">
@@ -3578,6 +3743,61 @@ npm run db:studio    # Apri Drizzle Studio
 ```
 </file>
 
+<file path="scripts/generate-hash.ts">
+/**
+ * Genera il bcrypt hash di una password per usarlo come ADMIN_PASSWORD_HASH in .env.local
+ * Uso: npx tsx scripts/generate-hash.ts <password>
+ */
+import bcrypt from "bcryptjs";
+
+async function main() {
+  const password = process.argv[2] || "admin123";
+  const hash = await bcrypt.hash(password, 12);
+  console.log(`\nADMIN_PASSWORD_HASH=${hash}\n`);
+  console.log(`Aggiungi questa riga a .env.local per usarla in produzione.\n`);
+}
+
+main().catch(console.error);
+</file>
+
+<file path="scripts/migrate.ts">
+import { createClient } from "@libsql/client";
+import { config } from "dotenv";
+import { readFileSync } from "fs";
+import { resolve } from "path";
+
+config({ path: ".env.local" });
+
+const client = createClient({
+  url: process.env.TURSO_DB_URL!,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
+
+async function main() {
+  const sqlPath = resolve(__dirname, "../drizzle/0001_charming_madripoor.sql");
+  const sql = readFileSync(sqlPath, "utf-8");
+
+  const statements = sql
+    .split("--> statement-breakpoint")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  for (const stmt of statements) {
+    console.log("Executing:", stmt.slice(0, 80) + "...");
+    try {
+      await client.execute(stmt);
+      console.log("  ✓ OK");
+    } catch (e: any) {
+      console.error("  ✗ Error:", e.message);
+    }
+  }
+
+  console.log("Migration done!");
+}
+
+main().catch(console.error);
+</file>
+
 <file path="tailwind.config.ts">
 import type { Config } from "tailwindcss";
 
@@ -3660,6 +3880,1821 @@ const config: Config = {
 export default config;
 </file>
 
+<file path="app/(dashboard)/clienti/page.tsx">
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { StatusBadge } from "@/components/status-badge";
+import { useToast } from "@/components/ui/use-toast";
+import { clientSchema, clientStatuses, type ClientStatus } from "@/types";
+import { formatDate } from "@/lib/utils";
+import {
+  Plus,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  Trash2,
+  Eye,
+  ArrowUpDown,
+} from "lucide-react";
+
+interface Client {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+  status: ClientStatus;
+  notes: string | null;
+  userId: string | null;
+  createdAt: number;
+}
+
+export default function ClientiPage() {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [clients, setClients] = useState<Client[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [limit] = useState(10);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [sort, setSort] = useState("createdAt");
+  const [order, setOrder] = useState("desc");
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [usersMap, setUsersMap] = useState<Record<string, string>>({});
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [editClient, setEditClient] = useState<Client | null>(null);
+
+  // Form state
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    company: "",
+    status: "lead" as ClientStatus,
+    notes: "",
+  });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  const fetchClients = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(limit),
+        sort,
+        order,
+      });
+      if (search) params.set("search", search);
+      if (statusFilter) params.set("status", statusFilter);
+
+      const res = await fetch(`/api/clients?${params}`);
+      const data = await res.json();
+      setClients(data.data);
+      setTotal(data.total);
+    } catch {
+      toast({
+        title: "Errore",
+        description: "Impossibile caricare i clienti",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [page, limit, search, statusFilter, sort, order, toast]);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.user) setCurrentUserId(json.user.id);
+      })
+      .catch(() => {});
+
+    fetch("/api/users")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.data) {
+          const map: Record<string, string> = {};
+          json.data.forEach((u: any) => { map[u.id] = u.name; });
+          setUsersMap(map);
+        }
+      })
+      .catch(() => {});
+
+    fetchClients();
+  }, [fetchClients]);
+
+  const totalPages = Math.ceil(total / limit);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormErrors({});
+
+    const result = clientSchema.safeParse(formData);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((issue) => {
+        if (issue.path[0]) errors[String(issue.path[0])] = issue.message;
+      });
+      setFormErrors(errors);
+      return;
+    }
+
+    try {
+      const url = editClient ? `/api/clients/${editClient.id}` : "/api/clients";
+      const method = editClient ? "PATCH" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(result.data),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        toast({
+          title: "Errore",
+          description: err.error || "Operazione fallita",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: editClient ? "Cliente aggiornato" : "Cliente creato",
+        variant: "success" as any,
+      });
+      setModalOpen(false);
+      resetForm();
+      fetchClients();
+    } catch {
+      toast({
+        title: "Errore",
+        description: "Operazione fallita",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      const res = await fetch(`/api/clients/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      toast({ title: "Cliente eliminato", variant: "success" as any });
+      fetchClients();
+    } catch {
+      toast({
+        title: "Errore",
+        description: "Eliminazione fallita",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      name: "",
+      email: "",
+      phone: "",
+      company: "",
+      status: "lead",
+      notes: "",
+    });
+    setEditClient(null);
+    setFormErrors({});
+  };
+
+  const openEdit = (client: Client) => {
+    setEditClient(client);
+    setFormData({
+      name: client.name,
+      email: client.email || "",
+      phone: client.phone || "",
+      company: client.company || "",
+      status: client.status,
+      notes: client.notes || "",
+    });
+    setModalOpen(true);
+  };
+
+  const openCreate = () => {
+    resetForm();
+    setModalOpen(true);
+  };
+
+  const toggleSort = (field: string) => {
+    if (sort === field) {
+      setOrder(order === "asc" ? "desc" : "asc");
+    } else {
+      setSort(field);
+      setOrder("asc");
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Lista Clienti</h2>
+          <p className="text-muted-foreground">
+            Gestisci i tuoi clienti ({total} totali)
+          </p>
+        </div>
+        <Button onClick={openCreate}>
+          <Plus className="mr-2 h-4 w-4" />
+          Nuovo Cliente
+        </Button>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-col gap-4 sm:flex-row">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Cerca per nome, email o azienda..."
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            className="pl-9"
+          />
+        </div>
+        <Select
+          value={statusFilter}
+          onValueChange={(v) => {
+            setStatusFilter(v);
+            setPage(1);
+          }}
+        >
+          <SelectTrigger className="w-full sm:w-40">
+            <SelectValue placeholder="Tutti gli status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tutti</SelectItem>
+            {clientStatuses.map((s) => (
+              <SelectItem key={s} value={s}>
+                {s.charAt(0).toUpperCase() + s.slice(1)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Table */}
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead
+                className="cursor-pointer"
+                onClick={() => toggleSort("name")}
+              >
+                <div className="flex items-center gap-1">
+                  Nome
+                  <ArrowUpDown className="h-3 w-3" />
+                </div>
+              </TableHead>
+              <TableHead>Email</TableHead>
+              <TableHead>Telefono</TableHead>
+              <TableHead>Azienda</TableHead>
+              <TableHead
+                className="cursor-pointer"
+                onClick={() => toggleSort("status")}
+              >
+                <div className="flex items-center gap-1">
+                  Status
+                  <ArrowUpDown className="h-3 w-3" />
+                </div>
+              </TableHead>
+              <TableHead>Assegnato a</TableHead>
+              <TableHead>Azioni</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-8">
+                  Caricamento...
+                </TableCell>
+              </TableRow>
+            ) : clients.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-8">
+                  Nessun cliente trovato
+                </TableCell>
+              </TableRow>
+            ) : (
+              clients.map((client) => {
+                const isMyRow = currentUserId && client.userId === currentUserId;
+                return (
+                <TableRow
+                  key={client.id}
+                  className={`cursor-pointer ${isMyRow ? "bg-primary/5 hover:bg-primary/10" : ""}`}
+                  onClick={() => router.push(`/clienti/${client.id}`)}
+                >
+                  <TableCell className="font-medium">{client.name}</TableCell>
+                  <TableCell>{client.email || "—"}</TableCell>
+                  <TableCell>{client.phone || "—"}</TableCell>
+                  <TableCell>{client.company || "—"}</TableCell>
+                  <TableCell>
+                    <StatusBadge status={client.status} />
+                  </TableCell>
+                  <TableCell>
+                    {client.userId && usersMap[client.userId]
+                      ? usersMap[client.userId]
+                      : "—"}
+                  </TableCell>
+                  <TableCell>
+                    <div
+                      className="flex items-center gap-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => router.push(`/clienti/${client.id}`)}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => openEdit(client)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="ghost" size="icon">
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Conferma eliminazione</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Sei sicuro di voler eliminare "{client.name}"?
+                              Questa azione è irreversibile.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Annulla</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => handleDelete(client.id)}
+                            >
+                              Elimina
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Pagina {page} di {totalPages}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => setPage(page - 1)}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Precedente
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page >= totalPages}
+              onClick={() => setPage(page + 1)}
+            >
+              Successiva
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Create/Edit Modal */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>
+              {editClient ? "Modifica Cliente" : "Nuovo Cliente"}
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="name">
+                Nome <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="name"
+                value={formData.name}
+                onChange={(e) =>
+                  setFormData({ ...formData, name: e.target.value })
+                }
+              />
+              {formErrors.name && (
+                <p className="text-xs text-destructive">{formErrors.name}</p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) =>
+                    setFormData({ ...formData, email: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="phone">Telefono</Label>
+                <Input
+                  id="phone"
+                  value={formData.phone}
+                  onChange={(e) =>
+                    setFormData({ ...formData, phone: e.target.value })
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="company">Azienda</Label>
+              <Input
+                id="company"
+                value={formData.company}
+                onChange={(e) =>
+                  setFormData({ ...formData, company: e.target.value })
+                }
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="status">Status</Label>
+              <Select
+                value={formData.status}
+                onValueChange={(v) =>
+                  setFormData({ ...formData, status: v as ClientStatus })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {clientStatuses.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s.charAt(0).toUpperCase() + s.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="notes">Note</Label>
+              <Textarea
+                id="notes"
+                value={formData.notes}
+                onChange={(e) =>
+                  setFormData({ ...formData, notes: e.target.value })
+                }
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setModalOpen(false);
+                  resetForm();
+                }}
+              >
+                Annulla
+              </Button>
+              <Button type="submit">
+                {editClient ? "Salva modifiche" : "Crea cliente"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+</file>
+
+<file path="app/(dashboard)/impostazioni/page.tsx">
+"use client";
+
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/use-toast";
+import { Loader2, Save, Eye, EyeOff, Server } from "lucide-react";
+
+type Tab = "generali" | "imap";
+
+type ImapFormData = {
+  host: string;
+  port: string;
+  user: string;
+  password: string;
+  filterFrom: string;
+  filterSubject: string;
+};
+
+export default function ImpostazioniPage() {
+  const [activeTab, setActiveTab] = useState<Tab>("generali");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const { toast } = useToast();
+
+  // Stato del form IMAP
+  const [form, setForm] = useState<ImapFormData>({
+    host: "",
+    port: "993",
+    user: "",
+    password: "",
+    filterFrom: "",
+    filterSubject: "",
+  });
+
+  // Carica impostazioni esistenti
+  useEffect(() => {
+    if (activeTab !== "imap") return;
+    setLoading(true);
+    fetch("/api/imap-settings")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.settings) {
+          setForm({
+            host: data.settings.host || "",
+            port: data.settings.port || "993",
+            user: data.settings.user || "",
+            password: data.settings.password || "",
+            filterFrom: data.settings.filterFrom || "",
+            filterSubject: data.settings.filterSubject || "",
+          });
+        }
+      })
+      .catch(() => {
+        toast({
+          title: "Errore",
+          description: "Impossibile caricare le impostazioni IMAP.",
+          variant: "destructive",
+        });
+      })
+      .finally(() => setLoading(false));
+  }, [activeTab, toast]);
+
+  const handleChange = (field: keyof ImapFormData, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/imap-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Errore durante il salvataggio");
+      }
+
+      toast({
+        title: "Salvato",
+        description: "Impostazioni IMAP salvate con successo.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Errore",
+        description: error.message || "Errore durante il salvataggio.",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "generali", label: "Generali" },
+    { id: "imap", label: "IMAP Email" },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">Impostazioni</h2>
+        <p className="text-muted-foreground">
+          Configurazione del sistema CRM
+        </p>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 border-b">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              activeTab === tab.id
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab: Generali */}
+      {activeTab === "generali" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Impostazioni Generali</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              Le impostazioni di configurazione saranno disponibili in una
+              versione futura.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Tab: IMAP Email */}
+      {activeTab === "imap" && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Server className="h-5 w-5 text-muted-foreground" />
+              <CardTitle>Configurazione IMAP</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSave();
+                }}
+                className="space-y-4"
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {/* Host */}
+                  <div className="space-y-2">
+                    <Label htmlFor="host">Host IMAP</Label>
+                    <Input
+                      id="host"
+                      placeholder="imaps.aruba.it"
+                      value={form.host}
+                      onChange={(e) => handleChange("host", e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  {/* Port */}
+                  <div className="space-y-2">
+                    <Label htmlFor="port">Porta</Label>
+                    <Input
+                      id="port"
+                      placeholder="993"
+                      value={form.port}
+                      onChange={(e) => handleChange("port", e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  {/* User */}
+                  <div className="space-y-2">
+                    <Label htmlFor="user">Utente</Label>
+                    <Input
+                      id="user"
+                      placeholder="services@easyasso.cloud"
+                      value={form.user}
+                      onChange={(e) => handleChange("user", e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  {/* Password */}
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        type={showPassword ? "text" : "password"}
+                        placeholder="••••••••"
+                        value={form.password}
+                        onChange={(e) =>
+                          handleChange("password", e.target.value)
+                        }
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Filter From */}
+                  <div className="space-y-2">
+                    <Label htmlFor="filterFrom">
+                      Filtra mittente (opzionale)
+                    </Label>
+                    <Input
+                      id="filterFrom"
+                      placeholder="e-ross1971@live.it"
+                      value={form.filterFrom}
+                      onChange={(e) =>
+                        handleChange("filterFrom", e.target.value)
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Solo email da questo mittente.
+                    </p>
+                  </div>
+
+                  {/* Filter Subject */}
+                  <div className="space-y-2">
+                    <Label htmlFor="filterSubject">
+                      Filtra oggetto (opzionale)
+                    </Label>
+                    <Input
+                      id="filterSubject"
+                      placeholder="parola chiave nell'oggetto"
+                      value={form.filterSubject}
+                      onChange={(e) =>
+                        handleChange("filterSubject", e.target.value)
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Solo email con questa parola nell'oggetto.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <Button type="submit" disabled={saving}>
+                    {saving ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Salvataggio...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="mr-2 h-4 w-4" />
+                        Salva impostazioni
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </form>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+</file>
+
+<file path="app/(dashboard)/layout.tsx">
+"use client";
+
+import { useState } from "react";
+import { Sidebar } from "@/components/sidebar";
+import { Topbar } from "@/components/topbar";
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  return (
+    <div className="flex h-screen">
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <Topbar onMenuClick={() => setSidebarOpen(true)} />
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6">{children}</main>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="app/api/email/sync/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { ImapFlow } from "imapflow";
+import { simpleParser } from "mailparser";
+import { getImapConfig } from "@/lib/imap-config";
+import { parseContactRequest, processContactRequest } from "@/lib/email-parser";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET(_request: NextRequest) {
+  try {
+    const config = await getImapConfig();
+
+    if (!config) {
+      return NextResponse.json(
+        { error: "Credenziali IMAP mancanti. Configura le impostazioni IMAP nella pagina Impostazioni." },
+        { status: 500 }
+      );
+    }
+
+    const { host, port, user, password, filterFrom, filterSubject } = config;
+    const filterFromLower = filterFrom.toLowerCase();
+    const filterSubjectLower = filterSubject.toLowerCase();
+
+    const client = new ImapFlow({
+      host,
+      port,
+      secure: port === 993,
+      auth: { user, pass: password },
+      logger: false,
+    });
+
+    await client.connect();
+
+    const lock = await client.getMailboxLock("INBOX");
+    try {
+      const rawResult = await client.search({ unseen: true } as any);
+      const searchResult: number[] = Array.isArray(rawResult) ? rawResult : [];
+      const uidList = searchResult;
+
+      const emails: {
+        mittente: string;
+        oggetto: string;
+        bodyText: string;
+        data: string;
+        crmAction?: string;
+      }[] = [];
+      let filtrate = 0;
+
+      for (const uid of uidList) {
+        // Recupera source grezzo
+        const message = (await client.fetchOne(uid, { source: true })) as any;
+
+        // Parsing completo con mailparser
+        let parsed;
+        try {
+          parsed = await simpleParser(message.source as Buffer);
+        } catch {
+          continue;
+        }
+
+        // Filtra per mittente
+        const fromAddress =
+          parsed.from && parsed.from.value && parsed.from.value.length > 0
+            ? parsed.from.value[0].address?.toLowerCase() || ""
+            : "";
+
+        if (filterFromLower && fromAddress !== filterFromLower) {
+          filtrate++;
+          continue;
+        }
+
+        // Filtra per oggetto
+        const oggetto = parsed.subject || "";
+        if (filterSubjectLower && !oggetto.toLowerCase().includes(filterSubjectLower)) {
+          filtrate++;
+          continue;
+        }
+
+        // Mittente formattato
+        const mittente =
+          parsed.from && parsed.from.value && parsed.from.value.length > 0
+            ? `${parsed.from.value[0].name || ""} <${parsed.from.value[0].address}>`.trim()
+            : "Sconosciuto";
+
+        // Oggetto (gia calcolato sopra)
+
+        // Data
+        const data = parsed.date
+          ? new Date(parsed.date).toLocaleString("it-IT")
+          : "";
+
+        // Corpo
+        const bodyText = (parsed.text || parsed.html || "").trim();
+
+        // Parsing richiesta contatto
+        let crmAction: string | undefined;
+        const contactData = parseContactRequest(bodyText);
+        if (contactData) {
+          try {
+            crmAction = await processContactRequest(contactData);
+          } catch (err: any) {
+            console.error("Errore processContactRequest:", err);
+          }
+        }
+
+        emails.push({ mittente, oggetto, bodyText, data, crmAction });
+
+        // Segna l'email come letta su Aruba
+        await client.messageFlagsAdd(uid, ["\\Seen"]);
+      }
+
+      return NextResponse.json({
+        emails,
+        totali: uidList.length,
+        filtrate,
+        sincronizzate: emails.length,
+      });
+    } finally {
+      lock.release();
+      await client.logout();
+    }
+  } catch (error: any) {
+    console.error("Errore IMAP sync:", error);
+    return NextResponse.json(
+      {
+        error: `Errore durante la sincronizzazione IMAP: ${error.message || "Errore sconosciuto"}`,
+      },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/imap-settings/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { imapSettings } from "@/lib/schema";
+import { encrypt, decrypt } from "@/lib/crypto";
+import { eq } from "drizzle-orm";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/** GET: recupera le impostazioni IMAP (decriptate) */
+export async function GET() {
+  try {
+    const rows = await db.select().from(imapSettings).limit(1);
+    if (rows.length === 0) {
+      return NextResponse.json({ settings: null });
+    }
+
+    const row = rows[0];
+    const settings = {
+      id: row.id,
+      host: decrypt(row.host),
+      port: decrypt(row.port),
+      user: decrypt(row.user),
+      password: decrypt(row.password),
+      filterFrom: decrypt(row.filterFrom),
+      filterSubject: decrypt(row.filterSubject),
+    };
+
+    return NextResponse.json({ settings });
+  } catch (error: any) {
+    console.error("Errore lettura impostazioni IMAP:", error);
+    return NextResponse.json(
+      { error: `Errore: ${error.message || "Errore sconosciuto"}` },
+      { status: 500 }
+    );
+  }
+}
+
+/** PUT: salva (upsert) le impostazioni IMAP (criptate) */
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { host, port, user, password, filterFrom, filterSubject } = body;
+
+    if (!host || !port || !user || !password) {
+      return NextResponse.json(
+        { error: "I campi host, port, user e password sono obbligatori" },
+        { status: 400 }
+      );
+    }
+
+    const encrypted = {
+      host: encrypt(host),
+      port: encrypt(port),
+      user: encrypt(user),
+      password: encrypt(password),
+      filterFrom: encrypt(filterFrom || ""),
+      filterSubject: encrypt(filterSubject || ""),
+    };
+
+    // Upsert: verifica se esiste già una riga
+    const existing = await db.select().from(imapSettings).limit(1);
+
+    if (existing.length > 0) {
+      await db
+        .update(imapSettings)
+        .set({
+          host: encrypted.host,
+          port: encrypted.port,
+          user: encrypted.user,
+          password: encrypted.password,
+          filterFrom: encrypted.filterFrom,
+          filterSubject: encrypted.filterSubject,
+          updatedAt: new Date(),
+        })
+        .where(eq(imapSettings.id, existing[0].id));
+    } else {
+      await db.insert(imapSettings).values({
+        host: encrypted.host,
+        port: encrypted.port,
+        user: encrypted.user,
+        password: encrypted.password,
+        filterFrom: encrypted.filterFrom,
+        filterSubject: encrypted.filterSubject,
+      });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error("Errore salvataggio impostazioni IMAP:", error);
+    return NextResponse.json(
+      { error: `Errore: ${error.message || "Errore sconosciuto"}` },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/note/[id]/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { notes } from "@/lib/schema";
+import { noteSchema } from "@/types";
+import { eq } from "drizzle-orm";
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const body = await request.json();
+    const parsed = noteSchema.partial().parse(body);
+
+    const [updated] = await db
+      .update(notes)
+      .set({ ...parsed, updatedAt: new Date() })
+      .where(eq(notes.id, id))
+      .returning();
+
+    if (!updated) {
+      return NextResponse.json(
+        { error: "Nota non trovata" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json(updated);
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error updating note:", error);
+    return NextResponse.json(
+      { error: "Errore nell'aggiornamento della nota" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    await db.delete(notes).where(eq(notes.id, id));
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting note:", error);
+    return NextResponse.json(
+      { error: "Errore nell'eliminazione della nota" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/note/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { notes, clients } from "@/lib/schema";
+import { noteSchema } from "@/types";
+import { eq, desc, like, and, gte, sql, or } from "drizzle-orm";
+import { getAuthUser } from "@/lib/auth";
+
+export async function GET(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const search = searchParams.get("search") || "";
+    const type = searchParams.get("type") || "";
+    const clientId = searchParams.get("clientId") || "";
+    const days = parseInt(searchParams.get("days") || "30");
+
+    const dateThreshold = new Date();
+    dateThreshold.setDate(dateThreshold.getDate() - days);
+
+    const conditions = [gte(notes.createdAt, dateThreshold)];
+
+    if (type) {
+      conditions.push(eq(notes.type, type as any));
+    }
+
+    if (clientId) {
+      conditions.push(eq(notes.clientId, clientId));
+    }
+
+    // Filtra per user_id se non admin: vede i non assegnati + i propri
+    if (authUser.role !== "admin") {
+      conditions.push(
+        sql`(${clients.userId} = ${authUser.id} OR ${clients.userId} IS NULL)`
+      );
+    }
+
+    const data = await db
+      .select({
+        id: notes.id,
+        content: notes.content,
+        type: notes.type,
+        author: notes.author,
+        clientId: notes.clientId,
+        createdAt: notes.createdAt,
+        updatedAt: notes.updatedAt,
+        clientName: clients.name,
+      })
+      .from(notes)
+      .leftJoin(clients, eq(notes.clientId, clients.id))
+      .where(
+        search
+          ? and(
+              ...conditions,
+              like(notes.content, `%${search}%`)
+            )
+          : and(...conditions)
+      )
+      .orderBy(desc(notes.createdAt));
+
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error("Error fetching notes:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento delle note" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const parsed = noteSchema.parse(body);
+
+    // Auto-assign: se utente non-admin e cliente senza userId, assegna a lui
+    if (authUser.role !== "admin" && body.clientId) {
+      const [client] = await db
+        .select({ userId: clients.userId })
+        .from(clients)
+        .where(eq(clients.id, body.clientId))
+        .limit(1);
+
+      if (client && !client.userId) {
+        await db
+          .update(clients)
+          .set({ userId: authUser.id, updatedAt: new Date() })
+          .where(eq(clients.id, body.clientId));
+      }
+    }
+
+    const [note] = await db
+      .insert(notes)
+      .values({
+        clientId: body.clientId,
+        content: parsed.content,
+        type: parsed.type,
+        author: parsed.author,
+      })
+      .returning();
+
+    return NextResponse.json(note, { status: 201 });
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error creating note:", error);
+    return NextResponse.json(
+      { error: "Errore nella creazione della nota" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/tasks/[id]/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { tasks } from "@/lib/schema";
+import { taskSchema } from "@/types";
+import { eq } from "drizzle-orm";
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const body = await request.json();
+    const parsed = taskSchema.partial().parse(body);
+
+    // Get current task to check status change
+    const existing = await db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.id, id))
+      .limit(1);
+
+    if (!existing.length) {
+      return NextResponse.json(
+        { error: "Task non trovato" },
+        { status: 404 }
+      );
+    }
+
+    const updateData: Record<string, any> = {
+      ...parsed,
+      updatedAt: new Date(),
+    };
+
+    // Handle completion
+    if (body.status === "completed" && existing[0].status !== "completed") {
+      updateData.completedAt = new Date();
+    } else if (body.status && body.status !== "completed") {
+      updateData.completedAt = null;
+    }
+
+    if (parsed.dueDate) {
+      updateData.dueDate = new Date(parsed.dueDate);
+    }
+
+    const [updated] = await db
+      .update(tasks)
+      .set(updateData)
+      .where(eq(tasks.id, id))
+      .returning();
+
+    return NextResponse.json(updated);
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error updating task:", error);
+    return NextResponse.json(
+      { error: "Errore nell'aggiornamento del task" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    await db.delete(tasks).where(eq(tasks.id, id));
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting task:", error);
+    return NextResponse.json(
+      { error: "Errore nell'eliminazione del task" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/tasks/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { tasks, clients } from "@/lib/schema";
+import { taskSchema } from "@/types";
+import { eq, desc, and, lte, gte, or, sql } from "drizzle-orm";
+import { getAuthUser } from "@/lib/auth";
+
+export async function GET(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const status = searchParams.get("status") || "";
+    const clientId = searchParams.get("clientId") || "";
+    const upcomingDays = parseInt(searchParams.get("upcomingDays") || "7");
+
+    const conditions = [];
+
+    if (status) {
+      conditions.push(eq(tasks.status, status as any));
+    }
+
+    if (clientId) {
+      conditions.push(eq(tasks.clientId, clientId));
+    }
+
+    // Filtra per user_id se non admin: vede i non assegnati + i propri
+    if (authUser.role !== "admin") {
+      conditions.push(
+        or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`)
+      );
+    }
+
+    // Default: show overdue or due within upcomingDays
+    const now = new Date();
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + upcomingDays);
+
+    if (!status && !clientId) {
+      conditions.push(
+        or(
+          and(
+            lte(tasks.dueDate, futureDate),
+            sql`${tasks.status} IN ('todo', 'in_progress')`
+          ),
+          eq(tasks.status, "todo"),
+          eq(tasks.status, "in_progress")
+        )
+      );
+    }
+
+    const data = await db
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        description: tasks.description,
+        dueDate: tasks.dueDate,
+        status: tasks.status,
+        priority: tasks.priority,
+        completedAt: tasks.completedAt,
+        clientId: tasks.clientId,
+        createdAt: tasks.createdAt,
+        updatedAt: tasks.updatedAt,
+        clientName: clients.name,
+      })
+      .from(tasks)
+      .leftJoin(clients, eq(tasks.clientId, clients.id))
+      .where(
+        conditions.length > 0 ? and(...conditions) : undefined
+      )
+      .orderBy(desc(tasks.priority), desc(tasks.dueDate));
+
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error("Error fetching tasks:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento dei task" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const parsed = taskSchema.parse(body);
+
+    // Auto-assign: se utente non-admin e cliente senza userId, assegna a lui
+    if (authUser.role !== "admin" && body.clientId) {
+      const [client] = await db
+        .select({ userId: clients.userId })
+        .from(clients)
+        .where(eq(clients.id, body.clientId))
+        .limit(1);
+
+      if (client && !client.userId) {
+        await db
+          .update(clients)
+          .set({ userId: authUser.id, updatedAt: new Date() })
+          .where(eq(clients.id, body.clientId));
+      }
+    }
+
+    const [task] = await db
+      .insert(tasks)
+      .values({
+        clientId: body.clientId,
+        title: parsed.title,
+        description: parsed.description || null,
+        dueDate: parsed.dueDate ? new Date(parsed.dueDate) : null,
+        status: parsed.status,
+        priority: parsed.priority,
+      })
+      .returning();
+
+    return NextResponse.json(task, { status: 201 });
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error creating task:", error);
+    return NextResponse.json(
+      { error: "Errore nella creazione del task" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="components/status-badge.tsx">
+import { Badge } from "@/components/ui/badge";
+import type { ClientStatus } from "@/types";
+
+const statusConfig: Record<
+  ClientStatus,
+  { label: string; variant: "info" | "warning" | "success" | "muted" }
+> = {
+  lead: { label: "Lead", variant: "info" },
+  suspect: { label: "Suspect", variant: "warning" },
+  won: { label: "Won", variant: "success" },
+  closed_lost: { label: "Closed Lost", variant: "muted" },
+};
+
+export function StatusBadge({ status }: { status: ClientStatus }) {
+  const config = statusConfig[status];
+  return (
+    <Badge variant={config.variant} className="font-medium">
+      {config.label}
+    </Badge>
+  );
+}
+</file>
+
+<file path="components/topbar.tsx">
+"use client";
+
+import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Menu } from "lucide-react";
+
+interface TopbarProps {
+  onMenuClick: () => void;
+}
+
+export function Topbar({ onMenuClick }: TopbarProps) {
+  const [user, setUser] = useState<{ name: string; email: string; role: string } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.user) setUser(json.user);
+      })
+      .catch(() => {});
+  }, []);
+
+  const initials = user
+    ? user.name
+        .split(" ")
+        .map((w) => w.charAt(0).toUpperCase())
+        .join("")
+        .slice(0, 2)
+    : "CF";
+
+  const handleLogout = async () => {
+    await fetch("/api/auth/me", { method: "DELETE" });
+    window.location.href = "/login";
+  };
+
+  return (
+    <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 lg:px-6">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="lg:hidden"
+        onClick={onMenuClick}
+      >
+        <Menu className="h-5 w-5" />
+      </Button>
+
+      <h1 className="text-lg font-semibold">CRM FindFit</h1>
+
+      <div className="flex-1" />
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="rounded-full">
+            <Avatar className="h-8 w-8">
+              <AvatarFallback>{initials}</AvatarFallback>
+            </Avatar>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuLabel>
+            {user ? (
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">{user.name}</p>
+                <p className="text-xs font-normal text-muted-foreground">{user.email}</p>
+              </div>
+            ) : (
+              "Il mio account"
+            )}
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
+            Esci
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </header>
+  );
+}
+</file>
+
+<file path="lib/email-parser.ts">
+import { db } from "@/lib/db";
+import { clients, tasks } from "@/lib/schema";
+import { eq } from "drizzle-orm";
+
+export type ContactRequest = {
+  nome: string;
+  email: string;
+  messaggio: string;
+};
+
+/**
+ * Analizza il corpo dell'email per estrarre i dati di un nuovo contatto.
+ * Atteso formato:
+ *   Nuovo contatto da
+ *   Nome: Mario Rossi
+ *   Email: mario@example.com
+ *   Messaggio: Testo del messaggio
+ */
+export function parseContactRequest(bodyText: string): ContactRequest | null {
+  if (!bodyText.includes("Nuovo contatto da")) return null;
+
+  const nomeMatch = bodyText.match(/Nome:\s*(.+)/i);
+  const emailMatch = bodyText.match(/Email:\s*(.+)/i);
+  const msgMatch = bodyText.match(/Messaggio:\s*([\s\S]*)/i);
+
+  if (!nomeMatch || !emailMatch) return null;
+
+  return {
+    nome: nomeMatch[1].trim(),
+    email: emailMatch[1].trim(),
+    messaggio: msgMatch ? msgMatch[1].trim() : "",
+  };
+}
+
+/**
+ * Verifica se un cliente esiste già per email, altrimenti lo crea.
+ * In entrambi i casi crea un task appropriato.
+ * Restituisce un summary testuale delle operazioni fatte.
+ */
+export async function processContactRequest(data: ContactRequest): Promise<string> {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  // Cerca cliente per email
+  const existing = await db
+    .select()
+    .from(clients)
+    .where(eq(clients.email, data.email))
+    .limit(1);
+
+  if (existing.length === 0) {
+    // Nuovo cliente
+    const [newClient] = await db
+      .insert(clients)
+      .values({
+        name: "",
+        email: data.email,
+        company: data.nome,
+        notes: `Richiesta via email: ${data.messaggio}`,
+        status: "lead",
+      })
+      .returning();
+
+    // Task presentazione
+    await db.insert(tasks).values({
+      clientId: newClient.id,
+      title: "Inviare email di presentazione",
+      description: `Contatto ricevuto via email da ${data.nome} (${data.email}). Messaggio: ${data.messaggio}`,
+      dueDate: today,
+      priority: "high",
+      status: "todo",
+    });
+
+    return `Nuovo cliente "${data.nome}" creato + task presentazione`;
+  }
+
+  // Cliente esistente → task qualificazione
+  const client = existing[0];
+  await db.insert(tasks).values({
+    clientId: client.id,
+    title: "Chiamata di qualificazione da email",
+    description: `Nuova email di richiesta dal cliente. Messaggio: ${data.messaggio}`,
+    dueDate: today,
+    priority: "high",
+    status: "todo",
+  });
+
+  return `Task qualificazione aggiunto per cliente esistente "${client.name}"`;
+}
+</file>
+
+<file path="scripts/seed-admin.ts">
+import { createClient } from "@libsql/client";
+import { config } from "dotenv";
+import bcrypt from "bcryptjs";
+import { randomUUID } from "crypto";
+
+config({ path: ".env.local" });
+
+const client = createClient({
+  url: process.env.TURSO_DB_URL!,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
+
+async function main() {
+  const email = process.argv[2] || "admin@findfit.it";
+  const password = process.argv[3] || "admin123";
+  const name = process.argv[4] || "Amministratore";
+
+  // Se ADMIN_PASSWORD_HASH è impostato in env, usalo direttamente (utile su Vercel)
+  const hash = process.env.ADMIN_PASSWORD_HASH || await bcrypt.hash(password, 12);
+
+  try {
+    await client.execute({
+      sql: `INSERT INTO users (id, email, password_hash, name, role, is_active, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'admin', 1, ?, ?)`,
+      args: [
+        randomUUID(),
+        email,
+        hash,
+        name,
+        Date.now(),
+        Date.now(),
+      ],
+    });
+    console.log(`✓ Admin creato: ${email} / ${password}`);
+  } catch (e: any) {
+    if (e.message?.includes("UNIQUE")) {
+      console.log("! L'admin esiste già");
+    } else {
+      console.error("Errore:", e.message);
+    }
+  }
+}
+
+main().catch(console.error);
+</file>
+
+<file path="tsconfig.json">
+{
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [{ "name": "next" }],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules", "drizzle.config.ts"]
+}
+</file>
+
 <file path="app/(dashboard)/clienti/[id]/page.tsx">
 "use client";
 
@@ -3734,8 +5769,15 @@ interface Client {
   company: string | null;
   status: ClientStatus;
   notes: string | null;
+  userId: string | null;
   createdAt: number;
   updatedAt: number;
+}
+
+interface User {
+  id: string;
+  name: string;
+  email: string;
 }
 
 interface Note {
@@ -3780,6 +5822,10 @@ export default function ClientDetailPage() {
 
   // Form state for edit
   const [editForm, setEditForm] = useState({ name: "", email: "", phone: "", company: "", notes: "" });
+
+  // Current user & admin user list
+  const [currentUser, setCurrentUser] = useState<{ id: string; role: string } | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
 
   // Note form
   const [noteForm, setNoteForm] = useState({ content: "", type: "conversazione" as NoteType, author: "Utente" });
@@ -3830,6 +5876,23 @@ export default function ClientDetailPage() {
   }, [params.id]);
 
   useEffect(() => {
+    // Fetch current user
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.user) {
+          setCurrentUser(json.user);
+          // Se admin, carica lista utenti
+          if (json.user.role === "admin") {
+            fetch("/api/users")
+              .then((r) => r.json())
+              .then((d) => setUsers(d.data || []))
+              .catch(() => {});
+          }
+        }
+      })
+      .catch(() => {});
+
     Promise.all([fetchClient(), fetchNotes(), fetchTasks()]).finally(() =>
       setLoading(false)
     );
@@ -4011,6 +6074,23 @@ export default function ClientDetailPage() {
     }
   };
 
+  // ── Assign user ──
+  const handleAssignUser = async (userId: string) => {
+    if (!client) return;
+    try {
+      const res = await fetch(`/api/clients/${client.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: userId || null }),
+      });
+      if (!res.ok) throw new Error();
+      toast({ title: "Assegnazione aggiornata", variant: "success" as any });
+      fetchClient();
+    } catch {
+      toast({ title: "Errore", description: "Assegnazione fallita", variant: "destructive" });
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -4155,6 +6235,29 @@ export default function ClientDetailPage() {
                 <p className="text-sm text-muted-foreground">
                   Questo cliente è chiuso. Non sono possibili ulteriori transizioni.
                 </p>
+              )}
+
+              {/* Assegnazione utente (solo admin) */}
+              {currentUser?.role === "admin" && (
+                <div className="space-y-2 pt-4 border-t">
+                  <Label>Assegnato a</Label>
+                  <Select
+                    value={client.userId || "__none__"}
+                    onValueChange={(val) => handleAssignUser(val === "__none__" ? "" : val)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Nessuno (non assegnato)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Nessuno</SelectItem>
+                      {users.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.name} ({u.email})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -4602,301 +6705,6 @@ function TaskCard({
 }
 </file>
 
-<file path="app/(dashboard)/impostazioni/page.tsx">
-"use client";
-
-import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/ui/use-toast";
-import { Loader2, Save, Eye, EyeOff, Server } from "lucide-react";
-
-type Tab = "generali" | "imap";
-
-type ImapFormData = {
-  host: string;
-  port: string;
-  user: string;
-  password: string;
-  filterFrom: string;
-  filterSubject: string;
-};
-
-export default function ImpostazioniPage() {
-  const [activeTab, setActiveTab] = useState<Tab>("generali");
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const { toast } = useToast();
-
-  // Stato del form IMAP
-  const [form, setForm] = useState<ImapFormData>({
-    host: "",
-    port: "993",
-    user: "",
-    password: "",
-    filterFrom: "",
-    filterSubject: "",
-  });
-
-  // Carica impostazioni esistenti
-  useEffect(() => {
-    if (activeTab !== "imap") return;
-    setLoading(true);
-    fetch("/api/imap-settings")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.settings) {
-          setForm({
-            host: data.settings.host || "",
-            port: data.settings.port || "993",
-            user: data.settings.user || "",
-            password: data.settings.password || "",
-            filterFrom: data.settings.filterFrom || "",
-            filterSubject: data.settings.filterSubject || "",
-          });
-        }
-      })
-      .catch(() => {
-        toast({
-          title: "Errore",
-          description: "Impossibile caricare le impostazioni IMAP.",
-          variant: "destructive",
-        });
-      })
-      .finally(() => setLoading(false));
-  }, [activeTab, toast]);
-
-  const handleChange = (field: keyof ImapFormData, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      const res = await fetch("/api/imap-settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Errore durante il salvataggio");
-      }
-
-      toast({
-        title: "Salvato",
-        description: "Impostazioni IMAP salvate con successo.",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Errore",
-        description: error.message || "Errore durante il salvataggio.",
-        variant: "destructive",
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const tabs: { id: Tab; label: string }[] = [
-    { id: "generali", label: "Generali" },
-    { id: "imap", label: "IMAP Email" },
-  ];
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Impostazioni</h2>
-        <p className="text-muted-foreground">
-          Configurazione del sistema CRM
-        </p>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-1 border-b">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-              activeTab === tab.id
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab: Generali */}
-      {activeTab === "generali" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Impostazioni Generali</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Le impostazioni di configurazione saranno disponibili in una
-              versione futura.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Tab: IMAP Email */}
-      {activeTab === "imap" && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Server className="h-5 w-5 text-muted-foreground" />
-              <CardTitle>Configurazione IMAP</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleSave();
-                }}
-                className="space-y-4"
-              >
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {/* Host */}
-                  <div className="space-y-2">
-                    <Label htmlFor="host">Host IMAP</Label>
-                    <Input
-                      id="host"
-                      placeholder="imaps.aruba.it"
-                      value={form.host}
-                      onChange={(e) => handleChange("host", e.target.value)}
-                      required
-                    />
-                  </div>
-
-                  {/* Port */}
-                  <div className="space-y-2">
-                    <Label htmlFor="port">Porta</Label>
-                    <Input
-                      id="port"
-                      placeholder="993"
-                      value={form.port}
-                      onChange={(e) => handleChange("port", e.target.value)}
-                      required
-                    />
-                  </div>
-
-                  {/* User */}
-                  <div className="space-y-2">
-                    <Label htmlFor="user">Utente</Label>
-                    <Input
-                      id="user"
-                      placeholder="services@easyasso.cloud"
-                      value={form.user}
-                      onChange={(e) => handleChange("user", e.target.value)}
-                      required
-                    />
-                  </div>
-
-                  {/* Password */}
-                  <div className="space-y-2">
-                    <Label htmlFor="password">Password</Label>
-                    <div className="relative">
-                      <Input
-                        id="password"
-                        type={showPassword ? "text" : "password"}
-                        placeholder="••••••••"
-                        value={form.password}
-                        onChange={(e) =>
-                          handleChange("password", e.target.value)
-                        }
-                        required
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword((v) => !v)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      >
-                        {showPassword ? (
-                          <EyeOff className="h-4 w-4" />
-                        ) : (
-                          <Eye className="h-4 w-4" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Filter From */}
-                  <div className="space-y-2">
-                    <Label htmlFor="filterFrom">
-                      Filtra mittente (opzionale)
-                    </Label>
-                    <Input
-                      id="filterFrom"
-                      placeholder="e-ross1971@live.it"
-                      value={form.filterFrom}
-                      onChange={(e) =>
-                        handleChange("filterFrom", e.target.value)
-                      }
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Solo email da questo mittente.
-                    </p>
-                  </div>
-
-                  {/* Filter Subject */}
-                  <div className="space-y-2">
-                    <Label htmlFor="filterSubject">
-                      Filtra oggetto (opzionale)
-                    </Label>
-                    <Input
-                      id="filterSubject"
-                      placeholder="parola chiave nell'oggetto"
-                      value={form.filterSubject}
-                      onChange={(e) =>
-                        handleChange("filterSubject", e.target.value)
-                      }
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Solo email con questa parola nell'oggetto.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-2">
-                  <Button type="submit" disabled={saving}>
-                    {saving ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Salvataggio...
-                      </>
-                    ) : (
-                      <>
-                        <Save className="mr-2 h-4 w-4" />
-                        Salva impostazioni
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </form>
-            )}
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
-}
-</file>
-
 <file path="app/(dashboard)/kanban/page.tsx">
 "use client";
 
@@ -4927,6 +6735,7 @@ interface Client {
   phone: string | null;
   company: string | null;
   status: ClientStatus;
+  userId: string | null;
 }
 
 const columns: { id: ClientStatus; title: string; bgClass: string }[] = [
@@ -4941,6 +6750,28 @@ export default function KanbanPage() {
   const { toast } = useToast();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
+  const [usersMap, setUsersMap] = useState<Record<string, string>>({});
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.user) setCurrentUserId(json.user.id);
+      })
+      .catch(() => {});
+
+    fetch("/api/users")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.data) {
+          const map: Record<string, string> = {};
+          json.data.forEach((u: any) => { map[u.id] = u.name; });
+          setUsersMap(map);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Close transition modal state
   const [closeModal, setCloseModal] = useState<{
@@ -5129,25 +6960,37 @@ export default function KanbanPage() {
                               {...(provided.draggableProps as any)}
                               {...(provided.dragHandleProps as any)}
                               onClick={() => router.push(`/clienti/${client.id}`)}
-                              className={`rounded-lg border bg-card text-card-foreground shadow-sm p-3 cursor-pointer hover:bg-accent/50 ${
+                              className={`rounded-lg border bg-card text-card-foreground shadow-sm p-3 cursor-pointer hover:bg-accent/50 relative ${
                                 snapshot.isDragging
                                   ? "shadow-lg ring-2 ring-primary"
                                   : ""
                               }`}
                             >
-                              <p className="font-medium text-sm truncate">
-                                {client.name}
-                              </p>
-                              {client.company && (
-                                <p className="text-xs text-muted-foreground truncate">
-                                  {client.company}
-                                </p>
-                              )}
-                              {client.phone && (
-                                <p className="text-xs text-muted-foreground truncate">
-                                  {client.phone}
-                                </p>
-                              )}
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium text-sm truncate">
+                                    {client.name || client.company}
+                                  </p>
+                                  {client.name && client.company && (
+                                    <p className="text-xs text-muted-foreground truncate">
+                                      {client.company}
+                                    </p>
+                                  )}
+                                  {client.phone && (
+                                    <p className="text-xs text-muted-foreground truncate">
+                                      {client.phone}
+                                    </p>
+                                  )}
+                                </div>
+                                {client.userId && usersMap[client.userId] && (
+                                  <div
+                                    className="shrink-0 flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary"
+                                    title={`Assegnato a: ${usersMap[client.userId]}`}
+                                  >
+                                    {usersMap[client.userId].charAt(0).toUpperCase()}
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           )}
                         </Draggable>
@@ -5201,41 +7044,21 @@ export default function KanbanPage() {
 }
 </file>
 
-<file path="app/(dashboard)/layout.tsx">
-"use client";
-
-import { useState } from "react";
-import { Sidebar } from "@/components/sidebar";
-import { Topbar } from "@/components/topbar";
-
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  return (
-    <div className="flex h-screen">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <Topbar onMenuClick={() => setSidebarOpen(true)} />
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6">{children}</main>
-      </div>
-    </div>
-  );
-}
-</file>
-
 <file path="app/api/clients/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { clients, tasks } from "@/lib/schema";
 import { clientSchema } from "@/types";
 import { eq, desc, like, or, and, sql } from "drizzle-orm";
+import { getAuthUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search") || "";
     const status = searchParams.get("status") || "";
@@ -5257,6 +7080,12 @@ export async function GET(request: NextRequest) {
     }
     if (status && status !== "all") {
       conditions.push(eq(clients.status, status as any));
+    }
+    // Filtra per user_id se l'utente non è admin: vede i non assegnati + i propri
+    if (authUser.role !== "admin") {
+      conditions.push(
+        or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`)
+      );
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -5293,6 +7122,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
     const body = await request.json();
     const parsed = clientSchema.parse(body);
 
@@ -5305,6 +7139,7 @@ export async function POST(request: NextRequest) {
         company: parsed.company || null,
         status: parsed.status,
         notes: parsed.notes || null,
+        userId: authUser.role === "admin" ? null : authUser.id,
       })
       .returning();
 
@@ -5366,7 +7201,8 @@ export async function POST(request: NextRequest) {
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { clients, tasks } from "@/lib/schema";
-import { eq, sql, lte, desc, and, gte } from "drizzle-orm";
+import { eq, sql, lte, desc, and, gte, or } from "drizzle-orm";
+import { getAuthUser } from "@/lib/auth";
 
 const priorityOrder = sql`CASE ${tasks.priority}
   WHEN 'high' THEN 1
@@ -5390,19 +7226,36 @@ export async function GET() {
       );
     }
 
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
     const now = new Date();
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
     const endOfToday = new Date();
     endOfToday.setHours(23, 59, 59, 999);
 
+    const isAdmin = authUser.role === "admin";
+
+    // Condition per filtrare per user_id se non admin: vede non assegnati + propri
+    const userFilter = isAdmin
+      ? undefined
+      : or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`);
+    const taskUserFilter = isAdmin
+      ? undefined
+      : or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`);
+
     // Count per status
+    const statusWhere = userFilter ? and(userFilter) : undefined;
     const statusCounts = await db
       .select({
         status: clients.status,
         count: sql<number>`count(*)`,
       })
       .from(clients)
+      .where(statusWhere)
       .groupBy(clients.status);
 
     const statusMap: Record<string, number> = {
@@ -5416,17 +7269,21 @@ export async function GET() {
     });
 
     // Overdue tasks banner count
+    const overdueWhere = taskUserFilter
+      ? and(lte(tasks.dueDate, now), sql`${tasks.status} IN ('todo', 'in_progress')`, taskUserFilter)
+      : and(lte(tasks.dueDate, now), sql`${tasks.status} IN ('todo', 'in_progress')`);
+
     const overdueCount = await db
       .select({ count: sql<number>`count(*)` })
       .from(tasks)
-      .where(
-        and(
-          lte(tasks.dueDate, now),
-          sql`${tasks.status} IN ('todo', 'in_progress')`
-        )
-      );
+      .leftJoin(clients, eq(tasks.clientId, clients.id))
+      .where(overdueWhere);
 
     // Top 10 overdue tasks (due before today, not completed), ordered by priority
+    const overdueWhere2 = taskUserFilter
+      ? and(lte(tasks.dueDate, startOfToday), sql`${tasks.status} IN ('todo', 'in_progress')`, taskUserFilter)
+      : and(lte(tasks.dueDate, startOfToday), sql`${tasks.status} IN ('todo', 'in_progress')`);
+
     const overdueTodayTasks = await db
       .select({
         id: tasks.id,
@@ -5439,16 +7296,24 @@ export async function GET() {
       })
       .from(tasks)
       .leftJoin(clients, eq(tasks.clientId, clients.id))
-      .where(
-        and(
-          lte(tasks.dueDate, startOfToday),
-          sql`${tasks.status} IN ('todo', 'in_progress')`
-        )
-      )
+      .where(overdueWhere2)
       .orderBy(priorityOrder, desc(tasks.dueDate))
       .limit(10);
 
     // Top 10 tasks due today (not yet overdue), ordered by priority
+    const dueTodayWhere = taskUserFilter
+      ? and(
+          gte(tasks.dueDate, startOfToday),
+          lte(tasks.dueDate, endOfToday),
+          sql`${tasks.status} IN ('todo', 'in_progress')`,
+          taskUserFilter
+        )
+      : and(
+          gte(tasks.dueDate, startOfToday),
+          lte(tasks.dueDate, endOfToday),
+          sql`${tasks.status} IN ('todo', 'in_progress')`
+        );
+
     const dueTodayTasks = await db
       .select({
         id: tasks.id,
@@ -5461,13 +7326,7 @@ export async function GET() {
       })
       .from(tasks)
       .leftJoin(clients, eq(tasks.clientId, clients.id))
-      .where(
-        and(
-          gte(tasks.dueDate, startOfToday),
-          lte(tasks.dueDate, endOfToday),
-          sql`${tasks.status} IN ('todo', 'in_progress')`
-        )
-      )
+      .where(dueTodayWhere)
       .orderBy(priorityOrder, desc(tasks.dueDate))
       .limit(10);
 
@@ -5481,12 +7340,14 @@ export async function GET() {
       const dayEnd = new Date(day);
       dayEnd.setHours(23, 59, 59, 999);
 
+      const trendWhere = userFilter
+        ? and(gte(clients.createdAt, dayStart), lte(clients.createdAt, dayEnd), userFilter)
+        : and(gte(clients.createdAt, dayStart), lte(clients.createdAt, dayEnd));
+
       const [countResult] = await db
         .select({ count: sql<number>`count(*)` })
         .from(clients)
-        .where(
-          and(gte(clients.createdAt, dayStart), lte(clients.createdAt, dayEnd))
-        );
+        .where(trendWhere);
 
       trendData.push({
         date: day.toLocaleDateString("it-IT", {
@@ -5520,7 +7381,7 @@ export async function GET() {
 }
 </file>
 
-<file path="app/api/email/sync/route.ts">
+<file path="app/api/email/test/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
@@ -5532,14 +7393,27 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_request: NextRequest) {
   try {
-    const config = await getImapConfig();
-
-    if (!config) {
+    console.log("[TEST-EMAIL] Lettura configurazione IMAP dal DB...");
+    let config;
+    try {
+      config = await getImapConfig();
+    } catch (decryptErr: any) {
+      console.error("[TEST-EMAIL] Errore decriptazione impostazioni:", decryptErr.message);
       return NextResponse.json(
-        { error: "Credenziali IMAP mancanti. Configura le impostazioni IMAP nella pagina Impostazioni." },
-        { status: 500 }
+        { error: "Configura prima le impostazioni email in /impostazioni — dati criptati non validi." },
+        { status: 400 }
       );
     }
+
+    if (!config) {
+      console.warn("[TEST-EMAIL] Nessuna configurazione IMAP trovata (DB vuoto e nessun fallback env).");
+      return NextResponse.json(
+        { error: "Configura prima le impostazioni email in /impostazioni." },
+        { status: 400 }
+      );
+    }
+
+    console.log("[TEST-EMAIL] Config OK →", { host: config.host, user: config.user, filterFrom: config.filterFrom });
 
     const { host, port, user, password, filterFrom, filterSubject } = config;
     const filterFromLower = filterFrom.toLowerCase();
@@ -5637,17 +7511,17 @@ export async function GET(_request: NextRequest) {
         emails,
         totali: uidList.length,
         filtrate,
-        sincronizzate: emails.length,
+        letti: emails.length,
       });
     } finally {
       lock.release();
       await client.logout();
     }
   } catch (error: any) {
-    console.error("Errore IMAP sync:", error);
+    console.error("Errore IMAP:", error);
     return NextResponse.json(
       {
-        error: `Errore durante la sincronizzazione IMAP: ${error.message || "Errore sconosciuto"}`,
+        error: `Errore durante la connessione IMAP: ${error.message || "Errore sconosciuto"}`,
       },
       { status: 500 }
     );
@@ -5655,306 +7529,30 @@ export async function GET(_request: NextRequest) {
 }
 </file>
 
-<file path="app/api/imap-settings/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { imapSettings } from "@/lib/schema";
-import { encrypt, decrypt } from "@/lib/crypto";
-import { eq } from "drizzle-orm";
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-/** GET: recupera le impostazioni IMAP (decriptate) */
-export async function GET() {
-  try {
-    const rows = await db.select().from(imapSettings).limit(1);
-    if (rows.length === 0) {
-      return NextResponse.json({ settings: null });
-    }
-
-    const row = rows[0];
-    const settings = {
-      id: row.id,
-      host: decrypt(row.host),
-      port: decrypt(row.port),
-      user: decrypt(row.user),
-      password: decrypt(row.password),
-      filterFrom: decrypt(row.filterFrom),
-      filterSubject: decrypt(row.filterSubject),
-    };
-
-    return NextResponse.json({ settings });
-  } catch (error: any) {
-    console.error("Errore lettura impostazioni IMAP:", error);
-    return NextResponse.json(
-      { error: `Errore: ${error.message || "Errore sconosciuto"}` },
-      { status: 500 }
-    );
-  }
-}
-
-/** PUT: salva (upsert) le impostazioni IMAP (criptate) */
-export async function PUT(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { host, port, user, password, filterFrom, filterSubject } = body;
-
-    if (!host || !port || !user || !password) {
-      return NextResponse.json(
-        { error: "I campi host, port, user e password sono obbligatori" },
-        { status: 400 }
-      );
-    }
-
-    const encrypted = {
-      host: encrypt(host),
-      port: encrypt(port),
-      user: encrypt(user),
-      password: encrypt(password),
-      filterFrom: encrypt(filterFrom || ""),
-      filterSubject: encrypt(filterSubject || ""),
-    };
-
-    // Upsert: verifica se esiste già una riga
-    const existing = await db.select().from(imapSettings).limit(1);
-
-    if (existing.length > 0) {
-      await db
-        .update(imapSettings)
-        .set({
-          host: encrypted.host,
-          port: encrypted.port,
-          user: encrypted.user,
-          password: encrypted.password,
-          filterFrom: encrypted.filterFrom,
-          filterSubject: encrypted.filterSubject,
-          updatedAt: new Date(),
-        })
-        .where(eq(imapSettings.id, existing[0].id));
-    } else {
-      await db.insert(imapSettings).values({
-        host: encrypted.host,
-        port: encrypted.port,
-        user: encrypted.user,
-        password: encrypted.password,
-        filterFrom: encrypted.filterFrom,
-        filterSubject: encrypted.filterSubject,
-      });
-    }
-
-    return NextResponse.json({ success: true });
-  } catch (error: any) {
-    console.error("Errore salvataggio impostazioni IMAP:", error);
-    return NextResponse.json(
-      { error: `Errore: ${error.message || "Errore sconosciuto"}` },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
-<file path="app/api/note/[id]/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { notes } from "@/lib/schema";
-import { noteSchema } from "@/types";
-import { eq } from "drizzle-orm";
-
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
-    const body = await request.json();
-    const parsed = noteSchema.partial().parse(body);
-
-    const [updated] = await db
-      .update(notes)
-      .set({ ...parsed, updatedAt: new Date() })
-      .where(eq(notes.id, id))
-      .returning();
-
-    if (!updated) {
-      return NextResponse.json(
-        { error: "Nota non trovata" },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json(updated);
-  } catch (error: any) {
-    if (error?.issues) {
-      return NextResponse.json(
-        { error: "Dati non validi", details: error.issues },
-        { status: 400 }
-      );
-    }
-    console.error("Error updating note:", error);
-    return NextResponse.json(
-      { error: "Errore nell'aggiornamento della nota" },
-      { status: 500 }
-    );
-  }
-}
-
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
-    await db.delete(notes).where(eq(notes.id, id));
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Error deleting note:", error);
-    return NextResponse.json(
-      { error: "Errore nell'eliminazione della nota" },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
-<file path="app/api/tasks/[id]/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { tasks } from "@/lib/schema";
-import { taskSchema } from "@/types";
-import { eq } from "drizzle-orm";
-
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
-    const body = await request.json();
-    const parsed = taskSchema.partial().parse(body);
-
-    // Get current task to check status change
-    const existing = await db
-      .select()
-      .from(tasks)
-      .where(eq(tasks.id, id))
-      .limit(1);
-
-    if (!existing.length) {
-      return NextResponse.json(
-        { error: "Task non trovato" },
-        { status: 404 }
-      );
-    }
-
-    const updateData: Record<string, any> = {
-      ...parsed,
-      updatedAt: new Date(),
-    };
-
-    // Handle completion
-    if (body.status === "completed" && existing[0].status !== "completed") {
-      updateData.completedAt = new Date();
-    } else if (body.status && body.status !== "completed") {
-      updateData.completedAt = null;
-    }
-
-    if (parsed.dueDate) {
-      updateData.dueDate = new Date(parsed.dueDate);
-    }
-
-    const [updated] = await db
-      .update(tasks)
-      .set(updateData)
-      .where(eq(tasks.id, id))
-      .returning();
-
-    return NextResponse.json(updated);
-  } catch (error: any) {
-    if (error?.issues) {
-      return NextResponse.json(
-        { error: "Dati non validi", details: error.issues },
-        { status: 400 }
-      );
-    }
-    console.error("Error updating task:", error);
-    return NextResponse.json(
-      { error: "Errore nell'aggiornamento del task" },
-      { status: 500 }
-    );
-  }
-}
-
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
-    await db.delete(tasks).where(eq(tasks.id, id));
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Error deleting task:", error);
-    return NextResponse.json(
-      { error: "Errore nell'eliminazione del task" },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
-<file path="components/status-badge.tsx">
-import { Badge } from "@/components/ui/badge";
-import type { ClientStatus } from "@/types";
-
-const statusConfig: Record<
-  ClientStatus,
-  { label: string; variant: "info" | "warning" | "success" | "muted" }
-> = {
-  lead: { label: "Lead", variant: "info" },
-  suspect: { label: "Suspect", variant: "warning" },
-  won: { label: "Won", variant: "success" },
-  closed_lost: { label: "Closed Lost", variant: "muted" },
-};
-
-export function StatusBadge({ status }: { status: ClientStatus }) {
-  const config = statusConfig[status];
-  return (
-    <Badge variant={config.variant} className="font-medium">
-      {config.label}
-    </Badge>
-  );
-}
-</file>
-
-<file path="tsconfig.json">
-{
-  "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "forceConsistentCasingInFileNames": true,
-    "noEmit": true,
-    "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
-    "incremental": true,
-    "plugins": [{ "name": "next" }],
-    "paths": {
-      "@/*": ["./*"]
-    }
-  },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "drizzle.config.ts"]
-}
-</file>
-
 <file path="types/index.ts">
 import { z } from "zod";
+
+// ── Utente ──
+export const userRoles = ["admin", "user"] as const;
+export type UserRole = (typeof userRoles)[number];
+
+export const userSchema = z.object({
+  email: z.string().email("Email non valida"),
+  password: z.string().min(6, "Minimo 6 caratteri").optional().or(z.literal("")),
+  name: z.string().min(1, "Il nome è obbligatorio"),
+  role: z.enum(userRoles).default("user"),
+  isActive: z.boolean().default(true),
+});
+
+export type UserFormData = z.infer<typeof userSchema>;
+
+// ── Login ──
+export const loginSchema = z.object({
+  email: z.string().email("Email non valida"),
+  password: z.string().min(1, "La password è obbligatoria"),
+});
+
+export type LoginFormData = z.infer<typeof loginSchema>;
 
 // ── Client ──
 export const clientStatuses = ["lead", "suspect", "won", "closed_lost"] as const;
@@ -6056,8 +7654,16 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [user, setUser] = useState<{ name: string; email: string; role: string } | null>(null);
 
   useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.user) setUser(json.user);
+      })
+      .catch(() => {});
+
     console.log("[Dashboard] Fetch avviato");
     fetch("/api/dashboard")
       .then((r) => {
@@ -6130,6 +7736,22 @@ export default function DashboardPage() {
           Panoramica del tuo CRM FindFit
         </p>
       </div>
+
+      {/* Utente connesso */}
+      {user && (
+        <div className="flex items-center gap-3 rounded-lg border bg-card p-3 text-sm">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary font-semibold text-sm">
+            {user.name.charAt(0).toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium truncate">{user.name}</p>
+            <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+          </div>
+          <Badge variant={user.role === "admin" ? "default" : "secondary"}>
+            {user.role === "admin" ? "Admin" : "Utente"}
+          </Badge>
+        </div>
+      )}
 
       {/* Overdue banner */}
       {data.overdueCount > 0 && (
@@ -6285,7 +7907,24 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { clients, tasks } from "@/lib/schema";
 import { clientSchema, allowedTransitions, requiresNoteForTransition } from "@/types";
-import { eq } from "drizzle-orm";
+import { eq, and, or, sql } from "drizzle-orm";
+import { getAuthUser } from "@/lib/auth";
+
+async function getClientIfAuthorized(id: string) {
+  const authUser = await getAuthUser();
+  if (!authUser) return null;
+
+  const where =
+    authUser.role === "admin"
+      ? eq(clients.id, id)
+      : and(
+          eq(clients.id, id),
+          or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`)
+        );
+
+  const [client] = await db.select().from(clients).where(where).limit(1);
+  return client || null;
+}
 
 export async function GET(
   request: NextRequest,
@@ -6293,20 +7932,16 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const client = await db
-      .select()
-      .from(clients)
-      .where(eq(clients.id, id))
-      .limit(1);
+    const client = await getClientIfAuthorized(id);
 
-    if (!client.length) {
+    if (!client) {
       return NextResponse.json(
         { error: "Cliente non trovato" },
         { status: 404 }
       );
     }
 
-    return NextResponse.json(client[0]);
+    return NextResponse.json(client);
   } catch (error) {
     console.error("Error fetching client:", error);
     return NextResponse.json(
@@ -6323,24 +7958,20 @@ export async function PATCH(
   try {
     const { id } = await params;
     const body = await request.json();
-    const existing = await db
-      .select()
-      .from(clients)
-      .where(eq(clients.id, id))
-      .limit(1);
+    const existing = await getClientIfAuthorized(id);
 
-    if (!existing.length) {
+    if (!existing) {
       return NextResponse.json(
         { error: "Cliente non trovato" },
         { status: 404 }
       );
     }
 
-    const currentClient = existing[0];
+    const currentClient = existing!;
 
     // Handle status transitions
     if (body.status && body.status !== currentClient.status) {
-      const allowed = allowedTransitions[currentClient.status];
+      const allowed = allowedTransitions[currentClient.status as keyof typeof allowedTransitions];
       if (!allowed.includes(body.status)) {
         return NextResponse.json(
           {
@@ -6363,13 +7994,19 @@ export async function PATCH(
 
     // Prepare update data (only provided fields)
     const updateData: Record<string, any> = {};
-    const allowedFields = ["name", "email", "phone", "company", "status", "notes"];
+    const allowedFields = ["name", "email", "phone", "company", "status", "notes", "userId"];
     for (const field of allowedFields) {
       if (body[field] !== undefined) {
         updateData[field] = body[field] || null;
       }
     }
     updateData.updatedAt = new Date();
+
+    // Auto-assign: se utente non-admin e cliente senza userId, assegna a lui
+    const authUser = await getAuthUser();
+    if (authUser && authUser.role !== "admin" && !currentClient.userId) {
+      updateData.userId = authUser.id;
+    }
 
     const [updated] = await db
       .update(clients)
@@ -6447,160 +8084,21 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
+    const existing = await getClientIfAuthorized(id);
+
+    if (!existing) {
+      return NextResponse.json(
+        { error: "Cliente non trovato" },
+        { status: 404 }
+      );
+    }
+
     await db.delete(clients).where(eq(clients.id, id));
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error deleting client:", error);
     return NextResponse.json(
       { error: "Errore nell'eliminazione del cliente" },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
-<file path="app/api/email/test/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { ImapFlow } from "imapflow";
-import { simpleParser } from "mailparser";
-import { getImapConfig } from "@/lib/imap-config";
-import { parseContactRequest, processContactRequest } from "@/lib/email-parser";
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-export async function GET(_request: NextRequest) {
-  try {
-    console.log("[TEST-EMAIL] Lettura configurazione IMAP dal DB...");
-    let config;
-    try {
-      config = await getImapConfig();
-    } catch (decryptErr: any) {
-      console.error("[TEST-EMAIL] Errore decriptazione impostazioni:", decryptErr.message);
-      return NextResponse.json(
-        { error: "Configura prima le impostazioni email in /impostazioni — dati criptati non validi." },
-        { status: 400 }
-      );
-    }
-
-    if (!config) {
-      console.warn("[TEST-EMAIL] Nessuna configurazione IMAP trovata (DB vuoto e nessun fallback env).");
-      return NextResponse.json(
-        { error: "Configura prima le impostazioni email in /impostazioni." },
-        { status: 400 }
-      );
-    }
-
-    console.log("[TEST-EMAIL] Config OK →", { host: config.host, user: config.user, filterFrom: config.filterFrom });
-
-    const { host, port, user, password, filterFrom, filterSubject } = config;
-    const filterFromLower = filterFrom.toLowerCase();
-    const filterSubjectLower = filterSubject.toLowerCase();
-
-    const client = new ImapFlow({
-      host,
-      port,
-      secure: port === 993,
-      auth: { user, pass: password },
-      logger: false,
-    });
-
-    await client.connect();
-
-    const lock = await client.getMailboxLock("INBOX");
-    try {
-      const rawResult = await client.search({ unseen: true } as any);
-      const searchResult: number[] = Array.isArray(rawResult) ? rawResult : [];
-      const uidList = searchResult;
-
-      const emails: {
-        mittente: string;
-        oggetto: string;
-        bodyText: string;
-        data: string;
-        crmAction?: string;
-      }[] = [];
-      let filtrate = 0;
-
-      for (const uid of uidList) {
-        // Recupera source grezzo
-        const message = (await client.fetchOne(uid, { source: true })) as any;
-
-        // Parsing completo con mailparser
-        let parsed;
-        try {
-          parsed = await simpleParser(message.source as Buffer);
-        } catch {
-          continue;
-        }
-
-        // Filtra per mittente
-        const fromAddress =
-          parsed.from && parsed.from.value && parsed.from.value.length > 0
-            ? parsed.from.value[0].address?.toLowerCase() || ""
-            : "";
-
-        if (filterFromLower && fromAddress !== filterFromLower) {
-          filtrate++;
-          continue;
-        }
-
-        // Filtra per oggetto
-        const oggetto = parsed.subject || "";
-        if (filterSubjectLower && !oggetto.toLowerCase().includes(filterSubjectLower)) {
-          filtrate++;
-          continue;
-        }
-
-        // Mittente formattato
-        const mittente =
-          parsed.from && parsed.from.value && parsed.from.value.length > 0
-            ? `${parsed.from.value[0].name || ""} <${parsed.from.value[0].address}>`.trim()
-            : "Sconosciuto";
-
-        // Oggetto (gia calcolato sopra)
-
-        // Data
-        const data = parsed.date
-          ? new Date(parsed.date).toLocaleString("it-IT")
-          : "";
-
-        // Corpo
-        const bodyText = (parsed.text || parsed.html || "").trim();
-
-        // Parsing richiesta contatto
-        let crmAction: string | undefined;
-        const contactData = parseContactRequest(bodyText);
-        if (contactData) {
-          try {
-            crmAction = await processContactRequest(contactData);
-          } catch (err: any) {
-            console.error("Errore processContactRequest:", err);
-          }
-        }
-
-        emails.push({ mittente, oggetto, bodyText, data, crmAction });
-
-        // Segna l'email come letta su Aruba
-        await client.messageFlagsAdd(uid, ["\\Seen"]);
-      }
-
-      return NextResponse.json({
-        emails,
-        totali: uidList.length,
-        filtrate,
-        letti: emails.length,
-      });
-    } finally {
-      lock.release();
-      await client.logout();
-    }
-  } catch (error: any) {
-    console.error("Errore IMAP:", error);
-    return NextResponse.json(
-      {
-        error: `Errore durante la connessione IMAP: ${error.message || "Errore sconosciuto"}`,
-      },
       { status: 500 }
     );
   }
@@ -6622,8 +8120,11 @@ import {
   FileText,
   Settings,
   Mail,
+  Shield,
+  LogOut,
   X,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 interface SidebarProps {
   open: boolean;
@@ -6642,6 +8143,22 @@ const navItems = [
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
+  const [user, setUser] = useState<{ name: string; role: string } | null>(null);
+  const router = usePathname(); // just for reactivity
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.user) setUser(data.user);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleLogout = async () => {
+    await fetch("/api/auth/me", { method: "DELETE" });
+    window.location.href = "/login";
+  };
 
   return (
     <>
@@ -6685,15 +8202,49 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   )}
                 >
                   <Icon className="h-5 w-5 shrink-0" />
-                  <span className="hidden lg:inline">{item.label}</span>
+                  <span>{item.label}</span>
                 </Link>
               );
             })}
+
+            {/* Admin section */}
+            {user?.role === "admin" && (
+              <>
+                <div className="mt-4 mb-1 px-3">
+                  <p className="text-xs font-semibold uppercase text-muted-foreground">
+                    Admin
+                  </p>
+                </div>
+                <Link
+                  href="/admin/users"
+                  onClick={onClose}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                    pathname.startsWith("/admin")
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  <Shield className="h-5 w-5 shrink-0" />
+                  <span>Gestione Utenti</span>
+                </Link>
+              </>
+            )}
           </nav>
         </div>
 
-        <div className="border-t p-4">
-          <p className="text-xs text-muted-foreground">CRM FindFit v1.0</p>
+        <div className="border-t p-4 space-y-2">
+          {user && (
+            <div className="flex items-center justify-between">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium truncate">{user.name}</p>
+                <p className="text-xs text-muted-foreground capitalize">{user.role}</p>
+              </div>
+              <Button variant="ghost" size="icon" onClick={handleLogout} title="Esci">
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
         </div>
       </aside>
     </>
@@ -6701,14 +8252,118 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 }
 </file>
 
+<file path="drizzle.config.ts">
+import { config } from "dotenv";
+import { defineConfig } from "drizzle-kit";
+
+config({ path: ".env.local" });
+
+export default defineConfig({
+  schema: "./lib/schema.ts",
+  out: "./drizzle",
+  dialect: "sqlite",
+  dbCredentials: {
+    url: process.env.TURSO_DB_URL!,
+    authToken: process.env.TURSO_AUTH_TOKEN,
+  },
+});
+</file>
+
+<file path="package.json">
+{
+  "name": "crm-findfit",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@hello-pangea/dnd": "^16.6.0",
+    "@libsql/client": "^0.14.0",
+    "@radix-ui/react-alert-dialog": "^1.1.1",
+    "@radix-ui/react-avatar": "^1.1.0",
+    "@radix-ui/react-dialog": "^1.1.1",
+    "@radix-ui/react-dropdown-menu": "^2.1.1",
+    "@radix-ui/react-label": "^2.1.0",
+    "@radix-ui/react-popover": "^1.1.1",
+    "@radix-ui/react-scroll-area": "^1.1.0",
+    "@radix-ui/react-select": "^2.1.1",
+    "@radix-ui/react-separator": "^1.1.0",
+    "@radix-ui/react-slot": "^1.1.0",
+    "@radix-ui/react-toast": "^1.2.1",
+    "@radix-ui/react-tooltip": "^1.1.2",
+    "bcryptjs": "^3.0.3",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "drizzle-orm": "^0.45.2",
+    "imapflow": "^1.4.0",
+    "jose": "^6.2.3",
+    "lucide-react": "^0.379.0",
+    "mailparser": "^3.9.9",
+    "next": "^14.2.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.3.0",
+    "tailwindcss-animate": "^1.0.7",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^20.12.12",
+    "@types/react": "^18.3.2",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.5.0",
+    "dotenv": "^17.4.2",
+    "drizzle-kit": "^0.31.10",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "tsx": "^4.22.4",
+    "typescript": "^5.4.5"
+  }
+}
+</file>
+
 <file path="lib/schema.ts">
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { randomUUID } from "crypto";
+
+// ── Utenti ──
+export const users = sqliteTable("users", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => randomUUID()),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  name: text("name").notNull(),
+  role: text("role", { enum: ["admin", "user"] })
+    .notNull()
+    .default("user"),
+  isActive: integer("is_active", { mode: "boolean" })
+    .notNull()
+    .default(true),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
 
 // ── Clienti ──
 export const clients = sqliteTable("clients", {
   id: text("id")
     .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
+    .$defaultFn(() => randomUUID()),
   name: text("name").notNull(),
   email: text("email"),
   phone: text("phone"),
@@ -6719,6 +8374,7 @@ export const clients = sqliteTable("clients", {
     .notNull()
     .default("lead"),
   notes: text("notes"),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -6732,7 +8388,7 @@ export const clients = sqliteTable("clients", {
 export const notes = sqliteTable("notes", {
   id: text("id")
     .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
+    .$defaultFn(() => randomUUID()),
   clientId: text("client_id")
     .notNull()
     .references(() => clients.id, { onDelete: "cascade" }),
@@ -6756,7 +8412,7 @@ export const notes = sqliteTable("notes", {
 export const tasks = sqliteTable("tasks", {
   id: text("id")
     .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
+    .$defaultFn(() => randomUUID()),
   clientId: text("client_id")
     .notNull()
     .references(() => clients.id, { onDelete: "cascade" }),
@@ -6802,6 +8458,8 @@ export const imapSettings = sqliteTable("imap_settings", {
 });
 
 // ── Tipi ──
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
 export type Client = typeof clients.$inferSelect;
 export type NewClient = typeof clients.$inferInsert;
 export type Note = typeof notes.$inferSelect;
@@ -6810,83 +8468,6 @@ export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
 export type ImapSetting = typeof imapSettings.$inferSelect;
 export type NewImapSetting = typeof imapSettings.$inferInsert;
-</file>
-
-<file path="package.json">
-{
-  "name": "crm-findfit",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "db:generate": "drizzle-kit generate",
-    "db:push": "drizzle-kit push",
-    "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
-  },
-  "dependencies": {
-    "@hello-pangea/dnd": "^16.6.0",
-    "@libsql/client": "^0.14.0",
-    "@radix-ui/react-alert-dialog": "^1.1.1",
-    "@radix-ui/react-avatar": "^1.1.0",
-    "@radix-ui/react-dialog": "^1.1.1",
-    "@radix-ui/react-dropdown-menu": "^2.1.1",
-    "@radix-ui/react-label": "^2.1.0",
-    "@radix-ui/react-popover": "^1.1.1",
-    "@radix-ui/react-scroll-area": "^1.1.0",
-    "@radix-ui/react-select": "^2.1.1",
-    "@radix-ui/react-separator": "^1.1.0",
-    "@radix-ui/react-slot": "^1.1.0",
-    "@radix-ui/react-toast": "^1.2.1",
-    "@radix-ui/react-tooltip": "^1.1.2",
-    "class-variance-authority": "^0.7.0",
-    "clsx": "^2.1.1",
-    "date-fns": "^3.6.0",
-    "drizzle-orm": "^0.45.2",
-    "imapflow": "^1.4.0",
-    "lucide-react": "^0.379.0",
-    "mailparser": "^3.9.9",
-    "next": "^14.2.3",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "tailwind-merge": "^2.3.0",
-    "tailwindcss-animate": "^1.0.7",
-    "zod": "^3.23.8"
-  },
-  "devDependencies": {
-    "@types/mailparser": "^3.4.6",
-    "@types/node": "^20.12.12",
-    "@types/react": "^18.3.2",
-    "@types/react-dom": "^18.3.0",
-    "autoprefixer": "^10.5.0",
-    "dotenv": "^17.4.2",
-    "drizzle-kit": "^0.31.10",
-    "postcss": "^8.4.38",
-    "tailwindcss": "^3.4.3",
-    "tsx": "^4.22.4",
-    "typescript": "^5.4.5"
-  }
-}
-</file>
-
-<file path="drizzle.config.ts">
-import { config } from "dotenv";
-import { defineConfig } from "drizzle-kit";
-
-config({ path: ".env.local" });
-
-export default defineConfig({
-  schema: "./lib/schema.ts",
-  out: "./drizzle",
-  dialect: "sqlite",
-  dbCredentials: {
-    url: process.env.TURSO_DB_URL!,
-    authToken: process.env.TURSO_AUTH_TOKEN,
-  },
-});
 </file>
 
 </files>

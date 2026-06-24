@@ -31,7 +31,6 @@ export async function GET() {
       return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
     }
 
-    const now = new Date();
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
     const endOfToday = new Date();
@@ -68,10 +67,10 @@ export async function GET() {
       statusMap[s.status] = Number(s.count);
     });
 
-    // Overdue tasks banner count
+    // Overdue tasks banner count (solo prima di oggi, non include oggi)
     const overdueWhere = taskUserFilter
-      ? and(lte(tasks.dueDate, now), sql`${tasks.status} IN ('todo', 'in_progress')`, taskUserFilter)
-      : and(lte(tasks.dueDate, now), sql`${tasks.status} IN ('todo', 'in_progress')`);
+      ? and(lte(tasks.dueDate, startOfToday), sql`${tasks.status} IN ('todo', 'in_progress')`, taskUserFilter)
+      : and(lte(tasks.dueDate, startOfToday), sql`${tasks.status} IN ('todo', 'in_progress')`);
 
     const overdueCount = await db
       .select({ count: sql<number>`count(*)` })

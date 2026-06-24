@@ -29,7 +29,9 @@ export function formatDateTime(date: Date | number | null | undefined): string {
 
 export function isOverdue(date: Date | number | null | undefined): boolean {
   if (!date) return false;
-  return new Date(date) < new Date();
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  return new Date(date) < startOfToday;
 }
 
 export function daysUntil(date: Date | number | null | undefined): number {

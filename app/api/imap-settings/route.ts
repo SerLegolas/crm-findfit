@@ -24,6 +24,7 @@ export async function GET() {
       password: decrypt(row.password),
       filterFrom: decrypt(row.filterFrom),
       filterSubject: decrypt(row.filterSubject),
+      brevoApiKey: row.brevoApiKey ? decrypt(row.brevoApiKey) : null,
     };
 
     return NextResponse.json({ settings });
@@ -40,7 +41,7 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { host, port, user, password, filterFrom, filterSubject } = body;
+    const { host, port, user, password, filterFrom, filterSubject, brevoApiKey } = body;
 
     if (!host || !port || !user || !password) {
       return NextResponse.json(
@@ -71,6 +72,7 @@ export async function PUT(request: NextRequest) {
           password: encrypted.password,
           filterFrom: encrypted.filterFrom,
           filterSubject: encrypted.filterSubject,
+          brevoApiKey: brevoApiKey ? encrypt(brevoApiKey) : null,
           updatedAt: new Date(),
         })
         .where(eq(imapSettings.id, existing[0].id));
@@ -82,6 +84,7 @@ export async function PUT(request: NextRequest) {
         password: encrypted.password,
         filterFrom: encrypted.filterFrom,
         filterSubject: encrypted.filterSubject,
+        brevoApiKey: brevoApiKey ? encrypt(brevoApiKey) : null,
       });
     }
 
