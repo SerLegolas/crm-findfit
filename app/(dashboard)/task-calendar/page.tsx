@@ -433,14 +433,16 @@ export default function TaskCalendarPage() {
                                     index={tIndex}
                                   >
                                     {(provided, snapshot) => {
-                                      const dragProps = provided.dragHandleProps as React.HTMLAttributes<HTMLDivElement>;
+                                      const handleProps = provided.dragHandleProps as React.HTMLAttributes<HTMLDivElement>;
+                                      const { style: dragStyle, ...restDraggable } = provided.draggableProps as React.HTMLAttributes<HTMLDivElement>;
                                       return (
                                       <Tooltip>
                                         <TooltipTrigger asChild>
                                           <div
                                             ref={provided.innerRef}
-                                            {...provided.draggableProps}
-                                            {...dragProps}
+                                            {...restDraggable}
+                                            {...handleProps}
+                                            style={dragStyle}
                                             className={`
                                               group relative rounded-md border border-l-4 p-1.5 text-xs
                                               bg-card hover:shadow-sm transition-shadow cursor-grab active:cursor-grabbing
