@@ -523,7 +523,8 @@ export default function TaskCalendarPage() {
                                           </div>
                                         </TooltipContent>
                                       </Tooltip>
-                                    )}
+                                    );
+                                  }}
                                   </Draggable>
                                 ))}
                                 {provided.placeholder}
