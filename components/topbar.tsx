@@ -24,7 +24,7 @@ interface TopbarProps {
 interface OverdueTask {
   id: string;
   title: string;
-  dueDate: number | null;
+  dueDate: number;
   clientId: string | null;
   clientName: string | null;
 }
@@ -133,7 +133,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
             <ScrollArea className="h-[300px]">
               <div className="p-1">
                 {overdueTasks.map((task) => {
-                  const daysLate = Math.floor((Date.now() - task.dueDate) / (1000 * 60 * 60 * 24));
+                  const daysLate = Math.floor((Date.now() - (task.dueDate ?? 0)) / (1000 * 60 * 60 * 24));
                   return (
                     <DropdownMenuItem key={task.id} asChild>
                       <Link
