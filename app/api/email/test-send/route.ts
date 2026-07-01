@@ -3,6 +3,7 @@ import { getAuthUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { imapSettings } from "@/lib/schema";
 import { decrypt } from "@/lib/crypto";
+import nodemailer from "nodemailer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,15 +18,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Accesso negato" }, { status: 403 });
     }
 
-    // Leggi API key dal database (decriptata)
+    // Leggi configurazione SMTP da imap_settings
     const rows = await db.select().from(imapSettings).limit(1);
-    const apiKey = rows.length > 0 && rows[0].brevoApiKey ? decrypt(rows[0].brevoApiKey) : null;
-    if (!apiKey) {
+    if (rows.length === 0) {
       return NextResponse.json(
-        { error: "Chiave API Brevo non configurata. Vai su Admin > Configurazione IMAP per impostarla." },
+        { error: "Configurazione SMTP mancante. Vai su Admin > Configurazione Email per impostarla." },
         { status: 500 }
       );
     }
+
+    const row = rows[0];
+    const smtpHost = row.smtpHost ? decrypt(row.smtpHost) : decrypt(row.imapHost);
+    const smtpPortStr = row.smtpPort ? decrypt(row.smtpPort) : decrypt(row.imapPort);
+    const smtpPort = parseInt(smtpPortStr, 10);
+    const smtpSecure = row.smtpSecure ?? (smtpPort === 465);
+    const smtpUser = decrypt(row.user);
+    const smtpPass = decrypt(row.password);
 
     const body = await request.json();
     const { sender, to, subject, htmlContent } = body;
@@ -37,33 +45,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const payload = {
-      sender: { email: sender },
-      to: [{ email: to }],
-      subject,
-      htmlContent,
-    };
-
-    const res = await fetch("https://api.brevo.com/v3/smtp/email", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "api-key": apiKey,
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
+      auth: {
+        user: smtpUser,
+        pass: smtpPass,
       },
-      body: JSON.stringify(payload),
     });
 
-    const data = await res.json();
+    const info = await transporter.sendMail({
+      from: sender,
+      to,
+      subject,
+      html: htmlContent,
+    });
 
-    if (!res.ok) {
-      console.error("[TEST-SEND] Brevo error:", data);
-      return NextResponse.json(
-        { error: data.message || "Errore nell'invio dell'email" },
-        { status: res.status }
-      );
-    }
-
-    return NextResponse.json({ success: true, messageId: data.messageId });
+    console.log("[TEST-SEND] Email sent:", info.messageId);
+    return NextResponse.json({ success: true, messageId: info.messageId });
   } catch (error: any) {
     console.error("[TEST-SEND] Error:", error);
     return NextResponse.json(

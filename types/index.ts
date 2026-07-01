@@ -71,6 +71,18 @@ export const taskSchema = z.object({
 
 export type TaskFormData = z.infer<typeof taskSchema>;
 
+// ── Email Log ──
+export const emailStatuses = ["sent", "pending", "failed"] as const;
+export type EmailStatus = (typeof emailStatuses)[number];
+
+export const emailSchema = z.object({
+  subject: z.string().min(1, "L'oggetto è obbligatorio"),
+  body: z.string().min(1, "Il corpo è obbligatorio"),
+  sender: z.string().email("Email mittente non valida"),
+});
+
+export type EmailFormData = z.infer<typeof emailSchema>;
+
 // ── Transizioni status ──
 export const allowedTransitions: Record<ClientStatus, ClientStatus[]> = {
   lead: ["suspect", "won", "closed_lost"],

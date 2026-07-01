@@ -15,8 +15,12 @@ import {
   Mail,
   Shield,
   Server,
+  Facebook,
   LogOut,
   X,
+  Download,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -32,13 +36,14 @@ const navItems = [
   { href: "/task", label: "Task Scaduti", icon: CalendarCheck },
   { href: "/task-calendar", label: "Calendario Task", icon: CalendarDays },
   { href: "/note", label: "Note Recenti", icon: FileText },
-  { href: "/test-email", label: "Test Email", icon: Mail },
   { href: "/impostazioni", label: "Impostazioni", icon: Settings },
 ];
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
   const [user, setUser] = useState<{ name: string; role: string } | null>(null);
+  const [companyName, setCompanyName] = useState("");
+  const [adminOpen, setAdminOpen] = useState(false);
   const router = usePathname(); // just for reactivity
 
   useEffect(() => {
@@ -48,7 +53,14 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         if (data.user) setUser(data.user);
       })
       .catch(() => {});
-  }, []);
+
+    fetch("/api/company-settings")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.denominazione) setCompanyName(data.denominazione);
+      })
+      .catch(() => {});
+  }, [pathname]);
 
   const handleLogout = async () => {
     await fetch("/api/auth/me", { method: "DELETE" });
@@ -72,14 +84,24 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           open ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <div className="flex h-14 items-center justify-between border-b px-4 lg:hidden">
-          <span className="font-semibold">CRM FindFit</span>
-          <Button variant="ghost" size="icon" onClick={onClose}>
+        <div className="flex flex-col items-center justify-center h-14 border-b px-4 lg:hidden">
+          <span className="font-semibold text-sm">CRM FindFit</span>
+          {companyName?.trim() && (
+            <span className="text-[10px] text-muted-foreground leading-tight">{companyName.trim()}</span>
+          )}
+          <Button variant="ghost" size="icon" className="absolute right-2 top-3" onClick={onClose}>
             <X className="h-5 w-5" />
           </Button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-3 py-4">
+          {/* Titolo desktop */}
+          <div className="hidden lg:flex flex-col items-center px-3 pb-4 border-b mb-4">
+            <p className="font-semibold text-sm text-center">CRM FindFit</p>
+            {companyName?.trim() && (
+              <p className="text-[10px] text-muted-foreground text-center leading-tight mt-0.5">{companyName.trim()}</p>
+            )}
+          </div>
           <nav className="flex flex-col gap-1">
             {navItems.map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
@@ -105,11 +127,19 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             {/* Admin section */}
             {user?.role === "admin" && (
               <>
-                <div className="mt-4 mb-1 px-3">
-                  <p className="text-xs font-semibold uppercase text-muted-foreground">
-                    Admin
-                  </p>
-                </div>
+                <button
+                  onClick={() => setAdminOpen(!adminOpen)}
+                  className="mt-4 mb-1 px-3 flex items-center justify-between w-full text-xs font-semibold uppercase text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <span>Admin</span>
+                  {adminOpen ? (
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  )}
+                </button>
+                {adminOpen && (
+                  <>
                 <Link
                   href="/admin/users"
                   onClick={onClose}
@@ -149,6 +179,34 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   <Mail className="h-5 w-5 shrink-0" />
                   <span>Test Email</span>
                 </Link>
+                <Link
+                  href="/test-email"
+                  onClick={onClose}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                    pathname === "/test-email"
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  <Download className="h-5 w-5 shrink-0" />
+                  <span>Recupero email</span>
+                </Link>
+                <Link
+                  href="/admin/facebook-post"
+                  onClick={onClose}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                    pathname === "/admin/facebook-post"
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  <Facebook className="h-5 w-5 shrink-0" />
+                  <span>Facebook Post</span>
+                </Link>
+              </>
+            )}
               </>
             )}
           </nav>

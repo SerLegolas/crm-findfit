@@ -102,18 +102,20 @@ export const tasks = sqliteTable("tasks", {
     .$onUpdateFn(() => new Date()),
 });
 
-// ── Impostazioni IMAP ──
+// ── Impostazioni IMAP / SMTP ──
 export const imapSettings = sqliteTable("imap_settings", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => "default"),
-  host: text("host").notNull(),
-  port: text("port").notNull(),
+  imapHost: text("imap_host").notNull(),
+  imapPort: text("imap_port").notNull(),
   user: text("user").notNull(),
   password: text("password").notNull(),
   filterFrom: text("filter_from").notNull(),
   filterSubject: text("filter_subject").notNull(),
-  brevoApiKey: text("brevo_api_key"),
+  smtpHost: text("smtp_host"),
+  smtpPort: text("smtp_port"),
+  smtpSecure: integer("smtp_secure", { mode: "boolean" }).default(false),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -121,6 +123,45 @@ export const imapSettings = sqliteTable("imap_settings", {
     .notNull()
     .$defaultFn(() => new Date())
     .$onUpdateFn(() => new Date()),
+});
+
+// ── Email Log ──
+export const emailLog = sqliteTable("email_log", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => randomUUID()),
+  clientId: text("client_id")
+    .notNull()
+    .references(() => clients.id, { onDelete: "cascade" }),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  sender: text("sender").notNull(),
+  author: text("author").notNull().default("Utente"),
+  sentAt: integer("sent_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  status: text("status", {
+    enum: ["sent", "pending", "failed"],
+  })
+    .notNull()
+    .default("pending"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// ── Company Settings ──
+export const companySettings = sqliteTable("company_settings", {
+  id: text("id").primaryKey().$defaultFn(() => "default"),
+  denominazione: text("denominazione").notNull().default(""),
+  piva: text("piva").notNull().default(""),
+  cf: text("cf").notNull().default(""),
+  indirizzo: text("indirizzo").notNull().default(""),
+  città: text("città").notNull().default(""),
+  provincia: text("provincia").notNull().default(""),
+  cap: text("cap").notNull().default(""),
+  email: text("email").notNull().default(""),
+  telefono: text("telefono").notNull().default(""),
 });
 
 // ── Tipi ──
@@ -134,3 +175,7 @@ export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
 export type ImapSetting = typeof imapSettings.$inferSelect;
 export type NewImapSetting = typeof imapSettings.$inferInsert;
+export type EmailLog = typeof emailLog.$inferSelect;
+export type NewEmailLog = typeof emailLog.$inferInsert;
+export type CompanySetting = typeof companySettings.$inferSelect;
+export type NewCompanySetting = typeof companySettings.$inferInsert;

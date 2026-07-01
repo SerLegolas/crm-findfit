@@ -41,6 +41,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/status-badge";
 import { useToast } from "@/components/ui/use-toast";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { clientSchema, clientStatuses, type ClientStatus } from "@/types";
 import { formatDate } from "@/lib/utils";
 import {
@@ -259,10 +265,18 @@ export default function ClientiPage() {
             Gestisci i tuoi clienti ({total} totali)
           </p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nuovo Cliente
-        </Button>
+        <TooltipProvider delayDuration={300}>
+          <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="default" size="icon" onClick={openCreate}>
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Nuovo cliente</TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
       </div>
 
       {/* Filters */}
@@ -307,18 +321,6 @@ export default function ClientiPage() {
             <TableRow>
               <TableHead
                 className="cursor-pointer"
-                onClick={() => toggleSort("name")}
-              >
-                <div className="flex items-center gap-1">
-                  Nome
-                  <ArrowUpDown className="h-3 w-3" />
-                </div>
-              </TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Telefono</TableHead>
-              <TableHead>Azienda</TableHead>
-              <TableHead
-                className="cursor-pointer"
                 onClick={() => toggleSort("status")}
               >
                 <div className="flex items-center gap-1">
@@ -326,6 +328,12 @@ export default function ClientiPage() {
                   <ArrowUpDown className="h-3 w-3" />
                 </div>
               </TableHead>
+              <TableHead>
+                <div className="flex items-center gap-1">
+                  Azienda
+                </div>
+              </TableHead>
+              <TableHead>Contatti</TableHead>
               <TableHead>Assegnato a</TableHead>
               <TableHead>Azioni</TableHead>
             </TableRow>
@@ -333,13 +341,13 @@ export default function ClientiPage() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8">
+                <TableCell colSpan={5} className="text-center py-8">
                   Caricamento...
                 </TableCell>
               </TableRow>
             ) : clients.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8">
+                <TableCell colSpan={5} className="text-center py-8">
                   Nessun cliente trovato
                 </TableCell>
               </TableRow>
@@ -352,12 +360,20 @@ export default function ClientiPage() {
                   className={`cursor-pointer ${isMyRow ? "bg-primary/5 hover:bg-primary/10" : ""}`}
                   onClick={() => router.push(`/clienti/${client.id}`)}
                 >
-                  <TableCell className="font-medium">{client.name}</TableCell>
-                  <TableCell>{client.email || "—"}</TableCell>
-                  <TableCell>{client.phone || "—"}</TableCell>
-                  <TableCell>{client.company || "—"}</TableCell>
                   <TableCell>
                     <StatusBadge status={client.status} />
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col">
+                      <span className="font-medium">{client.company || "—"}</span>
+                      <span className="text-xs text-muted-foreground">{client.name}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col">
+                      <span>{client.email || "—"}</span>
+                      <span className="text-xs text-muted-foreground">{client.phone || "—"}</span>
+                    </div>
                   </TableCell>
                   <TableCell>
                     {client.userId && usersMap[client.userId]
@@ -369,26 +385,43 @@ export default function ClientiPage() {
                       className="flex items-center gap-2"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => router.push(`/clienti/${client.id}`)}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => openEdit(client)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </AlertDialogTrigger>
+                      <TooltipProvider delayDuration={300}>
+                        <div className="flex items-center gap-1">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => router.push(`/clienti/${client.id}`)}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Visualizza</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openEdit(client)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Modifica</TooltipContent>
+                          </Tooltip>
+                          <AlertDialog>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="ghost" size="icon">
+                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                              </TooltipTrigger>
+                              <TooltipContent>Elimina</TooltipContent>
+                            </Tooltip>
                         <AlertDialogContent>
                           <AlertDialogHeader>
                             <AlertDialogTitle>Conferma eliminazione</AlertDialogTitle>
@@ -407,6 +440,8 @@ export default function ClientiPage() {
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
+                    </div>
+                    </TooltipProvider>
                     </div>
                   </TableCell>
                 </TableRow>

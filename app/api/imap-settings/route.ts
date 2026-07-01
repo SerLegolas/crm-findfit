@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** GET: recupera le impostazioni IMAP (decriptate) */
+/** GET: recupera le impostazioni IMAP/SMTP (decriptate) */
 export async function GET() {
   try {
     const rows = await db.select().from(imapSettings).limit(1);
@@ -18,13 +18,15 @@ export async function GET() {
     const row = rows[0];
     const settings = {
       id: row.id,
-      host: decrypt(row.host),
-      port: decrypt(row.port),
+      imapHost: decrypt(row.imapHost),
+      imapPort: decrypt(row.imapPort),
       user: decrypt(row.user),
       password: decrypt(row.password),
       filterFrom: decrypt(row.filterFrom),
       filterSubject: decrypt(row.filterSubject),
-      brevoApiKey: row.brevoApiKey ? decrypt(row.brevoApiKey) : null,
+      smtpHost: row.smtpHost ? decrypt(row.smtpHost) : null,
+      smtpPort: row.smtpPort ? decrypt(row.smtpPort) : null,
+      smtpSecure: row.smtpSecure ?? false,
     };
 
     return NextResponse.json({ settings });
@@ -37,26 +39,29 @@ export async function GET() {
   }
 }
 
-/** PUT: salva (upsert) le impostazioni IMAP (criptate) */
+/** PUT: salva (upsert) le impostazioni IMAP/SMTP (criptate) */
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { host, port, user, password, filterFrom, filterSubject, brevoApiKey } = body;
+    const { imapHost, imapPort, user, password, filterFrom, filterSubject, smtpHost, smtpPort, smtpSecure } = body;
 
-    if (!host || !port || !user || !password) {
+    if (!imapHost || !imapPort || !user || !password) {
       return NextResponse.json(
-        { error: "I campi host, port, user e password sono obbligatori" },
+        { error: "I campi imapHost, imapPort, user e password sono obbligatori" },
         { status: 400 }
       );
     }
 
     const encrypted = {
-      host: encrypt(host),
-      port: encrypt(port),
+      imapHost: encrypt(imapHost),
+      imapPort: encrypt(imapPort),
       user: encrypt(user),
       password: encrypt(password),
       filterFrom: encrypt(filterFrom || ""),
       filterSubject: encrypt(filterSubject || ""),
+      smtpHost: smtpHost ? encrypt(smtpHost) : null,
+      smtpPort: smtpPort ? encrypt(smtpPort) : null,
+      smtpSecure: smtpSecure ?? false,
     };
 
     // Upsert: verifica se esiste già una riga
@@ -65,26 +70,12 @@ export async function PUT(request: NextRequest) {
     if (existing.length > 0) {
       await db
         .update(imapSettings)
-        .set({
-          host: encrypted.host,
-          port: encrypted.port,
-          user: encrypted.user,
-          password: encrypted.password,
-          filterFrom: encrypted.filterFrom,
-          filterSubject: encrypted.filterSubject,
-          brevoApiKey: brevoApiKey ? encrypt(brevoApiKey) : null,
-          updatedAt: new Date(),
-        })
+        .set({ ...encrypted, updatedAt: new Date() })
         .where(eq(imapSettings.id, existing[0].id));
     } else {
       await db.insert(imapSettings).values({
-        host: encrypted.host,
-        port: encrypted.port,
-        user: encrypted.user,
-        password: encrypted.password,
-        filterFrom: encrypted.filterFrom,
-        filterSubject: encrypted.filterSubject,
-        brevoApiKey: brevoApiKey ? encrypt(brevoApiKey) : null,
+        ...encrypted,
+        id: "default",
       });
     }
 

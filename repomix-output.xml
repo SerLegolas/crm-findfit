@@ -41,6 +41,9 @@ The content is organized as follows:
 
 <directory_structure>
 .gitignore
+app/(dashboard)/admin/email-test/page.tsx
+app/(dashboard)/admin/facebook-post/page.tsx
+app/(dashboard)/admin/imap/page.tsx
 app/(dashboard)/admin/users/page.tsx
 app/(dashboard)/clienti/[id]/page.tsx
 app/(dashboard)/clienti/page.tsx
@@ -50,6 +53,7 @@ app/(dashboard)/kanban/page.tsx
 app/(dashboard)/layout.tsx
 app/(dashboard)/note/page.tsx
 app/(dashboard)/page.tsx
+app/(dashboard)/task-calendar/page.tsx
 app/(dashboard)/task/page.tsx
 app/(dashboard)/test-email/page.tsx
 app/api/auth/login/route.ts
@@ -57,8 +61,11 @@ app/api/auth/me/route.ts
 app/api/clients/[id]/route.ts
 app/api/clients/route.ts
 app/api/dashboard/route.ts
+app/api/email/send/route.ts
 app/api/email/sync/route.ts
+app/api/email/test-send/route.ts
 app/api/email/test/route.ts
+app/api/facebook/post/route.ts
 app/api/imap-settings/route.ts
 app/api/note/[id]/route.ts
 app/api/note/route.ts
@@ -69,6 +76,7 @@ app/api/users/route.ts
 app/globals.css
 app/layout.tsx
 app/login/page.tsx
+components/html-editor.tsx
 components/priority-badge.tsx
 components/providers.tsx
 components/sidebar.tsx
@@ -90,6 +98,7 @@ components/ui/table.tsx
 components/ui/textarea.tsx
 components/ui/toast.tsx
 components/ui/toaster.tsx
+components/ui/tooltip.tsx
 components/ui/use-toast.ts
 drizzle.config.ts
 lib/auth.ts
@@ -105,6 +114,7 @@ package.json
 postcss.config.js
 README.md
 scripts/generate-hash.ts
+scripts/migrate-0002.ts
 scripts/migrate.ts
 scripts/seed-admin.ts
 tailwind.config.ts
@@ -114,6 +124,662 @@ types/index.ts
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="app/(dashboard)/admin/facebook-post/page.tsx">
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/use-toast";
+import { Badge } from "@/components/ui/badge";
+import {
+  Loader2,
+  Send,
+  Facebook,
+  Image,
+  Hash,
+  X,
+  Eye,
+} from "lucide-react";
+
+export default function AdminFacebookPostPage() {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [authCheck, setAuthCheck] = useState<boolean | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  const [preview, setPreview] = useState(false);
+
+  const [content, setContent] = useState("");
+  const [mediaUrl, setMediaUrl] = useState("");
+  const [tagInput, setTagInput] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.user || data.user.role !== "admin") {
+          router.push("/dashboard");
+          return;
+        }
+        setAuthCheck(true);
+      })
+      .catch(() => router.push("/login"));
+  }, [router]);
+
+  const handleAddTag = () => {
+    const trimmed = tagInput.trim();
+    if (!trimmed) return;
+    const mention = trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
+    if (!tags.includes(mention)) {
+      setTags((prev) => [...prev, mention]);
+    }
+    setTagInput("");
+  };
+
+  const handleTagKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleAddTag();
+    }
+  };
+
+  const handleRemoveTag = (tag: string) => {
+    setTags((prev) => prev.filter((t) => t !== tag));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!content.trim()) {
+      toast({
+        title: "Contenuto richiesto",
+        description: "Inserisci il testo del post.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setPublishing(true);
+    try {
+      const res = await fetch("/api/facebook/post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: content.trim(),
+          mediaUrl: mediaUrl.trim() || null,
+          tags,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        toast({
+          title: "Errore",
+          description: data.error || "Errore durante la pubblicazione.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: "Pubblicato!",
+        description: data.message || "Post pubblicato con successo.",
+      });
+
+      // Reset form
+      setContent("");
+      setMediaUrl("");
+      setTags([]);
+      setPreview(false);
+    } catch {
+      toast({
+        title: "Errore",
+        description: "Errore di connessione al server.",
+        variant: "destructive",
+      });
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  if (authCheck === null) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">Pubblica su Facebook</h2>
+        <p className="text-muted-foreground">
+          Crea e pubblica un post sulla pagina Facebook di FindFit
+        </p>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* ── Form ── */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Facebook className="h-5 w-5 text-muted-foreground" />
+              <CardTitle>Nuovo Post</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Contenuto */}
+              <div className="space-y-2">
+                <Label htmlFor="content">Testo del post</Label>
+                <Textarea
+                  id="content"
+                  placeholder="Cosa vuoi condividere?"
+                  rows={5}
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  required
+                />
+                <p className="text-xs text-muted-foreground text-right">
+                  {content.length} caratteri
+                </p>
+              </div>
+
+              {/* Media URL */}
+              <div className="space-y-2">
+                <Label htmlFor="mediaUrl">URL immagine / video</Label>
+                <div className="relative">
+                  <Image className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="mediaUrl"
+                    className="pl-9"
+                    placeholder="https://example.com/image.jpg"
+                    value={mediaUrl}
+                    onChange={(e) => setMediaUrl(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Tags (@mentions) */}
+              <div className="space-y-2">
+                <Label htmlFor="tagInput">Tag (@mention)</Label>
+                <div className="relative">
+                  <Hash className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="tagInput"
+                    className="pl-9"
+                    placeholder="nomepagina e premi Invio"
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={handleTagKeyDown}
+                  />
+                </div>
+                {tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {tags.map((tag) => (
+                      <Badge key={tag} variant="secondary" className="gap-1">
+                        {tag}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveTag(tag)}
+                          className="ml-1 hover:text-destructive"
+                          aria-label={`Rimuovi ${tag}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setPreview(!preview)}
+                  disabled={!content.trim() && !mediaUrl}
+                >
+                  <Eye className="h-4 w-4 mr-2" />
+                  {preview ? "Nascondi anteprima" : "Anteprima"}
+                </Button>
+                <Button type="submit" disabled={publishing || !content.trim()}>
+                  {publishing ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4 mr-2" />
+                  )}
+                  {publishing ? "Pubblicazione..." : "Pubblica"}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* ── Anteprima ── */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Eye className="h-5 w-5 text-muted-foreground" />
+              <CardTitle>Anteprima</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {preview && (content.trim() || mediaUrl) ? (
+              <div className="rounded-lg border bg-card overflow-hidden">
+                {/* Intestazione finta */}
+                <div className="flex items-center gap-3 p-4 pb-2">
+                  <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Facebook className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">FindFit</p>
+                    <p className="text-xs text-muted-foreground">Pubblicato ora</p>
+                  </div>
+                </div>
+
+                {/* Media */}
+                {mediaUrl && (
+                  <div className="px-4 pb-2">
+                    <div className="rounded-md overflow-hidden bg-muted aspect-video flex items-center justify-center">
+                      {mediaUrl.match(/\.(mp4|webm|ogg)$/i) ? (
+                        <video
+                          src={mediaUrl}
+                          controls
+                          className="w-full h-full object-cover"
+                        >
+                          Il tuo browser non supporta il video.
+                        </video>
+                      ) : (
+                        /* eslint-disable @next/next/no-img-element */
+                        <img
+                          src={mediaUrl}
+                          alt="Media anteprima"
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = "none";
+                            (e.target as HTMLImageElement).parentElement!.classList.add("before:content-['Immagine_non_disponibile']", "before:text-muted-foreground", "before:text-sm");
+                          }}
+                        />
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Contenuto */}
+                <div className="p-4 pt-2">
+                  <p className="text-sm whitespace-pre-wrap break-words">
+                    {content}
+                  </p>
+                  {tags.length > 0 && (
+                    <p className="text-sm text-primary mt-2">
+                      {tags.join(" ")}
+                    </p>
+                  )}
+                </div>
+
+                {/* Footer finto */}
+                <div className="border-t px-4 py-2 flex gap-4 text-xs text-muted-foreground">
+                  <span>👍 0</span>
+                  <span>💬 0</span>
+                  <span>↗️ 0</span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <Eye className="h-12 w-12 mb-3 opacity-30" />
+                <p className="text-sm">
+                  {preview
+                    ? "Scrivi del contenuto per vedere l'anteprima"
+                    : "Clicca su &ldquo;Anteprima&rdquo; per visualizzare"}
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="app/api/email/send/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { getAuthUser } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { emailLog, imapSettings, clients } from "@/lib/schema";
+import { emailSchema } from "@/types";
+import { eq, desc } from "drizzle-orm";
+import { decrypt } from "@/lib/crypto";
+import nodemailer from "nodemailer";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/** GET: recupera le email inviate per un client */
+export async function GET(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const clientId = searchParams.get("clientId");
+
+    if (!clientId) {
+      return NextResponse.json(
+        { error: "clientId è obbligatorio" },
+        { status: 400 }
+      );
+    }
+
+    const emails = await db
+      .select()
+      .from(emailLog)
+      .where(eq(emailLog.clientId, clientId))
+      .orderBy(desc(emailLog.sentAt));
+
+    return NextResponse.json(emails);
+  } catch (error) {
+    console.error("Error fetching email logs:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento delle email" },
+      { status: 500 }
+    );
+  }
+}
+
+/** POST: invia un'email via SMTP Aruba e salva nel log */
+export async function POST(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { clientId, subject, body: emailBody, sender } = body;
+
+    if (!clientId) {
+      return NextResponse.json(
+        { error: "clientId è obbligatorio" },
+        { status: 400 }
+      );
+    }
+
+    const parsed = emailSchema.parse({ subject, body: emailBody, sender });
+
+    // Ottieni email del cliente
+    const [client] = await db
+      .select()
+      .from(clients)
+      .where(eq(clients.id, clientId))
+      .limit(1);
+
+    if (!client) {
+      return NextResponse.json(
+        { error: "Cliente non trovato" },
+        { status: 404 }
+      );
+    }
+
+    if (!client.email) {
+      return NextResponse.json(
+        { error: "Il cliente non ha un indirizzo email" },
+        { status: 400 }
+      );
+    }
+
+    // Leggi configurazione SMTP da imap_settings
+    const rows = await db.select().from(imapSettings).limit(1);
+
+    if (rows.length === 0 || !rows[0].imapHost || !rows[0].imapPort || !rows[0].user || !rows[0].password) {
+      return NextResponse.json(
+        { error: "Configurazione SMTP mancante. Vai su Impostazioni per configurarla." },
+        { status: 500 }
+      );
+    }
+
+    const row = rows[0];
+    const smtpHost = row.smtpHost ? decrypt(row.smtpHost) : decrypt(row.imapHost);
+    const smtpPortStr = row.smtpPort ? decrypt(row.smtpPort) : decrypt(row.imapPort);
+    const smtpPort = parseInt(smtpPortStr, 10);
+    const smtpSecure = row.smtpSecure ?? (smtpPort === 465);
+
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
+      auth: {
+        user: decrypt(row.user),
+        pass: decrypt(row.password),
+      },
+    });
+
+    let status: "sent" | "pending" | "failed" = "sent";
+    let sentAt = new Date();
+
+    try {
+      await transporter.sendMail({
+        from: `"${authUser.name}" <${parsed.sender}>`,
+        to: client.email,
+        subject: parsed.subject,
+        text: parsed.body,
+      });
+    } catch (sendErr) {
+      console.error("[EMAIL-SEND] SMTP error:", sendErr);
+      status = "failed";
+    }
+
+    // Salva nel log
+    const [saved] = await db
+      .insert(emailLog)
+      .values({
+        clientId,
+        subject: parsed.subject,
+        body: parsed.body,
+        sender: parsed.sender,
+        status,
+        sentAt,
+      })
+      .returning();
+
+    return NextResponse.json(saved, { status: 201 });
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error sending email:", error);
+    return NextResponse.json(
+      { error: "Errore nell'invio dell'email" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/facebook/post/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { getAuthUser } from "@/lib/auth";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function POST(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+    if (authUser.role !== "admin") {
+      return NextResponse.json({ error: "Accesso negato" }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const { content, mediaUrl, tags } = body;
+
+    if (!content || !content.trim()) {
+      return NextResponse.json(
+        { error: "Il contenuto del post è obbligatorio" },
+        { status: 400 }
+      );
+    }
+
+    // TODO: integrazione con Facebook Graph API
+    // Al momento simuliamo la pubblicazione con successo
+    console.log("[FACEBOOK-POST] Post ricevuto:", {
+      content,
+      mediaUrl: mediaUrl || null,
+      tags: tags || [],
+      author: authUser.name,
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: "Post pubblicato con successo su Facebook (simulazione)",
+      post: {
+        id: `fb_${Date.now()}`,
+        content,
+        mediaUrl: mediaUrl || null,
+        tags: tags || [],
+        publishedAt: new Date().toISOString(),
+      },
+    });
+  } catch (error: any) {
+    console.error("[FACEBOOK-POST] Error:", error);
+    return NextResponse.json(
+      { error: error.message || "Errore interno" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="components/html-editor.tsx">
+"use client";
+
+import { useRef } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+
+type ToolbarAction = {
+  label: string;
+  tooltip: string;
+  openTag: string;
+  closeTag: string;
+};
+
+const actions: ToolbarAction[] = [
+  { label: "B", tooltip: "Grassetto (Ctrl+B)", openTag: "<strong>", closeTag: "</strong>" },
+  { label: "I", tooltip: "Corsivo (Ctrl+I)", openTag: "<em>", closeTag: "</em>" },
+  { label: "U", tooltip: "Sottolineato (Ctrl+U)", openTag: "<u>", closeTag: "</u>" },
+  { label: "🔗", tooltip: "Link", openTag: '<a href="https://">', closeTag: "</a>" },
+  { label: "H1", tooltip: "Titolo H1", openTag: "<h1>", closeTag: "</h1>" },
+  { label: "H2", tooltip: "Titolo H2", openTag: "<h2>", closeTag: "</h2>" },
+  { label: "P", tooltip: "Paragrafo", openTag: "<p>", closeTag: "</p>" },
+  { label: "UL", tooltip: "Lista non ordinata", openTag: "<ul>\n  <li>", closeTag: "</li>\n</ul>" },
+  { label: "OL", tooltip: "Lista ordinata", openTag: "<ol>\n  <li>", closeTag: "</li>\n</ol>" },
+  { label: "🖼", tooltip: "Immagine", openTag: '<img src="', closeTag: '" alt="" />' },
+];
+
+interface HtmlEditorProps {
+  id?: string;
+  label?: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  className?: string;
+}
+
+export default function HtmlEditor({
+  id,
+  label,
+  value,
+  onChange,
+  placeholder,
+  className,
+}: HtmlEditorProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const wrapSelection = (openTag: string, closeTag: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const before = value.slice(0, start);
+    const selected = value.slice(start, end);
+    const after = value.slice(end);
+
+    const newText = `${before}${openTag}${selected || ""}${closeTag}${after}`;
+    onChange(newText);
+
+    // Riposiziona il cursore dopo l'inserimento
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const cursorPos = start + openTag.length + (selected || "").length + closeTag.length;
+      textarea.setSelectionRange(cursorPos, cursorPos);
+    });
+  };
+
+  return (
+    <div className="space-y-2">
+      {label && <Label htmlFor={id}>{label}</Label>}
+      <div className="rounded-md border">
+        <div className="flex flex-wrap items-center gap-0.5 border-b bg-muted/30 px-2 py-1.5">
+          <TooltipProvider delayDuration={300}>
+            {actions.map((action) => (
+              <Tooltip key={action.label}>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 min-w-7 px-1.5 text-xs font-medium"
+                    onClick={() => wrapSelection(action.openTag, action.closeTag)}
+                  >
+                    {action.label}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{action.tooltip}</TooltipContent>
+              </Tooltip>
+            ))}
+          </TooltipProvider>
+        </div>
+        <Textarea
+          ref={textareaRef}
+          id={id}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className={`min-h-[200px] border-0 rounded-t-none font-mono text-sm focus-visible:ring-0 focus-visible:ring-offset-0 ${className || ""}`}
+          required
+        />
+      </div>
+    </div>
+  );
+}
+</file>
 
 <file path=".gitignore">
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
@@ -154,6 +820,615 @@ next-env.d.ts
 
 # drizzle
 drizzle/
+</file>
+
+<file path="app/(dashboard)/admin/email-test/page.tsx">
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import HtmlEditor from "@/components/html-editor";
+import { useToast } from "@/components/ui/use-toast";
+import { Loader2, Send, AlertCircle, CheckCircle2, Mail } from "lucide-react";
+
+export default function AdminEmailTestPage() {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [authCheck, setAuthCheck] = useState<boolean | null>(null);
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [defaultSender, setDefaultSender] = useState("");
+
+  const [form, setForm] = useState({
+    to: "",
+    subject: "",
+    htmlContent: "",
+  });
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.user || data.user.role !== "admin") {
+          router.push("/dashboard");
+          return;
+        }
+        setAuthCheck(true);
+      })
+      .catch(() => router.push("/login"));
+  }, [router]);
+
+  useEffect(() => {
+    if (!authCheck) return;
+    fetch("/api/imap-settings")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.settings?.user) {
+          setDefaultSender(data.settings.user);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingSettings(false));
+  }, [authCheck]);
+
+  const handleChange = (field: string, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    setResult(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSending(true);
+    setResult(null);
+
+    try {
+      const res = await fetch("/api/email/test-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, sender: defaultSender }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setResult({
+          success: false,
+          message: data.error || "Errore nell'invio",
+        });
+        return;
+      }
+
+      setResult({
+        success: true,
+        message: `Email inviata con successo! ID: ${data.messageId}`,
+      });
+      toast({
+        title: "Inviata",
+        description: "Email inviata con successo.",
+      });
+    } catch {
+      setResult({
+        success: false,
+        message: "Errore di connessione al server.",
+      });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  if (authCheck === null) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  const fakeDate = new Date().toLocaleDateString("it-IT", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">Test Invio Email</h2>
+        <p className="text-muted-foreground">
+          Invia un&apos;email di prova tramite SMTP Aruba per verificare la
+          configurazione
+        </p>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* ── Colonna sinistra: form ── */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Componi Email</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Mittente (caricato dalle impostazioni) */}
+              <div className="flex items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+                <Mail className="h-4 w-4 shrink-0" />
+                <span>
+                  Mittente: <strong>{loadingSettings ? "Caricamento..." : defaultSender || "Non configurato"}</strong>
+                </span>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                {/* Destinatario */}
+                <div className="space-y-2">
+                  <Label htmlFor="to">Destinatario</Label>
+                  <Input
+                    id="to"
+                    type="email"
+                    placeholder="cliente@example.com"
+                    value={form.to}
+                    onChange={(e) => handleChange("to", e.target.value)}
+                    required
+                  />
+                </div>
+
+                {/* Oggetto */}
+                <div className="space-y-2">
+                  <Label htmlFor="subject">Oggetto</Label>
+                  <Input
+                    id="subject"
+                    placeholder="Oggetto dell'email"
+                    value={form.subject}
+                    onChange={(e) => handleChange("subject", e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Corpo HTML */}
+              <HtmlEditor
+                id="htmlContent"
+                label="Corpo HTML"
+                value={form.htmlContent}
+                onChange={(v) => handleChange("htmlContent", v)}
+                placeholder="<h1>Benvenuto!</h1><p>Corpo dell'email...</p>"
+              />
+
+              {/* Result */}
+              {result && (
+                <div
+                  className={`flex items-center gap-2 rounded-lg border p-3 text-sm ${
+                    result.success
+                      ? "border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-400"
+                      : "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-400"
+                  }`}
+                >
+                  {result.success ? (
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                  )}
+                  <span>{result.message}</span>
+                </div>
+              )}
+
+              <div className="flex justify-end pt-2">
+                <Button type="submit" disabled={sending}>
+                  {sending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Invio in corso...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="mr-2 h-4 w-4" />
+                      Invia Email
+                    </>
+                  )}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* ── Colonna destra: anteprima live ── */}
+        <Card className="lg:sticky lg:top-6 lg:self-start">
+          <CardHeader>
+            <CardTitle>Anteprima</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ScrollArea className="max-h-[75vh]">
+              <div className="space-y-4">
+                {/* Header email */}
+                <div className="rounded-lg border bg-white dark:bg-zinc-900 overflow-hidden">
+                  <div className="space-y-0 divide-y">
+                    <div className="flex items-center gap-2 px-4 py-2.5 text-sm">
+                      <span className="font-semibold text-muted-foreground w-12 shrink-0">Da:</span>
+                      <span>{defaultSender || "—"}</span>
+                    </div>
+                    <div className="flex items-center gap-2 px-4 py-2.5 text-sm">
+                      <span className="font-semibold text-muted-foreground w-12 shrink-0">A:</span>
+                      <span>{form.to || "—"}</span>
+                    </div>
+                    <div className="flex items-center gap-2 px-4 py-2.5 text-sm">
+                      <span className="font-semibold text-muted-foreground w-12 shrink-0">Oggetto:</span>
+                      <span className="font-medium">{form.subject || "—"}</span>
+                    </div>
+                    <div className="flex items-center gap-2 px-4 py-2.5 text-sm text-muted-foreground">
+                      <span className="font-semibold w-12 shrink-0">Data:</span>
+                      <span>{fakeDate}</span>
+                    </div>
+                  </div>
+
+                  {/* Corpo renderizzato */}
+                  <div className="border-t px-4 py-4 min-h-[200px]">
+                    {form.htmlContent ? (
+                      <div
+                        className="prose prose-sm max-w-none dark:prose-invert"
+                        dangerouslySetInnerHTML={{ __html: form.htmlContent }}
+                      />
+                    ) : (
+                      <p className="text-sm text-muted-foreground italic">
+                        Il corpo dell&apos;email apparirà qui...
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="app/(dashboard)/admin/imap/page.tsx">
+"use client";
+
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/use-toast";
+import { Loader2, Save, Eye, EyeOff, Server, Send } from "lucide-react";
+import { useRouter } from "next/navigation";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+type ImapFormData = {
+  imapHost: string;
+  imapPort: string;
+  user: string;
+  password: string;
+  filterFrom: string;
+  filterSubject: string;
+  smtpHost: string;
+  smtpPort: string;
+  smtpSecure: string;
+};
+
+export default function AdminImapPage() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [authCheck, setAuthCheck] = useState<boolean | null>(null);
+  const { toast } = useToast();
+  const router = useRouter();
+
+  const [form, setForm] = useState<ImapFormData>({
+    imapHost: "",
+    imapPort: "993",
+    user: "",
+    password: "",
+    filterFrom: "",
+    filterSubject: "",
+    smtpHost: "",
+    smtpPort: "587",
+    smtpSecure: "false",
+  });
+
+  // Verifica auth e carica impostazioni
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.user || data.user.role !== "admin") {
+          router.push("/dashboard");
+          return;
+        }
+        setAuthCheck(true);
+      })
+      .catch(() => {
+        router.push("/login");
+      });
+  }, [router]);
+
+  useEffect(() => {
+    if (!authCheck) return;
+    fetch("/api/imap-settings")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.settings) {
+          setForm({
+            imapHost: data.settings.imapHost || "",
+            imapPort: data.settings.imapPort || "993",
+            user: data.settings.user || "",
+            password: data.settings.password || "",
+            filterFrom: data.settings.filterFrom || "",
+            filterSubject: data.settings.filterSubject || "",
+            smtpHost: data.settings.smtpHost || "",
+            smtpPort: data.settings.smtpPort || "587",
+            smtpSecure: data.settings.smtpSecure ? "true" : "false",
+          });
+        }
+      })
+      .catch(() => {
+        toast({
+          title: "Errore",
+          description: "Impossibile caricare le impostazioni IMAP.",
+          variant: "destructive",
+        });
+      })
+      .finally(() => setLoading(false));
+  }, [authCheck, toast]);
+
+  const handleChange = (field: keyof ImapFormData, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/imap-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Errore durante il salvataggio");
+      }
+
+      toast({
+        title: "Salvato",
+        description: "Impostazioni IMAP salvate con successo.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Errore",
+        description: error.message || "Errore durante il salvataggio.",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (authCheck === null) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">
+          Configurazione Email
+        </h2>
+        <p className="text-muted-foreground">
+          Gestisci le impostazioni del server IMAP per la sincronizzazione e SMTP per l'invio email
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Server className="h-5 w-5 text-muted-foreground" />
+            <CardTitle>Server IMAP</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSave();
+              }}
+              className="space-y-4"
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                {/* IMAP Host */}
+                <div className="space-y-2">
+                  <Label htmlFor="imapHost">Host IMAP</Label>
+                  <Input
+                    id="imapHost"
+                    placeholder="imaps.aruba.it"
+                    value={form.imapHost}
+                    onChange={(e) => handleChange("imapHost", e.target.value)}
+                    required
+                  />
+                </div>
+
+                {/* IMAP Port */}
+                <div className="space-y-2">
+                  <Label htmlFor="imapPort">Porta IMAP</Label>
+                  <Input
+                    id="imapPort"
+                    placeholder="993"
+                    value={form.imapPort}
+                    onChange={(e) => handleChange("imapPort", e.target.value)}
+                    required
+                  />
+                </div>
+
+                {/* User */}
+                <div className="space-y-2">
+                  <Label htmlFor="user">Utente</Label>
+                  <Input
+                    id="user"
+                    placeholder="services@easyasso.cloud"
+                    value={form.user}
+                    onChange={(e) => handleChange("user", e.target.value)}
+                    required
+                  />
+                </div>
+
+                {/* Password */}
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="••••••••"
+                      value={form.password}
+                      onChange={(e) =>
+                        handleChange("password", e.target.value)
+                      }
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filter From */}
+                <div className="space-y-2">
+                  <Label htmlFor="filterFrom">
+                    Filtra mittente (opzionale)
+                  </Label>
+                  <Input
+                    id="filterFrom"
+                    placeholder="e-ross1971@live.it"
+                    value={form.filterFrom}
+                    onChange={(e) =>
+                      handleChange("filterFrom", e.target.value)
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Solo email da questo mittente.
+                  </p>
+                </div>
+
+                {/* Filter Subject */}
+                <div className="space-y-2">
+                  <Label htmlFor="filterSubject">
+                    Filtra oggetto (opzionale)
+                  </Label>
+                  <Input
+                    id="filterSubject"
+                    placeholder="parola chiave nell'oggetto"
+                    value={form.filterSubject}
+                    onChange={(e) =>
+                      handleChange("filterSubject", e.target.value)
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Solo email con questa parola nell'oggetto.
+                  </p>
+                </div>
+
+              </div>
+
+              {/* ── SMTP Section ── */}
+              <div className="border-t pt-4 mt-2">
+                <div className="flex items-center gap-2 mb-4">
+                  <Send className="h-5 w-5 text-muted-foreground" />
+                  <h3 className="text-lg font-semibold">Server SMTP (invio email)</h3>
+                </div>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Se lasci vuoti questi campi, verranno usati gli stessi valori di IMAP. Usa la stessa user/password di IMAP.
+                </p>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="smtpHost">Host SMTP</Label>
+                    <Input
+                      id="smtpHost"
+                      placeholder="smtp.aruba.it"
+                      value={form.smtpHost}
+                      onChange={(e) => handleChange("smtpHost", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="smtpPort">Porta SMTP</Label>
+                    <Input
+                      id="smtpPort"
+                      placeholder="587"
+                      value={form.smtpPort}
+                      onChange={(e) => handleChange("smtpPort", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="smtpSecure">Connessione sicura</Label>
+                    <Select
+                      value={form.smtpSecure}
+                      onValueChange={(v) => handleChange("smtpSecure", v)}
+                    >
+                      <SelectTrigger id="smtpSecure">
+                        <SelectValue placeholder="Seleziona..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="false">No (TLS/STARTTLS)</SelectItem>
+                        <SelectItem value="true">Sì (SSL)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <Button type="submit" disabled={saving}>
+                  {saving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Salvataggio...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="mr-2 h-4 w-4" />
+                      Salva impostazioni
+                    </>
+                  )}
+                </Button>
+              </div>
+            </form>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 </file>
 
 <file path="app/(dashboard)/admin/users/page.tsx">
@@ -1240,6 +2515,83 @@ export async function GET() {
 export async function DELETE() {
   await destroySession();
   return NextResponse.json({ success: true });
+}
+</file>
+
+<file path="app/api/email/test-send/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { getAuthUser } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { imapSettings } from "@/lib/schema";
+import { decrypt } from "@/lib/crypto";
+import nodemailer from "nodemailer";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function POST(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+    if (authUser.role !== "admin") {
+      return NextResponse.json({ error: "Accesso negato" }, { status: 403 });
+    }
+
+    // Leggi configurazione SMTP da imap_settings
+    const rows = await db.select().from(imapSettings).limit(1);
+    if (rows.length === 0) {
+      return NextResponse.json(
+        { error: "Configurazione SMTP mancante. Vai su Admin > Configurazione Email per impostarla." },
+        { status: 500 }
+      );
+    }
+
+    const row = rows[0];
+    const smtpHost = row.smtpHost ? decrypt(row.smtpHost) : decrypt(row.imapHost);
+    const smtpPortStr = row.smtpPort ? decrypt(row.smtpPort) : decrypt(row.imapPort);
+    const smtpPort = parseInt(smtpPortStr, 10);
+    const smtpSecure = row.smtpSecure ?? (smtpPort === 465);
+    const smtpUser = decrypt(row.user);
+    const smtpPass = decrypt(row.password);
+
+    const body = await request.json();
+    const { sender, to, subject, htmlContent } = body;
+
+    if (!sender || !to || !subject || !htmlContent) {
+      return NextResponse.json(
+        { error: "Campi obbligatori: sender, to, subject, htmlContent" },
+        { status: 400 }
+      );
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
+      auth: {
+        user: smtpUser,
+        pass: smtpPass,
+      },
+    });
+
+    const info = await transporter.sendMail({
+      from: sender,
+      to,
+      subject,
+      html: htmlContent,
+    });
+
+    console.log("[TEST-SEND] Email sent:", info.messageId);
+    return NextResponse.json({ success: true, messageId: info.messageId });
+  } catch (error: any) {
+    console.error("[TEST-SEND] Error:", error);
+    return NextResponse.json(
+      { error: error.message || "Errore interno" },
+      { status: 500 }
+    );
+  }
 }
 </file>
 
@@ -3026,6 +4378,38 @@ export function Toaster() {
 }
 </file>
 
+<file path="components/ui/tooltip.tsx">
+"use client";
+
+import * as React from "react";
+import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+import { cn } from "@/lib/utils";
+
+const TooltipProvider = TooltipPrimitive.Provider;
+
+const Tooltip = TooltipPrimitive.Root;
+
+const TooltipTrigger = TooltipPrimitive.Trigger;
+
+const TooltipContent = React.forwardRef<
+  React.ElementRef<typeof TooltipPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
+>(({ className, sideOffset = 4, ...props }, ref) => (
+  <TooltipPrimitive.Content
+    ref={ref}
+    sideOffset={sideOffset}
+    className={cn(
+      "z-50 overflow-hidden rounded-md border bg-popover px-3 py-1.5 text-sm text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+      className
+    )}
+    {...props}
+  />
+));
+TooltipContent.displayName = TooltipPrimitive.Content.displayName;
+
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
+</file>
+
 <file path="components/ui/use-toast.ts">
 "use client";
 
@@ -3415,8 +4799,8 @@ export async function getImapConfig(): Promise<ImapConfig | null> {
 
     const row = rows[0];
     return {
-      host: decrypt(row.host),
-      port: parseInt(decrypt(row.port)),
+      host: decrypt(row.imapHost),
+      port: parseInt(decrypt(row.imapPort)),
       user: decrypt(row.user),
       password: decrypt(row.password),
       filterFrom: decrypt(row.filterFrom),
@@ -3434,50 +4818,6 @@ export async function getImapConfig(): Promise<ImapConfig | null> {
 
     return { host, port, user, password, filterFrom, filterSubject: "" };
   }
-}
-</file>
-
-<file path="lib/utils.ts">
-import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
-
-export function formatDate(date: Date | number | null | undefined): string {
-  if (!date) return "—";
-  const d = new Date(date);
-  return d.toLocaleDateString("it-IT", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
-
-export function formatDateTime(date: Date | number | null | undefined): string {
-  if (!date) return "—";
-  const d = new Date(date);
-  return d.toLocaleDateString("it-IT", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-export function isOverdue(date: Date | number | null | undefined): boolean {
-  if (!date) return false;
-  return new Date(date) < new Date();
-}
-
-export function daysUntil(date: Date | number | null | undefined): number {
-  if (!date) return Infinity;
-  const now = new Date();
-  const target = new Date(date);
-  const diff = target.getTime() - now.getTime();
-  return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 </file>
 
@@ -3758,6 +5098,48 @@ async function main() {
 }
 
 main().catch(console.error);
+</file>
+
+<file path="scripts/migrate-0002.ts">
+import { createClient } from "@libsql/client";
+import { config } from "dotenv";
+import { readFileSync } from "fs";
+import { resolve } from "path";
+
+config({ path: ".env.local" });
+
+const client = createClient({
+  url: process.env.TURSO_DB_URL!,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
+
+async function main() {
+  const sqlPath = resolve(__dirname, "../drizzle/0002_fast_wildside.sql");
+  const sql = readFileSync(sqlPath, "utf-8");
+
+  const statements = sql
+    .split("--> statement-breakpoint")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  for (const stmt of statements) {
+    try {
+      await client.execute(stmt);
+      console.log(`✓ ${stmt.slice(0, 80)}...`);
+    } catch (err: any) {
+      if (err.message?.includes("duplicate column")) {
+        console.log(`- Skipped (already exists): ${stmt.slice(0, 80)}...`);
+      } else {
+        console.error(`✗ Error: ${err.message}`);
+      }
+    }
+  }
+
+  console.log("Migration 0002 done!");
+  process.exit(0);
+}
+
+main();
 </file>
 
 <file path="scripts/migrate.ts">
@@ -4444,301 +5826,6 @@ export default function ClientiPage() {
 }
 </file>
 
-<file path="app/(dashboard)/impostazioni/page.tsx">
-"use client";
-
-import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/ui/use-toast";
-import { Loader2, Save, Eye, EyeOff, Server } from "lucide-react";
-
-type Tab = "generali" | "imap";
-
-type ImapFormData = {
-  host: string;
-  port: string;
-  user: string;
-  password: string;
-  filterFrom: string;
-  filterSubject: string;
-};
-
-export default function ImpostazioniPage() {
-  const [activeTab, setActiveTab] = useState<Tab>("generali");
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const { toast } = useToast();
-
-  // Stato del form IMAP
-  const [form, setForm] = useState<ImapFormData>({
-    host: "",
-    port: "993",
-    user: "",
-    password: "",
-    filterFrom: "",
-    filterSubject: "",
-  });
-
-  // Carica impostazioni esistenti
-  useEffect(() => {
-    if (activeTab !== "imap") return;
-    setLoading(true);
-    fetch("/api/imap-settings")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.settings) {
-          setForm({
-            host: data.settings.host || "",
-            port: data.settings.port || "993",
-            user: data.settings.user || "",
-            password: data.settings.password || "",
-            filterFrom: data.settings.filterFrom || "",
-            filterSubject: data.settings.filterSubject || "",
-          });
-        }
-      })
-      .catch(() => {
-        toast({
-          title: "Errore",
-          description: "Impossibile caricare le impostazioni IMAP.",
-          variant: "destructive",
-        });
-      })
-      .finally(() => setLoading(false));
-  }, [activeTab, toast]);
-
-  const handleChange = (field: keyof ImapFormData, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      const res = await fetch("/api/imap-settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Errore durante il salvataggio");
-      }
-
-      toast({
-        title: "Salvato",
-        description: "Impostazioni IMAP salvate con successo.",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Errore",
-        description: error.message || "Errore durante il salvataggio.",
-        variant: "destructive",
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const tabs: { id: Tab; label: string }[] = [
-    { id: "generali", label: "Generali" },
-    { id: "imap", label: "IMAP Email" },
-  ];
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Impostazioni</h2>
-        <p className="text-muted-foreground">
-          Configurazione del sistema CRM
-        </p>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-1 border-b">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-              activeTab === tab.id
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab: Generali */}
-      {activeTab === "generali" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Impostazioni Generali</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Le impostazioni di configurazione saranno disponibili in una
-              versione futura.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Tab: IMAP Email */}
-      {activeTab === "imap" && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Server className="h-5 w-5 text-muted-foreground" />
-              <CardTitle>Configurazione IMAP</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleSave();
-                }}
-                className="space-y-4"
-              >
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {/* Host */}
-                  <div className="space-y-2">
-                    <Label htmlFor="host">Host IMAP</Label>
-                    <Input
-                      id="host"
-                      placeholder="imaps.aruba.it"
-                      value={form.host}
-                      onChange={(e) => handleChange("host", e.target.value)}
-                      required
-                    />
-                  </div>
-
-                  {/* Port */}
-                  <div className="space-y-2">
-                    <Label htmlFor="port">Porta</Label>
-                    <Input
-                      id="port"
-                      placeholder="993"
-                      value={form.port}
-                      onChange={(e) => handleChange("port", e.target.value)}
-                      required
-                    />
-                  </div>
-
-                  {/* User */}
-                  <div className="space-y-2">
-                    <Label htmlFor="user">Utente</Label>
-                    <Input
-                      id="user"
-                      placeholder="services@easyasso.cloud"
-                      value={form.user}
-                      onChange={(e) => handleChange("user", e.target.value)}
-                      required
-                    />
-                  </div>
-
-                  {/* Password */}
-                  <div className="space-y-2">
-                    <Label htmlFor="password">Password</Label>
-                    <div className="relative">
-                      <Input
-                        id="password"
-                        type={showPassword ? "text" : "password"}
-                        placeholder="••••••••"
-                        value={form.password}
-                        onChange={(e) =>
-                          handleChange("password", e.target.value)
-                        }
-                        required
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword((v) => !v)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      >
-                        {showPassword ? (
-                          <EyeOff className="h-4 w-4" />
-                        ) : (
-                          <Eye className="h-4 w-4" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Filter From */}
-                  <div className="space-y-2">
-                    <Label htmlFor="filterFrom">
-                      Filtra mittente (opzionale)
-                    </Label>
-                    <Input
-                      id="filterFrom"
-                      placeholder="e-ross1971@live.it"
-                      value={form.filterFrom}
-                      onChange={(e) =>
-                        handleChange("filterFrom", e.target.value)
-                      }
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Solo email da questo mittente.
-                    </p>
-                  </div>
-
-                  {/* Filter Subject */}
-                  <div className="space-y-2">
-                    <Label htmlFor="filterSubject">
-                      Filtra oggetto (opzionale)
-                    </Label>
-                    <Input
-                      id="filterSubject"
-                      placeholder="parola chiave nell'oggetto"
-                      value={form.filterSubject}
-                      onChange={(e) =>
-                        handleChange("filterSubject", e.target.value)
-                      }
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Solo email con questa parola nell'oggetto.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-2">
-                  <Button type="submit" disabled={saving}>
-                    {saving ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Salvataggio...
-                      </>
-                    ) : (
-                      <>
-                        <Save className="mr-2 h-4 w-4" />
-                        Salva impostazioni
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </form>
-            )}
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
-}
-</file>
-
 <file path="app/(dashboard)/layout.tsx">
 "use client";
 
@@ -4894,105 +5981,6 @@ export async function GET(_request: NextRequest) {
       {
         error: `Errore durante la sincronizzazione IMAP: ${error.message || "Errore sconosciuto"}`,
       },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
-<file path="app/api/imap-settings/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { imapSettings } from "@/lib/schema";
-import { encrypt, decrypt } from "@/lib/crypto";
-import { eq } from "drizzle-orm";
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-/** GET: recupera le impostazioni IMAP (decriptate) */
-export async function GET() {
-  try {
-    const rows = await db.select().from(imapSettings).limit(1);
-    if (rows.length === 0) {
-      return NextResponse.json({ settings: null });
-    }
-
-    const row = rows[0];
-    const settings = {
-      id: row.id,
-      host: decrypt(row.host),
-      port: decrypt(row.port),
-      user: decrypt(row.user),
-      password: decrypt(row.password),
-      filterFrom: decrypt(row.filterFrom),
-      filterSubject: decrypt(row.filterSubject),
-    };
-
-    return NextResponse.json({ settings });
-  } catch (error: any) {
-    console.error("Errore lettura impostazioni IMAP:", error);
-    return NextResponse.json(
-      { error: `Errore: ${error.message || "Errore sconosciuto"}` },
-      { status: 500 }
-    );
-  }
-}
-
-/** PUT: salva (upsert) le impostazioni IMAP (criptate) */
-export async function PUT(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { host, port, user, password, filterFrom, filterSubject } = body;
-
-    if (!host || !port || !user || !password) {
-      return NextResponse.json(
-        { error: "I campi host, port, user e password sono obbligatori" },
-        { status: 400 }
-      );
-    }
-
-    const encrypted = {
-      host: encrypt(host),
-      port: encrypt(port),
-      user: encrypt(user),
-      password: encrypt(password),
-      filterFrom: encrypt(filterFrom || ""),
-      filterSubject: encrypt(filterSubject || ""),
-    };
-
-    // Upsert: verifica se esiste già una riga
-    const existing = await db.select().from(imapSettings).limit(1);
-
-    if (existing.length > 0) {
-      await db
-        .update(imapSettings)
-        .set({
-          host: encrypted.host,
-          port: encrypted.port,
-          user: encrypted.user,
-          password: encrypted.password,
-          filterFrom: encrypted.filterFrom,
-          filterSubject: encrypted.filterSubject,
-          updatedAt: new Date(),
-        })
-        .where(eq(imapSettings.id, existing[0].id));
-    } else {
-      await db.insert(imapSettings).values({
-        host: encrypted.host,
-        port: encrypted.port,
-        user: encrypted.user,
-        password: encrypted.password,
-        filterFrom: encrypted.filterFrom,
-        filterSubject: encrypted.filterSubject,
-      });
-    }
-
-    return NextResponse.json({ success: true });
-  } catch (error: any) {
-    console.error("Errore salvataggio impostazioni IMAP:", error);
-    return NextResponse.json(
-      { error: `Errore: ${error.message || "Errore sconosciuto"}` },
       { status: 500 }
     );
   }
@@ -5275,147 +6263,6 @@ export async function DELETE(
 }
 </file>
 
-<file path="app/api/tasks/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { tasks, clients } from "@/lib/schema";
-import { taskSchema } from "@/types";
-import { eq, desc, and, lte, gte, or, sql } from "drizzle-orm";
-import { getAuthUser } from "@/lib/auth";
-
-export async function GET(request: NextRequest) {
-  try {
-    const authUser = await getAuthUser();
-    if (!authUser) {
-      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
-    }
-
-    const { searchParams } = new URL(request.url);
-    const status = searchParams.get("status") || "";
-    const clientId = searchParams.get("clientId") || "";
-    const upcomingDays = parseInt(searchParams.get("upcomingDays") || "7");
-
-    const conditions = [];
-
-    if (status) {
-      conditions.push(eq(tasks.status, status as any));
-    }
-
-    if (clientId) {
-      conditions.push(eq(tasks.clientId, clientId));
-    }
-
-    // Filtra per user_id se non admin: vede i non assegnati + i propri
-    if (authUser.role !== "admin") {
-      conditions.push(
-        or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`)
-      );
-    }
-
-    // Default: show overdue or due within upcomingDays
-    const now = new Date();
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + upcomingDays);
-
-    if (!status && !clientId) {
-      conditions.push(
-        or(
-          and(
-            lte(tasks.dueDate, futureDate),
-            sql`${tasks.status} IN ('todo', 'in_progress')`
-          ),
-          eq(tasks.status, "todo"),
-          eq(tasks.status, "in_progress")
-        )
-      );
-    }
-
-    const data = await db
-      .select({
-        id: tasks.id,
-        title: tasks.title,
-        description: tasks.description,
-        dueDate: tasks.dueDate,
-        status: tasks.status,
-        priority: tasks.priority,
-        completedAt: tasks.completedAt,
-        clientId: tasks.clientId,
-        createdAt: tasks.createdAt,
-        updatedAt: tasks.updatedAt,
-        clientName: clients.name,
-      })
-      .from(tasks)
-      .leftJoin(clients, eq(tasks.clientId, clients.id))
-      .where(
-        conditions.length > 0 ? and(...conditions) : undefined
-      )
-      .orderBy(desc(tasks.priority), desc(tasks.dueDate));
-
-    return NextResponse.json(data);
-  } catch (error) {
-    console.error("Error fetching tasks:", error);
-    return NextResponse.json(
-      { error: "Errore nel caricamento dei task" },
-      { status: 500 }
-    );
-  }
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const authUser = await getAuthUser();
-    if (!authUser) {
-      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
-    }
-
-    const body = await request.json();
-    const parsed = taskSchema.parse(body);
-
-    // Auto-assign: se utente non-admin e cliente senza userId, assegna a lui
-    if (authUser.role !== "admin" && body.clientId) {
-      const [client] = await db
-        .select({ userId: clients.userId })
-        .from(clients)
-        .where(eq(clients.id, body.clientId))
-        .limit(1);
-
-      if (client && !client.userId) {
-        await db
-          .update(clients)
-          .set({ userId: authUser.id, updatedAt: new Date() })
-          .where(eq(clients.id, body.clientId));
-      }
-    }
-
-    const [task] = await db
-      .insert(tasks)
-      .values({
-        clientId: body.clientId,
-        title: parsed.title,
-        description: parsed.description || null,
-        dueDate: parsed.dueDate ? new Date(parsed.dueDate) : null,
-        status: parsed.status,
-        priority: parsed.priority,
-      })
-      .returning();
-
-    return NextResponse.json(task, { status: 201 });
-  } catch (error: any) {
-    if (error?.issues) {
-      return NextResponse.json(
-        { error: "Dati non validi", details: error.issues },
-        { status: 400 }
-      );
-    }
-    console.error("Error creating task:", error);
-    return NextResponse.json(
-      { error: "Errore nella creazione del task" },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
 <file path="components/status-badge.tsx">
 import { Badge } from "@/components/ui/badge";
 import type { ClientStatus } from "@/types";
@@ -5622,6 +6469,52 @@ export async function processContactRequest(data: ContactRequest): Promise<strin
 }
 </file>
 
+<file path="lib/utils.ts">
+import { type ClassValue, clsx } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+export function formatDate(date: Date | number | null | undefined): string {
+  if (!date) return "—";
+  const d = new Date(date);
+  return d.toLocaleDateString("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+export function formatDateTime(date: Date | number | null | undefined): string {
+  if (!date) return "—";
+  const d = new Date(date);
+  return d.toLocaleDateString("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export function isOverdue(date: Date | number | null | undefined): boolean {
+  if (!date) return false;
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  return new Date(date) < startOfToday;
+}
+
+export function daysUntil(date: Date | number | null | undefined): number {
+  if (!date) return Infinity;
+  const now = new Date();
+  const target = new Date(date);
+  const diff = target.getTime() - now.getTime();
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
+</file>
+
 <file path="scripts/seed-admin.ts">
 import { createClient } from "@libsql/client";
 import { config } from "dotenv";
@@ -5735,6 +6628,12 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { StatusBadge } from "@/components/status-badge";
 import { PriorityBadge } from "@/components/priority-badge";
 import { useToast } from "@/components/ui/use-toast";
@@ -5743,11 +6642,13 @@ import {
   clientStatuses,
   noteSchema,
   taskSchema,
+  emailSchema,
   allowedTransitions,
   requiresNoteForTransition,
   type ClientStatus,
   type NoteType,
   type Priority,
+  type EmailStatus,
 } from "@/types";
 import { formatDate, formatDateTime, isOverdue } from "@/lib/utils";
 import {
@@ -5757,9 +6658,19 @@ import {
   Trash2,
   CheckCircle2,
   Circle,
+  Send,
+  Mail,
+  MailCheck,
+  MailX,
+  Clock,
+  FileText,
+  CheckCircle,
+  ListChecks,
+  Info,
+  CheckSquare,
 } from "lucide-react";
 
-type Tab = "dettagli" | "note" | "task";
+type Tab = "azioni" | "dettagli" | "note" | "task" | "email";
 
 interface Client {
   id: string;
@@ -5778,6 +6689,17 @@ interface User {
   id: string;
   name: string;
   email: string;
+}
+
+interface EmailLog {
+  id: string;
+  clientId: string;
+  subject: string;
+  body: string;
+  sender: string;
+  sentAt: number;
+  status: EmailStatus;
+  createdAt: number;
 }
 
 interface Note {
@@ -5811,7 +6733,7 @@ export default function ClientDetailPage() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<Tab>("dettagli");
+  const [activeTab, setActiveTab] = useState<Tab>("azioni");
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [editNote, setEditNote] = useState<Note | null>(null);
@@ -5823,8 +6745,16 @@ export default function ClientDetailPage() {
   // Form state for edit
   const [editForm, setEditForm] = useState({ name: "", email: "", phone: "", company: "", notes: "" });
 
+  // Email
+  const [emails, setEmails] = useState<EmailLog[]>([]);
+  const [defaultSender, setDefaultSender] = useState("");
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [emailForm, setEmailForm] = useState({ subject: "", body: "", sender: "" });
+  const [emailErrors, setEmailErrors] = useState<Record<string, string>>({});
+  const [sendingEmail, setSendingEmail] = useState(false);
+
   // Current user & admin user list
-  const [currentUser, setCurrentUser] = useState<{ id: string; role: string } | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ id: string; email: string; name: string; role: string } | null>(null);
   const [users, setUsers] = useState<User[]>([]);
 
   // Note form
@@ -5863,16 +6793,30 @@ export default function ClientDetailPage() {
     try {
       const res = await fetch(`/api/note?clientId=${params.id}&days=365`);
       const data = await res.json();
-      setNotes(data);
-    } catch {}
+      setNotes(Array.isArray(data) ? data : []);
+    } catch {
+      setNotes([]);
+    }
   }, [params.id]);
 
   const fetchTasks = useCallback(async () => {
     try {
       const res = await fetch(`/api/tasks?clientId=${params.id}`);
       const data = await res.json();
-      setTasks(data);
-    } catch {}
+      setTasks(Array.isArray(data) ? data : []);
+    } catch {
+      setTasks([]);
+    }
+  }, [params.id]);
+
+  const fetchEmails = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/email/send?clientId=${params.id}`);
+      const data = await res.json();
+      setEmails(Array.isArray(data) ? data : []);
+    } catch {
+      setEmails([]);
+    }
   }, [params.id]);
 
   useEffect(() => {
@@ -5893,10 +6837,20 @@ export default function ClientDetailPage() {
       })
       .catch(() => {});
 
-    Promise.all([fetchClient(), fetchNotes(), fetchTasks()]).finally(() =>
+    // Carica mittente predefinito dalle impostazioni SMTP
+    fetch("/api/imap-settings")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.settings?.user) {
+          setDefaultSender(data.settings.user);
+        }
+      })
+      .catch(() => {});
+
+    Promise.all([fetchClient(), fetchNotes(), fetchTasks(), fetchEmails()]).finally(() =>
       setLoading(false)
     );
-  }, [fetchClient, fetchNotes, fetchTasks]);
+  }, [fetchClient, fetchNotes, fetchTasks, fetchEmails]);
 
   // ── Status transition ──
   const handleStatusChange = async (newStatus: ClientStatus) => {
@@ -6064,6 +7018,58 @@ export default function ClientDetailPage() {
     }
   };
 
+  // ── Email ──
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEmailErrors({});
+
+    const result = emailSchema.safeParse(emailForm);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((i) => {
+        if (i.path[0]) errors[String(i.path[0])] = i.message;
+      });
+      setEmailErrors(errors);
+      return;
+    }
+
+    setSendingEmail(true);
+    try {
+      const res = await fetch("/api/email/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...result.data, clientId: params.id }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        toast({
+          title: "Errore",
+          description: data.error || "Invio fallito",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: data.status === "sent" ? "Email inviata" : "Invio fallito",
+        description:
+          data.status === "sent"
+            ? "L'email è stata inviata con successo"
+            : "Errore nell'invio dell'email. Verifica la configurazione SMTP.",
+        variant: data.status === "sent" ? ("success" as any) : "destructive",
+      });
+      setEmailModalOpen(false);
+      setEmailForm({ subject: "", body: "", sender: "" });
+      fetchEmails();
+    } catch {
+      toast({ title: "Errore", description: "Invio email fallito", variant: "destructive" });
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
   const handleDeleteTask = async (id: string) => {
     try {
       await fetch(`/api/tasks/${id}`, { method: "DELETE" });
@@ -6110,10 +7116,33 @@ export default function ClientDetailPage() {
   );
   const completedTasks = tasks.filter((t) => t.status === "completed");
 
-  const tabs: { key: Tab; label: string }[] = [
-    { key: "dettagli", label: "Dettagli" },
-    { key: "note", label: `Note (${notes.length})` },
-    { key: "task", label: `Task (${tasks.length})` },
+  // Timeline: unisce note, task, email ordinati per data decrescente
+  const mergedTimeline = (() => {
+    const items: {
+      id: string;
+      type: "note" | "task" | "email";
+      date: number;
+      data: Note | Task | EmailLog;
+    }[] = [];
+
+    const safeNotes = Array.isArray(notes) ? notes : [];
+    const safeTasks = Array.isArray(tasks) ? tasks : [];
+    const safeEmails = Array.isArray(emails) ? emails : [];
+
+    safeNotes.forEach((n) => items.push({ id: n.id, type: "note", date: new Date(n.createdAt).getTime(), data: n }));
+    safeTasks.forEach((t) => items.push({ id: t.id, type: "task", date: new Date(t.createdAt).getTime(), data: t }));
+    safeEmails.forEach((e) => items.push({ id: e.id, type: "email", date: new Date(e.sentAt).getTime(), data: e }));
+
+    items.sort((a, b) => b.date - a.date);
+    return items;
+  })();
+
+  const tabs: { key: Tab; label: string; icon?: React.ReactNode }[] = [
+    { key: "azioni", label: `Azioni (${mergedTimeline.length})`, icon: <ListChecks className="h-4 w-4" /> },
+    { key: "dettagli", label: "Dettagli", icon: <Info className="h-4 w-4" /> },
+    { key: "note", label: `Note (${notes.length})`, icon: <FileText className="h-4 w-4" /> },
+    { key: "task", label: `Task (${tasks.length})`, icon: <CheckSquare className="h-4 w-4" /> },
+    { key: "email", label: `Email (${emails.length})`, icon: <Mail className="h-4 w-4" /> },
   ];
 
   return (
@@ -6146,10 +7175,185 @@ export default function ClientDetailPage() {
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
-            {tab.label}
+            <span className="flex items-center gap-1.5">
+              {tab.icon}
+              {tab.label}
+            </span>
           </button>
         ))}
       </div>
+
+      {/* ── TAB: Azioni (timeline) ── */}
+      {activeTab === "azioni" && (
+        <div className="space-y-4">
+          {/* Intestazione + pulsanti */}
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Azioni</h3>
+            <TooltipProvider delayDuration={300}>
+              <div className="flex items-center gap-1">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        setEditNote(null);
+                        setNoteForm({ content: "", type: "conversazione", author: "Utente" });
+                        setNoteModalOpen(true);
+                        setActiveTab("note");
+                      }}
+                    >
+                      <FileText className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Nuova nota</TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        setEditTask(null);
+                        setTaskForm({ title: "", description: "", dueDate: "", priority: "medium" });
+                        setTaskModalOpen(true);
+                        setActiveTab("task");
+                      }}
+                    >
+                      <CheckSquare className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Nuovo task</TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        setEmailForm({ subject: "", body: "", sender: defaultSender });
+                        setEmailModalOpen(true);
+                        setActiveTab("email");
+                      }}
+                    >
+                      <Mail className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Nuova email</TooltipContent>
+                </Tooltip>
+              </div>
+            </TooltipProvider>
+          </div>
+
+          {/* Timeline */}
+          {mergedTimeline.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">
+              Nessuna attività recente
+            </p>
+          ) : (
+            <div className="relative space-y-0">
+              {/* Linea verticale */}
+              <div className="absolute left-[19px] top-3 bottom-3 w-px bg-border" />
+
+              {mergedTimeline.map((item, idx) => (
+                <div key={`${item.type}-${item.id}`} className="relative flex gap-4 pb-5">
+                  {/* Pallino */}
+                  <div className="relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border bg-background">
+                    {item.type === "note" && (
+                      <FileText className="h-4 w-4 text-blue-500" />
+                    )}
+                    {item.type === "task" && (
+                      <CheckCircle className="h-4 w-4 text-amber-500" />
+                    )}
+                    {item.type === "email" && (
+                      <Mail className="h-4 w-4 text-green-500" />
+                    )}
+                  </div>
+
+                  {/* Contenuto */}
+                  <div className="flex-1 min-w-0 pt-1.5">
+                    {item.type === "note" && (() => {
+                      const note = item.data as Note;
+                      return (
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
+                              Nota
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {note.author}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {formatDateTime(note.createdAt)}
+                            </span>
+                          </div>
+                          <p className="text-sm whitespace-pre-wrap">{note.content}</p>
+                        </div>
+                      );
+                    })()}
+
+                    {item.type === "task" && (() => {
+                      const task = item.data as Task;
+                      return (
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
+                              Task
+                            </span>
+                            <PriorityBadge priority={task.priority} />
+                            <span className="text-xs text-muted-foreground">
+                              {formatDateTime(task.createdAt)}
+                            </span>
+                          </div>
+                          <p className="text-sm font-medium">{task.title}</p>
+                          {task.description && (
+                            <p className="text-sm text-muted-foreground mt-0.5">{task.description}</p>
+                          )}
+                          {task.dueDate && (
+                            <p className={`text-xs mt-0.5 ${isOverdue(task.dueDate) ? "text-destructive" : "text-muted-foreground"}`}>
+                              Scadenza: {formatDate(task.dueDate)}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {item.type === "email" && (() => {
+                      const email = item.data as EmailLog;
+                      return (
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-semibold text-green-600 dark:text-green-400 uppercase tracking-wider">
+                              Email
+                            </span>
+                            <span className={`text-xs px-1 py-0.5 rounded-full ${
+                              email.status === "sent"
+                                ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
+                                : email.status === "failed"
+                                ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
+                                : "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+                            }`}>
+                              {email.status === "sent" ? "Inviata" : email.status === "failed" ? "Fallita" : "In coda"}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {formatDateTime(email.sentAt)}
+                            </span>
+                          </div>
+                          <p className="text-sm font-medium">{email.subject}</p>
+                          <p className="text-xs text-muted-foreground">Da: {email.sender}</p>
+                          <p className="text-sm text-muted-foreground mt-0.5 line-clamp-2">{email.body}</p>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── TAB: Dettagli ── */}
       {activeTab === "dettagli" && (
@@ -6583,6 +7787,136 @@ export default function ClientDetailPage() {
         </div>
       )}
 
+      {/* ── TAB: Email ── */}
+      {activeTab === "email" && (
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <Dialog open={emailModalOpen} onOpenChange={setEmailModalOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  onClick={() => {
+                    setEmailForm({
+                      subject: "",
+                      body: "",
+                      sender: defaultSender,
+                    });
+                  }}
+                >
+                  <Send className="mr-2 h-4 w-4" />
+                  Nuova email
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Invia email</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleEmailSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Mittente</Label>
+                    <Input
+                      value={emailForm.sender}
+                      disabled
+                      className="bg-muted"
+                      placeholder="mittente@esempio.com"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Mittente configurato nelle impostazioni email.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Oggetto</Label>
+                    <Input
+                      value={emailForm.subject}
+                      onChange={(e) =>
+                        setEmailForm({ ...emailForm, subject: e.target.value })
+                      }
+                      placeholder="Oggetto dell'email"
+                    />
+                    {emailErrors.subject && (
+                      <p className="text-xs text-destructive">{emailErrors.subject}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Corpo</Label>
+                    <Textarea
+                      value={emailForm.body}
+                      onChange={(e) =>
+                        setEmailForm({ ...emailForm, body: e.target.value })
+                      }
+                      rows={8}
+                      placeholder="Scrivi il contenuto dell'email..."
+                    />
+                    {emailErrors.body && (
+                      <p className="text-xs text-destructive">{emailErrors.body}</p>
+                    )}
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setEmailModalOpen(false)}
+                    >
+                      Annulla
+                    </Button>
+                    <Button type="submit" disabled={sendingEmail}>
+                      {sendingEmail ? "Invio in corso..." : "Invia email"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          {/* Email list */}
+          {emails.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">
+              Nessuna email inviata
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {emails.map((email) => (
+                <Card key={email.id}>
+                  <CardContent className="pt-6">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          {email.status === "sent" ? (
+                            <MailCheck className="h-4 w-4 text-green-500" />
+                          ) : email.status === "failed" ? (
+                            <MailX className="h-4 w-4 text-destructive" />
+                          ) : (
+                            <Clock className="h-4 w-4 text-amber-500" />
+                          )}
+                          <span className="text-sm font-medium truncate">
+                            {email.subject}
+                          </span>
+                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-secondary text-secondary-foreground">
+                            {email.status === "sent"
+                              ? "Inviata"
+                              : email.status === "failed"
+                              ? "Fallita"
+                              : "In coda"}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mb-1">
+                          Da: {email.sender}
+                        </p>
+                        <p className="text-sm whitespace-pre-wrap line-clamp-3">
+                          {email.body}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-2">
+                          {formatDateTime(email.sentAt)}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Transition note dialog */}
       <AlertDialog open={showTransitionDialog} onOpenChange={setShowTransitionDialog}>
         <AlertDialogContent>
@@ -6701,6 +8035,37 @@ function TaskCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+</file>
+
+<file path="app/(dashboard)/impostazioni/page.tsx">
+"use client";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+export default function ImpostazioniPage() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">Impostazioni</h2>
+        <p className="text-muted-foreground">
+          Configurazione del sistema CRM
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Impostazioni Generali</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Le impostazioni di configurazione saranno disponibili in una
+            versione futura.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 </file>
@@ -7197,190 +8562,6 @@ export async function POST(request: NextRequest) {
 }
 </file>
 
-<file path="app/api/dashboard/route.ts">
-import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { clients, tasks } from "@/lib/schema";
-import { eq, sql, lte, desc, and, gte, or } from "drizzle-orm";
-import { getAuthUser } from "@/lib/auth";
-
-const priorityOrder = sql`CASE ${tasks.priority}
-  WHEN 'high' THEN 1
-  WHEN 'medium' THEN 2
-  WHEN 'low' THEN 3
-END`;
-
-export const dynamic = "force-dynamic";
-
-export async function GET() {
-  console.log("[Dashboard API] Chiamata ricevuta");
-  console.log("[Dashboard API] TURSO_DB_URL presente:", !!process.env.TURSO_DB_URL);
-  console.log("[Dashboard API] TURSO_AUTH_TOKEN presente:", !!process.env.TURSO_AUTH_TOKEN);
-
-  try {
-    if (!process.env.TURSO_DB_URL) {
-      console.error("[Dashboard API] TURSO_DB_URL mancante");
-      return NextResponse.json(
-        { error: "Database Turso non configurato. Imposta TURSO_DB_URL e TURSO_AUTH_TOKEN in .env.local" },
-        { status: 500 }
-      );
-    }
-
-    const authUser = await getAuthUser();
-    if (!authUser) {
-      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
-    }
-
-    const now = new Date();
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    const endOfToday = new Date();
-    endOfToday.setHours(23, 59, 59, 999);
-
-    const isAdmin = authUser.role === "admin";
-
-    // Condition per filtrare per user_id se non admin: vede non assegnati + propri
-    const userFilter = isAdmin
-      ? undefined
-      : or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`);
-    const taskUserFilter = isAdmin
-      ? undefined
-      : or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`);
-
-    // Count per status
-    const statusWhere = userFilter ? and(userFilter) : undefined;
-    const statusCounts = await db
-      .select({
-        status: clients.status,
-        count: sql<number>`count(*)`,
-      })
-      .from(clients)
-      .where(statusWhere)
-      .groupBy(clients.status);
-
-    const statusMap: Record<string, number> = {
-      lead: 0,
-      suspect: 0,
-      won: 0,
-      closed_lost: 0,
-    };
-    statusCounts.forEach((s) => {
-      statusMap[s.status] = Number(s.count);
-    });
-
-    // Overdue tasks banner count
-    const overdueWhere = taskUserFilter
-      ? and(lte(tasks.dueDate, now), sql`${tasks.status} IN ('todo', 'in_progress')`, taskUserFilter)
-      : and(lte(tasks.dueDate, now), sql`${tasks.status} IN ('todo', 'in_progress')`);
-
-    const overdueCount = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(tasks)
-      .leftJoin(clients, eq(tasks.clientId, clients.id))
-      .where(overdueWhere);
-
-    // Top 10 overdue tasks (due before today, not completed), ordered by priority
-    const overdueWhere2 = taskUserFilter
-      ? and(lte(tasks.dueDate, startOfToday), sql`${tasks.status} IN ('todo', 'in_progress')`, taskUserFilter)
-      : and(lte(tasks.dueDate, startOfToday), sql`${tasks.status} IN ('todo', 'in_progress')`);
-
-    const overdueTodayTasks = await db
-      .select({
-        id: tasks.id,
-        title: tasks.title,
-        priority: tasks.priority,
-        dueDate: tasks.dueDate,
-        clientId: tasks.clientId,
-        clientName: clients.name,
-        clientPhone: clients.phone,
-      })
-      .from(tasks)
-      .leftJoin(clients, eq(tasks.clientId, clients.id))
-      .where(overdueWhere2)
-      .orderBy(priorityOrder, desc(tasks.dueDate))
-      .limit(10);
-
-    // Top 10 tasks due today (not yet overdue), ordered by priority
-    const dueTodayWhere = taskUserFilter
-      ? and(
-          gte(tasks.dueDate, startOfToday),
-          lte(tasks.dueDate, endOfToday),
-          sql`${tasks.status} IN ('todo', 'in_progress')`,
-          taskUserFilter
-        )
-      : and(
-          gte(tasks.dueDate, startOfToday),
-          lte(tasks.dueDate, endOfToday),
-          sql`${tasks.status} IN ('todo', 'in_progress')`
-        );
-
-    const dueTodayTasks = await db
-      .select({
-        id: tasks.id,
-        title: tasks.title,
-        priority: tasks.priority,
-        dueDate: tasks.dueDate,
-        clientId: tasks.clientId,
-        clientName: clients.name,
-        clientPhone: clients.phone,
-      })
-      .from(tasks)
-      .leftJoin(clients, eq(tasks.clientId, clients.id))
-      .where(dueTodayWhere)
-      .orderBy(priorityOrder, desc(tasks.dueDate))
-      .limit(10);
-
-    // Trend: clients created in last 7 days
-    const trendData = [];
-    for (let i = 6; i >= 0; i--) {
-      const day = new Date();
-      day.setDate(day.getDate() - i);
-      const dayStart = new Date(day);
-      dayStart.setHours(0, 0, 0, 0);
-      const dayEnd = new Date(day);
-      dayEnd.setHours(23, 59, 59, 999);
-
-      const trendWhere = userFilter
-        ? and(gte(clients.createdAt, dayStart), lte(clients.createdAt, dayEnd), userFilter)
-        : and(gte(clients.createdAt, dayStart), lte(clients.createdAt, dayEnd));
-
-      const [countResult] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(clients)
-        .where(trendWhere);
-
-      trendData.push({
-        date: day.toLocaleDateString("it-IT", {
-          day: "2-digit",
-          month: "2-digit",
-        }),
-        count: Number(countResult?.count || 0),
-      });
-    }
-
-    return NextResponse.json({
-      statusCounts: statusMap,
-      overdueCount: Number(overdueCount[0]?.count || 0),
-      overdueTasks: overdueTodayTasks.map((t) => ({
-        ...t,
-        dueDate: t.dueDate ? t.dueDate.getTime() : null,
-      })),
-      dueTodayTasks: dueTodayTasks.map((t) => ({
-        ...t,
-        dueDate: t.dueDate ? t.dueDate.getTime() : null,
-      })),
-      trendData,
-    });
-  } catch (error) {
-    console.error("Error fetching dashboard data:", error);
-    return NextResponse.json(
-      { error: "Errore nel caricamento della dashboard" },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
 <file path="app/api/email/test/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import { ImapFlow } from "imapflow";
@@ -7529,6 +8710,243 @@ export async function GET(_request: NextRequest) {
 }
 </file>
 
+<file path="app/api/imap-settings/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { imapSettings } from "@/lib/schema";
+import { encrypt, decrypt } from "@/lib/crypto";
+import { eq } from "drizzle-orm";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/** GET: recupera le impostazioni IMAP/SMTP (decriptate) */
+export async function GET() {
+  try {
+    const rows = await db.select().from(imapSettings).limit(1);
+    if (rows.length === 0) {
+      return NextResponse.json({ settings: null });
+    }
+
+    const row = rows[0];
+    const settings = {
+      id: row.id,
+      imapHost: decrypt(row.imapHost),
+      imapPort: decrypt(row.imapPort),
+      user: decrypt(row.user),
+      password: decrypt(row.password),
+      filterFrom: decrypt(row.filterFrom),
+      filterSubject: decrypt(row.filterSubject),
+      smtpHost: row.smtpHost ? decrypt(row.smtpHost) : null,
+      smtpPort: row.smtpPort ? decrypt(row.smtpPort) : null,
+      smtpSecure: row.smtpSecure ?? false,
+    };
+
+    return NextResponse.json({ settings });
+  } catch (error: any) {
+    console.error("Errore lettura impostazioni IMAP:", error);
+    return NextResponse.json(
+      { error: `Errore: ${error.message || "Errore sconosciuto"}` },
+      { status: 500 }
+    );
+  }
+}
+
+/** PUT: salva (upsert) le impostazioni IMAP/SMTP (criptate) */
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { imapHost, imapPort, user, password, filterFrom, filterSubject, smtpHost, smtpPort, smtpSecure } = body;
+
+    if (!imapHost || !imapPort || !user || !password) {
+      return NextResponse.json(
+        { error: "I campi imapHost, imapPort, user e password sono obbligatori" },
+        { status: 400 }
+      );
+    }
+
+    const encrypted = {
+      imapHost: encrypt(imapHost),
+      imapPort: encrypt(imapPort),
+      user: encrypt(user),
+      password: encrypt(password),
+      filterFrom: encrypt(filterFrom || ""),
+      filterSubject: encrypt(filterSubject || ""),
+      smtpHost: smtpHost ? encrypt(smtpHost) : null,
+      smtpPort: smtpPort ? encrypt(smtpPort) : null,
+      smtpSecure: smtpSecure ?? false,
+    };
+
+    // Upsert: verifica se esiste già una riga
+    const existing = await db.select().from(imapSettings).limit(1);
+
+    if (existing.length > 0) {
+      await db
+        .update(imapSettings)
+        .set({ ...encrypted, updatedAt: new Date() })
+        .where(eq(imapSettings.id, existing[0].id));
+    } else {
+      await db.insert(imapSettings).values({
+        ...encrypted,
+        id: "default",
+      });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error("Errore salvataggio impostazioni IMAP:", error);
+    return NextResponse.json(
+      { error: `Errore: ${error.message || "Errore sconosciuto"}` },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/tasks/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { tasks, clients } from "@/lib/schema";
+import { taskSchema } from "@/types";
+import { eq, desc, and, lte, gte, or, sql } from "drizzle-orm";
+import { getAuthUser } from "@/lib/auth";
+
+export async function GET(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const status = searchParams.get("status") || "";
+    const clientId = searchParams.get("clientId") || "";
+    const upcomingDays = parseInt(searchParams.get("upcomingDays") || "7");
+
+    const conditions = [];
+
+    if (status && status !== "all") {
+      conditions.push(eq(tasks.status, status as any));
+    }
+
+    if (clientId) {
+      conditions.push(eq(tasks.clientId, clientId));
+    }
+
+    // Filtra per user_id se non admin: vede i non assegnati + i propri
+    if (authUser.role !== "admin") {
+      conditions.push(
+        or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`)
+      );
+    }
+
+    // Default: filtra solo todo/in_progress se nessun filtro status specificato
+    const now = new Date();
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + upcomingDays);
+
+    if (!status && !clientId) {
+      conditions.push(
+        or(
+          and(
+            lte(tasks.dueDate, futureDate),
+            sql`${tasks.status} IN ('todo', 'in_progress')`
+          ),
+          eq(tasks.status, "todo"),
+          eq(tasks.status, "in_progress")
+        )
+      );
+    }
+
+    const data = await db
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        description: tasks.description,
+        dueDate: tasks.dueDate,
+        status: tasks.status,
+        priority: tasks.priority,
+        completedAt: tasks.completedAt,
+        clientId: tasks.clientId,
+        createdAt: tasks.createdAt,
+        updatedAt: tasks.updatedAt,
+        clientName: clients.name,
+        clientEmail: clients.email,
+        clientPhone: clients.phone,
+        clientCompany: clients.company,
+      })
+      .from(tasks)
+      .leftJoin(clients, eq(tasks.clientId, clients.id))
+      .where(
+        conditions.length > 0 ? and(...conditions) : undefined
+      )
+      .orderBy(desc(tasks.priority), desc(tasks.dueDate));
+
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error("Error fetching tasks:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento dei task" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const parsed = taskSchema.parse(body);
+
+    // Auto-assign: se utente non-admin e cliente senza userId, assegna a lui
+    if (authUser.role !== "admin" && body.clientId) {
+      const [client] = await db
+        .select({ userId: clients.userId })
+        .from(clients)
+        .where(eq(clients.id, body.clientId))
+        .limit(1);
+
+      if (client && !client.userId) {
+        await db
+          .update(clients)
+          .set({ userId: authUser.id, updatedAt: new Date() })
+          .where(eq(clients.id, body.clientId));
+      }
+    }
+
+    const [task] = await db
+      .insert(tasks)
+      .values({
+        clientId: body.clientId,
+        title: parsed.title,
+        description: parsed.description || null,
+        dueDate: parsed.dueDate ? new Date(parsed.dueDate) : null,
+        status: parsed.status,
+        priority: parsed.priority,
+      })
+      .returning();
+
+    return NextResponse.json(task, { status: 201 });
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error creating task:", error);
+    return NextResponse.json(
+      { error: "Errore nella creazione del task" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
 <file path="types/index.ts">
 import { z } from "zod";
 
@@ -7602,6 +9020,18 @@ export const taskSchema = z.object({
 });
 
 export type TaskFormData = z.infer<typeof taskSchema>;
+
+// ── Email Log ──
+export const emailStatuses = ["sent", "pending", "failed"] as const;
+export type EmailStatus = (typeof emailStatuses)[number];
+
+export const emailSchema = z.object({
+  subject: z.string().min(1, "L'oggetto è obbligatorio"),
+  body: z.string().min(1, "Il corpo è obbligatorio"),
+  sender: z.string().email("Email mittente non valida"),
+});
+
+export type EmailFormData = z.infer<typeof emailSchema>;
 
 // ── Transizioni status ──
 export const allowedTransitions: Record<ClientStatus, ClientStatus[]> = {
@@ -7902,6 +9332,674 @@ export default function DashboardPage() {
 }
 </file>
 
+<file path="app/(dashboard)/task-calendar/page.tsx">
+"use client";
+
+import { useEffect, useState, useCallback, useMemo } from "react";
+import {
+  DragDropContext,
+  Droppable,
+  Draggable,
+  type DropResult,
+} from "@hello-pangea/dnd";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useToast } from "@/components/ui/use-toast";
+import { isOverdue } from "@/lib/utils";
+import {
+  CheckCircle2,
+  Circle,
+  Phone,
+  Building2,
+  User,
+  Calendar,
+  List,
+  Mail,
+  FileText,
+} from "lucide-react";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
+import type { Priority } from "@/types";
+
+interface TaskItem {
+  id: string;
+  title: string;
+  description: string | null;
+  dueDate: number | null;
+  status: string;
+  priority: Priority;
+  completedAt: number | null;
+  clientId: string;
+  clientName: string | null;
+  clientEmail?: string | null;
+  clientPhone?: string | null;
+  clientCompany?: string | null;
+}
+
+const DAY_OPTIONS = [7, 15, 30, 60, 90] as const;
+
+const STATUS_LABELS: Record<string, string> = {
+  todo: "Da fare",
+  in_progress: "In corso",
+  completed: "Completato",
+  cancelled: "Cancellato",
+};
+
+const DAYS_OF_WEEK = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
+
+export default function TaskCalendarPage() {
+  const { toast } = useToast();
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedDays, setSelectedDays] = useState<number>(30);
+  const [viewMode, setViewMode] = useState<"calendar" | "list">("calendar");
+  const [listFilter, setListFilter] = useState<"today" | "all">("all");
+
+  const fetchTasks = useCallback(async () => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams();
+      params.set("upcomingDays", "365");
+
+      const res = await fetch(`/api/tasks?${params.toString()}`);
+      const data = await res.json();
+      setTasks(data);
+    } catch {
+      toast({
+        title: "Errore",
+        description: "Impossibile caricare i task",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
+
+  // Filtra i task localmente in base ai giorni selezionati (senza ricaricare)
+  const filteredTasks = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() + selectedDays);
+    cutoff.setHours(23, 59, 59, 999);
+    return tasks.filter((t) => !t.dueDate || new Date(t.dueDate) <= cutoff);
+  }, [tasks, selectedDays]);
+
+  // Per la vista lista: filtra ulteriormente per oggi se listFilter === "today"
+  // Helper: data in formato YYYY-MM-DD usando ora locale (evita problemi fuso orario di toISOString)
+  const toLocalDateStr = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+  const listTasks = useMemo(() => {
+    if (listFilter === "all") return filteredTasks;
+    const todayStr = toLocalDateStr(new Date());
+    return filteredTasks.filter((t) => {
+      if (!t.dueDate) return false;
+      return toLocalDateStr(new Date(t.dueDate)) === todayStr;
+    });
+  }, [filteredTasks, listFilter]);
+
+  // Build a map: dateString -> tasks[], sorted with active first, completed/cancelled last
+  const tasksByDate = useMemo(() => {
+    const map: Record<string, TaskItem[]> = {};
+    filteredTasks.forEach((task) => {
+      if (!task.dueDate) return;
+      const dateStr = toLocalDateStr(new Date(task.dueDate));
+      if (!map[dateStr]) map[dateStr] = [];
+      map[dateStr].push(task);
+    });
+    // Sort each day: pending first, completed/cancelled last
+    const order = { todo: 0, in_progress: 1, completed: 2, cancelled: 3 };
+    for (const dateStr of Object.keys(map)) {
+      map[dateStr].sort((a, b) => (order[a.status as keyof typeof order] ?? 0) - (order[b.status as keyof typeof order] ?? 0));
+    }
+    return map;
+  }, [filteredTasks]);
+
+  // Genera griglia di N giorni da oggi, organizzati in settimane (7 colonne)
+  const calendarGrid = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = toLocalDateStr(today);
+
+    const weeks: {
+      day: number;
+      month: number;
+      isToday: boolean;
+      dateStr: string;
+      tasks: TaskItem[];
+    }[][] = [];
+    let week: (typeof weeks)[number] = [];
+
+    // Padding iniziale per allineare al giorno della settimana
+    const startPad = today.getDay();
+    for (let i = 0; i < startPad; i++) {
+      week.push({
+        day: 0,
+        month: 0,
+        isToday: false,
+        dateStr: "",
+        tasks: [],
+      });
+    }
+
+    for (let d = 0; d < selectedDays; d++) {
+      const cellDate = new Date(today);
+      cellDate.setDate(today.getDate() + d);
+      const dateStr = toLocalDateStr(cellDate);
+      const isToday = dateStr === todayStr;
+      const tasksForDay = tasksByDate[dateStr] || [];
+      week.push({
+        day: cellDate.getDate(),
+        month: cellDate.getMonth(),
+        isToday,
+        dateStr,
+        tasks: tasksForDay,
+      });
+
+      if (week.length === 7) {
+        weeks.push(week);
+        week = [];
+      }
+    }
+
+    // Padding finale per completare l'ultima settimana
+    if (week.length > 0) {
+      while (week.length < 7) {
+        week.push({
+          day: 0,
+          month: 0,
+          isToday: false,
+          dateStr: "",
+          tasks: [],
+        });
+      }
+      weeks.push(week);
+    }
+
+    return weeks;
+  }, [selectedDays, filteredTasks]);
+
+  const handleToggle = async (id: string, currentStatus: string) => {
+    const newStatus = currentStatus === "completed" ? "todo" : "completed";
+    const now = newStatus === "completed" ? Date.now() : null;
+    // Optimistic update locale
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === id
+          ? { ...t, status: newStatus, completedAt: now }
+          : t
+      )
+    );
+    try {
+      const res = await fetch(`/api/tasks/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!res.ok) {
+        // Revert on error
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.id === id
+              ? { ...t, status: currentStatus, completedAt: currentStatus === "completed" ? Date.now() : null }
+              : t
+          )
+        );
+        toast({
+          title: "Errore",
+          description: "Aggiornamento fallito",
+          variant: "destructive",
+        });
+      }
+    } catch {
+      // Revert on network error
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === id
+            ? { ...t, status: currentStatus, completedAt: currentStatus === "completed" ? Date.now() : null }
+            : t
+        )
+      );
+      toast({
+        title: "Errore",
+        description: "Aggiornamento fallito",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDragEnd = async (result: DropResult) => {
+    const { draggableId, source, destination } = result;
+
+    if (!destination) return;
+
+    const sourceDateStr = source.droppableId;
+    const destDateStr = destination.droppableId;
+
+    if (sourceDateStr === destDateStr) return;
+
+    // Optimistic update
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === draggableId
+          ? { ...t, dueDate: new Date(destDateStr + "T12:00:00").getTime() }
+          : t
+      )
+    );
+
+    try {
+      const res = await fetch(`/api/tasks/${draggableId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dueDate: destDateStr }),
+      });
+
+      if (!res.ok) {
+        fetchTasks();
+        toast({
+          title: "Errore",
+          description: "Spostamento task fallito",
+          variant: "destructive",
+        });
+      }
+    } catch {
+      fetchTasks();
+      toast({
+        title: "Errore",
+        description: "Spostamento task fallito",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const getStatusColor = (task: TaskItem): string => {
+    if (task.status === "completed") return "border-l-green-500 bg-gray-100/80 dark:bg-gray-800/40";
+    if (task.status === "in_progress") return "border-l-blue-500";
+    if (task.status === "cancelled") return "border-l-gray-400";
+    if (task.dueDate && isOverdue(task.dueDate)) return "border-l-red-500";
+    return "border-l-amber-500";
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">Caricamento...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Calendario Task</h2>
+          <p className="text-muted-foreground">
+            {viewMode === "calendar"
+              ? "Trascina i task tra i giorni per modificarne la scadenza"
+              : "Elenco dei task nei prossimi giorni"}
+          </p>
+        </div>
+        <div className="flex items-center gap-1 rounded-lg border p-0.5">
+          <Button
+            variant={viewMode === "calendar" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("calendar")}
+            className="h-8 w-8 p-0"
+            title="Vista calendario"
+          >
+            <Calendar className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={viewMode === "list" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("list")}
+            className="h-8 w-8 p-0"
+            title="Vista lista"
+          >
+            <List className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Filters bar */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1">
+          <span className="text-sm text-muted-foreground mr-1">Giorni:</span>
+          {DAY_OPTIONS.map((d) => (
+            <Button
+              key={d}
+              variant={selectedDays === d ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSelectedDays(d)}
+              className="min-w-[2.5rem]"
+            >
+              {d}
+            </Button>
+          ))}
+        </div>
+
+      </div>
+
+      {viewMode === "calendar" ? (
+        /* ─── Vista calendario ─── */
+        <TooltipProvider delayDuration={300}>
+        <DragDropContext onDragEnd={handleDragEnd}>
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg">
+                  Prossimi {selectedDays} giorni
+                </CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {/* Day headers */}
+              <div className="grid grid-cols-7 mb-2">
+                {DAYS_OF_WEEK.map((d) => (
+                  <div
+                    key={d}
+                    className="text-center text-xs font-medium text-muted-foreground py-1"
+                  >
+                    {d}
+                  </div>
+                ))}
+              </div>
+
+              {/* Calendar weeks */}
+              <div className="space-y-1">
+                {calendarGrid.map((week, wi) => (
+                  <div key={wi} className="grid grid-cols-7 gap-1">
+                    {week.map((cell, ci) =>
+                      cell.day === 0 ? (
+                        <div
+                          key={ci}
+                          className="rounded-lg min-h-[7rem] bg-muted/20"
+                        />
+                      ) : (
+                        <Droppable
+                          key={ci}
+                          droppableId={cell.dateStr}
+                          isDropDisabled={false}
+                        >
+                          {(provided, snapshot) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.droppableProps}
+                              className={`
+                                rounded-lg p-1 min-h-[7rem] text-sm transition-colors
+                                ${cell.isToday ? "ring-2 ring-primary ring-offset-1" : ""}
+                                ${
+                                  snapshot.isDraggingOver
+                                    ? "bg-accent"
+                                    : "hover:bg-accent/30"
+                                }
+                              `}
+                            >
+                              {/* Day number */}
+                              <div className="flex items-center justify-between mb-1">
+                                <span
+                                  className={`text-xs font-medium ${
+                                    cell.isToday ? "text-primary" : "text-foreground"
+                                  }`}
+                                >
+                                  {cell.day}
+                                </span>
+                                {cell.tasks.length > 0 && (
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {cell.tasks.length}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Task badges */}
+                              <div className="space-y-1">
+                                {cell.tasks.map((task, tIndex) => (
+                                  <Draggable
+                                    key={task.id}
+                                    draggableId={task.id}
+                                    index={tIndex}
+                                  >
+                                    {(provided, snapshot) => {
+                                      const handleProps = provided.dragHandleProps as React.HTMLAttributes<HTMLDivElement>;
+                                      const { style: dragStyle, ...restDraggable } = provided.draggableProps as React.HTMLAttributes<HTMLDivElement>;
+                                      return (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <div
+                                            ref={provided.innerRef}
+                                            {...restDraggable}
+                                            {...handleProps}
+                                            style={dragStyle}
+                                            className={`
+                                              group relative rounded-md border border-l-4 p-1.5 text-xs
+                                              bg-card hover:shadow-sm transition-shadow cursor-grab active:cursor-grabbing
+                                              ${getStatusColor(task)}
+                                              ${snapshot.isDragging ? "shadow-lg z-50 opacity-90" : ""}
+                                            `}
+                                          >
+                                            {/* Title row with toggle */}
+                                            <div className="flex items-start gap-1">
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleToggle(task.id, task.status);
+                                                }}
+                                                className="shrink-0 mt-0.5"
+                                              >
+                                                {task.status === "completed" ? (
+                                                  <CheckCircle2 className="h-3 w-3 text-green-500" />
+                                                ) : (
+                                                  <Circle className="h-3 w-3 text-muted-foreground" />
+                                                )}
+                                              </button>
+                                              <span
+                                                className={`font-medium leading-tight ${
+                                                  task.status === "completed"
+                                                    ? "line-through text-muted-foreground"
+                                                    : ""
+                                                }`}
+                                              >
+                                                {task.title}
+                                              </span>
+                                            </div>
+
+                                            {/* Client info compatto */}
+                                            {task.clientName && (
+                                              <div className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground">
+                                                <User className="h-2.5 w-2.5 shrink-0" />
+                                                <span className="truncate">
+                                                  {task.clientName}
+                                                </span>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="right" align="start" className="w-72 p-3">
+                                          <div className="space-y-2">
+                                            <p className="text-sm font-semibold">{task.title}</p>
+                                            <div className="space-y-1.5 text-xs text-muted-foreground">
+                                              {task.clientName && (
+                                                <div className="flex items-center gap-2">
+                                                  <User className="h-3.5 w-3.5 shrink-0" />
+                                                  <span>{task.clientName}</span>
+                                                </div>
+                                              )}
+                                              {task.clientEmail && (
+                                                <div className="flex items-center gap-2">
+                                                  <Mail className="h-3.5 w-3.5 shrink-0" />
+                                                  <span className="truncate">{task.clientEmail}</span>
+                                                </div>
+                                              )}
+                                              {task.clientPhone && (
+                                                <div className="flex items-center gap-2">
+                                                  <Phone className="h-3.5 w-3.5 shrink-0" />
+                                                  <span>{task.clientPhone}</span>
+                                                </div>
+                                              )}
+                                              {task.clientCompany && (
+                                                <div className="flex items-center gap-2">
+                                                  <Building2 className="h-3.5 w-3.5 shrink-0" />
+                                                  <span>{task.clientCompany}</span>
+                                                </div>
+                                              )}
+                                              {task.description && (
+                                                <div className="flex items-start gap-2 pt-1 border-t">
+                                                  <FileText className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                                                  <span className="line-clamp-4">{task.description}</span>
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    );
+                                  }}
+                                  </Draggable>
+                                ))}
+                                {provided.placeholder}
+                              </div>
+                            </div>
+                          )}
+                        </Droppable>
+                      )
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </DragDropContext>
+        </TooltipProvider>
+      ) : (
+        /* ─── Vista lista ─── */
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg">
+                Lista task — Prossimi {selectedDays} giorni
+              </CardTitle>
+              <div className="flex items-center gap-1 rounded-lg border p-0.5">
+                <Button
+                  variant={listFilter === "today" ? "secondary" : "ghost"}
+                  size="sm"
+                  onClick={() => setListFilter("today")}
+                  className="h-7 px-2 text-xs"
+                >
+                  Oggi
+                </Button>
+                <Button
+                  variant={listFilter === "all" ? "secondary" : "ghost"}
+                  size="sm"
+                  onClick={() => setListFilter("all")}
+                  className="h-7 px-2 text-xs"
+                >
+                  Tutti
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="text-left font-medium text-muted-foreground px-4 py-3 w-8"></th>
+                    <th className="text-left font-medium text-muted-foreground px-4 py-3">Titolo</th>
+                    <th className="text-left font-medium text-muted-foreground px-4 py-3">Cliente</th>
+                    <th className="text-left font-medium text-muted-foreground px-4 py-3">Scadenza</th>
+                    <th className="text-left font-medium text-muted-foreground px-4 py-3">Stato</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {listTasks
+                    .slice()
+                    .sort((a, b) => {
+                      const order = { todo: 0, in_progress: 1, completed: 2, cancelled: 3 };
+                      return (order[a.status as keyof typeof order] ?? 0) - (order[b.status as keyof typeof order] ?? 0);
+                    })
+                    .map((task) => (
+                      <tr
+                        key={task.id}
+                        className={`border-b last:border-0 hover:bg-accent/50 transition-colors ${
+                          task.status === "completed" ? "bg-gray-50/50 dark:bg-gray-900/20" : ""
+                        }`}
+                      >
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => handleToggle(task.id, task.status)}
+                            className="shrink-0"
+                          >
+                            {task.status === "completed" ? (
+                              <CheckCircle2 className="h-4 w-4 text-green-500" />
+                            ) : (
+                              <Circle className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </button>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`font-medium ${
+                              task.status === "completed"
+                                ? "line-through text-muted-foreground"
+                                : ""
+                            }`}
+                          >
+                            {task.title}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {task.clientName || "—"}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {task.dueDate
+                            ? new Date(task.dueDate).toLocaleDateString("it-IT", {
+                                day: "2-digit",
+                                month: "2-digit",
+                                year: "numeric",
+                              })
+                            : "—"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+                              task.status === "completed"
+                                ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                                : task.status === "in_progress"
+                                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                                : task.status === "cancelled"
+                                ? "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                                : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                            }`}
+                          >
+                            {STATUS_LABELS[task.status] || task.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+              {listTasks.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-8">
+                  Nessun task trovato
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+</file>
+
 <file path="app/api/clients/[id]/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -8105,6 +10203,271 @@ export async function DELETE(
 }
 </file>
 
+<file path="app/api/dashboard/route.ts">
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { clients, tasks } from "@/lib/schema";
+import { eq, sql, lte, desc, and, gte, or } from "drizzle-orm";
+import { getAuthUser } from "@/lib/auth";
+
+const priorityOrder = sql`CASE ${tasks.priority}
+  WHEN 'high' THEN 1
+  WHEN 'medium' THEN 2
+  WHEN 'low' THEN 3
+END`;
+
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  console.log("[Dashboard API] Chiamata ricevuta");
+  console.log("[Dashboard API] TURSO_DB_URL presente:", !!process.env.TURSO_DB_URL);
+  console.log("[Dashboard API] TURSO_AUTH_TOKEN presente:", !!process.env.TURSO_AUTH_TOKEN);
+
+  try {
+    if (!process.env.TURSO_DB_URL) {
+      console.error("[Dashboard API] TURSO_DB_URL mancante");
+      return NextResponse.json(
+        { error: "Database Turso non configurato. Imposta TURSO_DB_URL e TURSO_AUTH_TOKEN in .env.local" },
+        { status: 500 }
+      );
+    }
+
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+
+    const isAdmin = authUser.role === "admin";
+
+    // Condition per filtrare per user_id se non admin: vede non assegnati + propri
+    const userFilter = isAdmin
+      ? undefined
+      : or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`);
+    const taskUserFilter = isAdmin
+      ? undefined
+      : or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`);
+
+    // Count per status
+    const statusWhere = userFilter ? and(userFilter) : undefined;
+    const statusCounts = await db
+      .select({
+        status: clients.status,
+        count: sql<number>`count(*)`,
+      })
+      .from(clients)
+      .where(statusWhere)
+      .groupBy(clients.status);
+
+    const statusMap: Record<string, number> = {
+      lead: 0,
+      suspect: 0,
+      won: 0,
+      closed_lost: 0,
+    };
+    statusCounts.forEach((s) => {
+      statusMap[s.status] = Number(s.count);
+    });
+
+    // Overdue tasks banner count (solo prima di oggi, non include oggi)
+    const overdueWhere = taskUserFilter
+      ? and(lte(tasks.dueDate, startOfToday), sql`${tasks.status} IN ('todo', 'in_progress')`, taskUserFilter)
+      : and(lte(tasks.dueDate, startOfToday), sql`${tasks.status} IN ('todo', 'in_progress')`);
+
+    const overdueCount = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(tasks)
+      .leftJoin(clients, eq(tasks.clientId, clients.id))
+      .where(overdueWhere);
+
+    // Top 10 overdue tasks (due before today, not completed), ordered by priority
+    const overdueWhere2 = taskUserFilter
+      ? and(lte(tasks.dueDate, startOfToday), sql`${tasks.status} IN ('todo', 'in_progress')`, taskUserFilter)
+      : and(lte(tasks.dueDate, startOfToday), sql`${tasks.status} IN ('todo', 'in_progress')`);
+
+    const overdueTodayTasks = await db
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        priority: tasks.priority,
+        dueDate: tasks.dueDate,
+        clientId: tasks.clientId,
+        clientName: clients.name,
+        clientPhone: clients.phone,
+      })
+      .from(tasks)
+      .leftJoin(clients, eq(tasks.clientId, clients.id))
+      .where(overdueWhere2)
+      .orderBy(priorityOrder, desc(tasks.dueDate))
+      .limit(10);
+
+    // Top 10 tasks due today (not yet overdue), ordered by priority
+    const dueTodayWhere = taskUserFilter
+      ? and(
+          gte(tasks.dueDate, startOfToday),
+          lte(tasks.dueDate, endOfToday),
+          sql`${tasks.status} IN ('todo', 'in_progress')`,
+          taskUserFilter
+        )
+      : and(
+          gte(tasks.dueDate, startOfToday),
+          lte(tasks.dueDate, endOfToday),
+          sql`${tasks.status} IN ('todo', 'in_progress')`
+        );
+
+    const dueTodayTasks = await db
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        priority: tasks.priority,
+        dueDate: tasks.dueDate,
+        clientId: tasks.clientId,
+        clientName: clients.name,
+        clientPhone: clients.phone,
+      })
+      .from(tasks)
+      .leftJoin(clients, eq(tasks.clientId, clients.id))
+      .where(dueTodayWhere)
+      .orderBy(priorityOrder, desc(tasks.dueDate))
+      .limit(10);
+
+    // Trend: clients created in last 7 days
+    const trendData = [];
+    for (let i = 6; i >= 0; i--) {
+      const day = new Date();
+      day.setDate(day.getDate() - i);
+      const dayStart = new Date(day);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(day);
+      dayEnd.setHours(23, 59, 59, 999);
+
+      const trendWhere = userFilter
+        ? and(gte(clients.createdAt, dayStart), lte(clients.createdAt, dayEnd), userFilter)
+        : and(gte(clients.createdAt, dayStart), lte(clients.createdAt, dayEnd));
+
+      const [countResult] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(clients)
+        .where(trendWhere);
+
+      trendData.push({
+        date: day.toLocaleDateString("it-IT", {
+          day: "2-digit",
+          month: "2-digit",
+        }),
+        count: Number(countResult?.count || 0),
+      });
+    }
+
+    return NextResponse.json({
+      statusCounts: statusMap,
+      overdueCount: Number(overdueCount[0]?.count || 0),
+      overdueTasks: overdueTodayTasks.map((t) => ({
+        ...t,
+        dueDate: t.dueDate ? t.dueDate.getTime() : null,
+      })),
+      dueTodayTasks: dueTodayTasks.map((t) => ({
+        ...t,
+        dueDate: t.dueDate ? t.dueDate.getTime() : null,
+      })),
+      trendData,
+    });
+  } catch (error) {
+    console.error("Error fetching dashboard data:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento della dashboard" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="drizzle.config.ts">
+import { config } from "dotenv";
+import { defineConfig } from "drizzle-kit";
+
+config({ path: ".env.local" });
+
+export default defineConfig({
+  schema: "./lib/schema.ts",
+  out: "./drizzle",
+  dialect: "sqlite",
+  dbCredentials: {
+    url: process.env.TURSO_DB_URL!,
+    authToken: process.env.TURSO_AUTH_TOKEN,
+  },
+});
+</file>
+
+<file path="package.json">
+{
+  "name": "crm-findfit",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@hello-pangea/dnd": "^16.6.0",
+    "@libsql/client": "^0.14.0",
+    "@radix-ui/react-alert-dialog": "^1.1.1",
+    "@radix-ui/react-avatar": "^1.1.0",
+    "@radix-ui/react-dialog": "^1.1.1",
+    "@radix-ui/react-dropdown-menu": "^2.1.1",
+    "@radix-ui/react-label": "^2.1.0",
+    "@radix-ui/react-popover": "^1.1.1",
+    "@radix-ui/react-scroll-area": "^1.1.0",
+    "@radix-ui/react-select": "^2.1.1",
+    "@radix-ui/react-separator": "^1.1.0",
+    "@radix-ui/react-slot": "^1.1.0",
+    "@radix-ui/react-toast": "^1.2.1",
+    "@radix-ui/react-tooltip": "^1.1.2",
+    "bcryptjs": "^3.0.3",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "drizzle-orm": "^0.45.2",
+    "imapflow": "^1.4.0",
+    "jose": "^6.2.3",
+    "lucide-react": "^0.379.0",
+    "mailparser": "^3.9.9",
+    "next": "^14.2.3",
+    "nodemailer": "^9.0.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.3.0",
+    "tailwindcss-animate": "^1.0.7",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^20.12.12",
+    "@types/nodemailer": "^8.0.1",
+    "@types/react": "^18.3.2",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.5.0",
+    "dotenv": "^17.4.2",
+    "drizzle-kit": "^0.31.10",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "tsx": "^4.22.4",
+    "typescript": "^5.4.5"
+  }
+}
+</file>
+
 <file path="components/sidebar.tsx">
 "use client";
 
@@ -8117,10 +10480,13 @@ import {
   Users,
   Kanban,
   CalendarCheck,
+  CalendarDays,
   FileText,
   Settings,
   Mail,
   Shield,
+  Server,
+  Facebook,
   LogOut,
   X,
 } from "lucide-react";
@@ -8136,6 +10502,7 @@ const navItems = [
   { href: "/clienti", label: "Lista Clienti", icon: Users },
   { href: "/kanban", label: "Trattative", icon: Kanban },
   { href: "/task", label: "Task Scaduti", icon: CalendarCheck },
+  { href: "/task-calendar", label: "Calendario Task", icon: CalendarDays },
   { href: "/note", label: "Note Recenti", icon: FileText },
   { href: "/test-email", label: "Test Email", icon: Mail },
   { href: "/impostazioni", label: "Impostazioni", icon: Settings },
@@ -8220,13 +10587,52 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   onClick={onClose}
                   className={cn(
                     "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
-                    pathname.startsWith("/admin")
+                    pathname === "/admin/users"
                       ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground"
                   )}
                 >
                   <Shield className="h-5 w-5 shrink-0" />
                   <span>Gestione Utenti</span>
+                </Link>
+                <Link
+                  href="/admin/imap"
+                  onClick={onClose}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                    pathname === "/admin/imap"
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  <Server className="h-5 w-5 shrink-0" />
+                  <span>Configurazione IMAP</span>
+                </Link>
+                <Link
+                  href="/admin/email-test"
+                  onClick={onClose}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                    pathname === "/admin/email-test"
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  <Mail className="h-5 w-5 shrink-0" />
+                  <span>Test Email</span>
+                </Link>
+                <Link
+                  href="/admin/facebook-post"
+                  onClick={onClose}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                    pathname === "/admin/facebook-post"
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  <Facebook className="h-5 w-5 shrink-0" />
+                  <span>Facebook Post</span>
                 </Link>
               </>
             )}
@@ -8249,86 +10655,6 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       </aside>
     </>
   );
-}
-</file>
-
-<file path="drizzle.config.ts">
-import { config } from "dotenv";
-import { defineConfig } from "drizzle-kit";
-
-config({ path: ".env.local" });
-
-export default defineConfig({
-  schema: "./lib/schema.ts",
-  out: "./drizzle",
-  dialect: "sqlite",
-  dbCredentials: {
-    url: process.env.TURSO_DB_URL!,
-    authToken: process.env.TURSO_AUTH_TOKEN,
-  },
-});
-</file>
-
-<file path="package.json">
-{
-  "name": "crm-findfit",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "db:generate": "drizzle-kit generate",
-    "db:push": "drizzle-kit push",
-    "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
-  },
-  "dependencies": {
-    "@hello-pangea/dnd": "^16.6.0",
-    "@libsql/client": "^0.14.0",
-    "@radix-ui/react-alert-dialog": "^1.1.1",
-    "@radix-ui/react-avatar": "^1.1.0",
-    "@radix-ui/react-dialog": "^1.1.1",
-    "@radix-ui/react-dropdown-menu": "^2.1.1",
-    "@radix-ui/react-label": "^2.1.0",
-    "@radix-ui/react-popover": "^1.1.1",
-    "@radix-ui/react-scroll-area": "^1.1.0",
-    "@radix-ui/react-select": "^2.1.1",
-    "@radix-ui/react-separator": "^1.1.0",
-    "@radix-ui/react-slot": "^1.1.0",
-    "@radix-ui/react-toast": "^1.2.1",
-    "@radix-ui/react-tooltip": "^1.1.2",
-    "bcryptjs": "^3.0.3",
-    "class-variance-authority": "^0.7.0",
-    "clsx": "^2.1.1",
-    "date-fns": "^3.6.0",
-    "drizzle-orm": "^0.45.2",
-    "imapflow": "^1.4.0",
-    "jose": "^6.2.3",
-    "lucide-react": "^0.379.0",
-    "mailparser": "^3.9.9",
-    "next": "^14.2.3",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "tailwind-merge": "^2.3.0",
-    "tailwindcss-animate": "^1.0.7",
-    "zod": "^3.23.8"
-  },
-  "devDependencies": {
-    "@types/bcryptjs": "^3.0.0",
-    "@types/mailparser": "^3.4.6",
-    "@types/node": "^20.12.12",
-    "@types/react": "^18.3.2",
-    "@types/react-dom": "^18.3.0",
-    "autoprefixer": "^10.5.0",
-    "dotenv": "^17.4.2",
-    "drizzle-kit": "^0.31.10",
-    "postcss": "^8.4.38",
-    "tailwindcss": "^3.4.3",
-    "tsx": "^4.22.4",
-    "typescript": "^5.4.5"
-  }
 }
 </file>
 
@@ -8437,17 +10763,20 @@ export const tasks = sqliteTable("tasks", {
     .$onUpdateFn(() => new Date()),
 });
 
-// ── Impostazioni IMAP ──
+// ── Impostazioni IMAP / SMTP ──
 export const imapSettings = sqliteTable("imap_settings", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => "default"),
-  host: text("host").notNull(),
-  port: text("port").notNull(),
+  imapHost: text("imap_host").notNull(),
+  imapPort: text("imap_port").notNull(),
   user: text("user").notNull(),
   password: text("password").notNull(),
   filterFrom: text("filter_from").notNull(),
   filterSubject: text("filter_subject").notNull(),
+  smtpHost: text("smtp_host"),
+  smtpPort: text("smtp_port"),
+  smtpSecure: integer("smtp_secure", { mode: "boolean" }).default(false),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -8455,6 +10784,30 @@ export const imapSettings = sqliteTable("imap_settings", {
     .notNull()
     .$defaultFn(() => new Date())
     .$onUpdateFn(() => new Date()),
+});
+
+// ── Email Log ──
+export const emailLog = sqliteTable("email_log", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => randomUUID()),
+  clientId: text("client_id")
+    .notNull()
+    .references(() => clients.id, { onDelete: "cascade" }),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  sender: text("sender").notNull(),
+  sentAt: integer("sent_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  status: text("status", {
+    enum: ["sent", "pending", "failed"],
+  })
+    .notNull()
+    .default("pending"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
 });
 
 // ── Tipi ──
@@ -8468,6 +10821,8 @@ export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
 export type ImapSetting = typeof imapSettings.$inferSelect;
 export type NewImapSetting = typeof imapSettings.$inferInsert;
+export type EmailLog = typeof emailLog.$inferSelect;
+export type NewEmailLog = typeof emailLog.$inferInsert;
 </file>
 
 </files>

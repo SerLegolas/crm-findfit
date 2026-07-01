@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PriorityBadge } from "@/components/priority-badge";
 import { formatDate, isOverdue } from "@/lib/utils";
-import { AlertTriangle, TrendingUp, AlertCircle, Calendar } from "lucide-react";
+import { TrendingUp, AlertCircle, Calendar } from "lucide-react";
 import type { ClientStatus, Priority } from "@/types";
 
 interface TaskItem {
@@ -32,16 +32,7 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [user, setUser] = useState<{ name: string; email: string; role: string } | null>(null);
-
   useEffect(() => {
-    fetch("/api/auth/me")
-      .then((r) => r.json())
-      .then((json) => {
-        if (json.user) setUser(json.user);
-      })
-      .catch(() => {});
-
     console.log("[Dashboard] Fetch avviato");
     fetch("/api/dashboard")
       .then((r) => {
@@ -114,32 +105,6 @@ export default function DashboardPage() {
           Panoramica del tuo CRM FindFit
         </p>
       </div>
-
-      {/* Utente connesso */}
-      {user && (
-        <div className="flex items-center gap-3 rounded-lg border bg-card p-3 text-sm">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary font-semibold text-sm">
-            {user.name.charAt(0).toUpperCase()}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium truncate">{user.name}</p>
-            <p className="text-xs text-muted-foreground truncate">{user.email}</p>
-          </div>
-          <Badge variant={user.role === "admin" ? "default" : "secondary"}>
-            {user.role === "admin" ? "Admin" : "Utente"}
-          </Badge>
-        </div>
-      )}
-
-      {/* Overdue banner */}
-      {data.overdueCount > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
-          <AlertTriangle className="h-5 w-5 shrink-0" />
-          <p className="text-sm font-medium">
-            Attenzione: {data.overdueCount} task scaduti richiedono la tua attenzione!
-          </p>
-        </div>
-      )}
 
       {/* Status cards: solo 4 */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">

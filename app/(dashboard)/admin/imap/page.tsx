@@ -6,17 +6,26 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
-import { Loader2, Save, Eye, EyeOff, Server } from "lucide-react";
+import { Loader2, Save, Eye, EyeOff, Server, Send } from "lucide-react";
 import { useRouter } from "next/navigation";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type ImapFormData = {
-  host: string;
-  port: string;
+  imapHost: string;
+  imapPort: string;
   user: string;
   password: string;
   filterFrom: string;
   filterSubject: string;
-  brevoApiKey: string;
+  smtpHost: string;
+  smtpPort: string;
+  smtpSecure: string;
 };
 
 export default function AdminImapPage() {
@@ -28,13 +37,15 @@ export default function AdminImapPage() {
   const router = useRouter();
 
   const [form, setForm] = useState<ImapFormData>({
-    host: "",
-    port: "993",
+    imapHost: "",
+    imapPort: "993",
     user: "",
     password: "",
     filterFrom: "",
     filterSubject: "",
-    brevoApiKey: "",
+    smtpHost: "",
+    smtpPort: "587",
+    smtpSecure: "false",
   });
 
   // Verifica auth e carica impostazioni
@@ -60,13 +71,15 @@ export default function AdminImapPage() {
       .then((data) => {
         if (data.settings) {
           setForm({
-            host: data.settings.host || "",
-            port: data.settings.port || "993",
+            imapHost: data.settings.imapHost || "",
+            imapPort: data.settings.imapPort || "993",
             user: data.settings.user || "",
             password: data.settings.password || "",
             filterFrom: data.settings.filterFrom || "",
             filterSubject: data.settings.filterSubject || "",
-            brevoApiKey: data.settings.brevoApiKey || "",
+            smtpHost: data.settings.smtpHost || "",
+            smtpPort: data.settings.smtpPort || "587",
+            smtpSecure: data.settings.smtpSecure ? "true" : "false",
           });
         }
       })
@@ -125,11 +138,10 @@ export default function AdminImapPage() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold tracking-tight">
-          Configurazione IMAP
+          Configurazione Email
         </h2>
         <p className="text-muted-foreground">
-          Gestisci le impostazioni del server email per la sincronizzazione
-          automatica
+          Gestisci le impostazioni del server IMAP per la sincronizzazione e SMTP per l'invio email
         </p>
       </div>
 
@@ -154,26 +166,26 @@ export default function AdminImapPage() {
               className="space-y-4"
             >
               <div className="grid gap-4 sm:grid-cols-2">
-                {/* Host */}
+                {/* IMAP Host */}
                 <div className="space-y-2">
-                  <Label htmlFor="host">Host IMAP</Label>
+                  <Label htmlFor="imapHost">Host IMAP</Label>
                   <Input
-                    id="host"
+                    id="imapHost"
                     placeholder="imaps.aruba.it"
-                    value={form.host}
-                    onChange={(e) => handleChange("host", e.target.value)}
+                    value={form.imapHost}
+                    onChange={(e) => handleChange("imapHost", e.target.value)}
                     required
                   />
                 </div>
 
-                {/* Port */}
+                {/* IMAP Port */}
                 <div className="space-y-2">
-                  <Label htmlFor="port">Porta</Label>
+                  <Label htmlFor="imapPort">Porta IMAP</Label>
                   <Input
-                    id="port"
+                    id="imapPort"
                     placeholder="993"
-                    value={form.port}
-                    onChange={(e) => handleChange("port", e.target.value)}
+                    value={form.imapPort}
+                    onChange={(e) => handleChange("imapPort", e.target.value)}
                     required
                   />
                 </div>
@@ -254,24 +266,51 @@ export default function AdminImapPage() {
                   </p>
                 </div>
 
-                {/* Brevo API Key */}
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="brevoApiKey">
-                    Chiave API Brevo (opzionale)
-                  </Label>
-                  <Input
-                    id="brevoApiKey"
-                    type="password"
-                    placeholder="xkeysib-..."
-                    value={form.brevoApiKey}
-                    onChange={(e) =>
-                      handleChange("brevoApiKey", e.target.value)
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Inserisci la API key di Brevo per l&apos;invio di email
-                    tramite API.
-                  </p>
+              </div>
+
+              {/* ── SMTP Section ── */}
+              <div className="border-t pt-4 mt-2">
+                <div className="flex items-center gap-2 mb-4">
+                  <Send className="h-5 w-5 text-muted-foreground" />
+                  <h3 className="text-lg font-semibold">Server SMTP (invio email)</h3>
+                </div>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Se lasci vuoti questi campi, verranno usati gli stessi valori di IMAP. Usa la stessa user/password di IMAP.
+                </p>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="smtpHost">Host SMTP</Label>
+                    <Input
+                      id="smtpHost"
+                      placeholder="smtp.aruba.it"
+                      value={form.smtpHost}
+                      onChange={(e) => handleChange("smtpHost", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="smtpPort">Porta SMTP</Label>
+                    <Input
+                      id="smtpPort"
+                      placeholder="587"
+                      value={form.smtpPort}
+                      onChange={(e) => handleChange("smtpPort", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="smtpSecure">Connessione sicura</Label>
+                    <Select
+                      value={form.smtpSecure}
+                      onValueChange={(v) => handleChange("smtpSecure", v)}
+                    >
+                      <SelectTrigger id="smtpSecure">
+                        <SelectValue placeholder="Seleziona..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="false">No (TLS/STARTTLS)</SelectItem>
+                        <SelectItem value="true">Sì (SSL)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
 

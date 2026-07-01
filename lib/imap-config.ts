@@ -33,8 +33,8 @@ export async function getImapConfig(): Promise<ImapConfig | null> {
 
     const row = rows[0];
     return {
-      host: decrypt(row.host),
-      port: parseInt(decrypt(row.port)),
+      host: decrypt(row.imapHost),
+      port: parseInt(decrypt(row.imapPort)),
       user: decrypt(row.user),
       password: decrypt(row.password),
       filterFrom: decrypt(row.filterFrom),
