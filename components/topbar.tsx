@@ -54,7 +54,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
           clientId: t.clientId || null,
           clientName: t.clientName || null,
         }))
-        .sort((a: OverdueTask, b: OverdueTask) => a.dueDate - b.dueDate);
+        .sort((a: OverdueTask, b: OverdueTask) => (a.dueDate ?? 0) - (b.dueDate ?? 0));
 
       setOverdueTasks(overdue);
     } catch {
