@@ -31,9 +31,24 @@ import {
   Lock,
   Building2,
   Pencil,
+  FileText,
+  Plus,
+  Trash2,
 } from "lucide-react";
+import HtmlEditor from "@/components/html-editor";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
-type Tab = "generali" | "utente" | "azienda";
+type Tab = "generali" | "utente" | "azienda" | "template_email";
 
 interface CompanyData {
   denominazione: string;
@@ -45,6 +60,7 @@ interface CompanyData {
   cap: string;
   email: string;
   telefono: string;
+  footerAttivo: boolean;
 }
 
 export default function ImpostazioniPage() {
@@ -65,8 +81,117 @@ export default function ImpostazioniPage() {
   const [editForm, setEditForm] = useState<CompanyData>({
     denominazione: "", piva: "", cf: "", indirizzo: "",
     città: "", provincia: "", cap: "", email: "", telefono: "",
+    footerAttivo: false,
   });
   const [savingCompany, setSavingCompany] = useState(false);
+
+  // Template email
+  interface Template {
+    id: string;
+    name: string;
+    subject: string;
+    bodyHtml: string;
+    author: string;
+    createdAt: number;
+    updatedAt: number;
+  }
+
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [editTemplate, setEditTemplate] = useState<Template | null>(null);
+  const [templateForm, setTemplateForm] = useState({ name: "", subject: "", bodyHtml: "" });
+  const [currentUserName, setCurrentUserName] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
+
+  const fetchTemplates = async () => {
+    setTemplatesLoading(true);
+    try {
+      const res = await fetch("/api/email-templates");
+      if (res.ok) {
+        const data = await res.json();
+        setTemplates(data);
+      }
+    } catch {
+      // silent
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "template_email") fetchTemplates();
+  }, [activeTab]);
+
+  const openNewTemplate = () => {
+    setEditTemplate(null);
+    setTemplateForm({ name: "", subject: "", bodyHtml: "" });
+    setTemplateDialogOpen(true);
+  };
+
+  useEffect(() => {
+    if (user?.name) setCurrentUserName(user.name);
+  }, [user]);
+
+  const openEditTemplate = (tmpl: Template) => {
+    setEditTemplate(tmpl);
+    setTemplateForm({
+      name: tmpl.name,
+      subject: tmpl.subject,
+      bodyHtml: tmpl.bodyHtml,
+    });
+    setTemplateDialogOpen(true);
+  };
+
+  const handleSaveTemplate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!templateForm.name.trim() || !templateForm.subject.trim() || !templateForm.bodyHtml.trim()) {
+      toast({ title: "Errore", description: "Tutti i campi sono obbligatori", variant: "destructive" });
+      return;
+    }
+
+    setSavingTemplate(true);
+    try {
+      const url = editTemplate
+        ? `/api/email-templates/${editTemplate.id}`
+        : "/api/email-templates";
+      const method = editTemplate ? "PATCH" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(templateForm),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        toast({ title: "Errore", description: err.error || "Operazione fallita", variant: "destructive" });
+        return;
+      }
+
+      toast({
+        title: editTemplate ? "Template aggiornato" : "Template creato",
+        variant: "success" as any,
+      });
+      setTemplateDialogOpen(false);
+      fetchTemplates();
+    } catch {
+      toast({ title: "Errore", description: "Errore durante il salvataggio", variant: "destructive" });
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const handleDeleteTemplate = async (id: string) => {
+    try {
+      const res = await fetch(`/api/email-templates/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      toast({ title: "Template eliminato", variant: "success" as any });
+      fetchTemplates();
+    } catch {
+      toast({ title: "Errore", description: "Eliminazione fallita", variant: "destructive" });
+    }
+  };
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -93,7 +218,7 @@ export default function ImpostazioniPage() {
   };
 
   useEffect(() => {
-    if (activeTab === "azienda") fetchCompany();
+    if (activeTab === "azienda" || activeTab === "generali") fetchCompany();
   }, [activeTab]);
 
   const openEditDialog = () => {
@@ -170,6 +295,7 @@ export default function ImpostazioniPage() {
     { key: "generali", label: "Generali" },
     { key: "utente", label: "Utente" },
     { key: "azienda", label: "Azienda" },
+    { key: "template_email", label: "Template Email" },
   ];
 
   const companyFields: { key: keyof CompanyData; label: string }[] = [
@@ -210,6 +336,7 @@ export default function ImpostazioniPage() {
               {tab.key === "generali" && <User className="h-4 w-4" />}
               {tab.key === "utente" && <Lock className="h-4 w-4" />}
               {tab.key === "azienda" && <Building2 className="h-4 w-4" />}
+              {tab.key === "template_email" && <FileText className="h-4 w-4" />}
               {tab.label}
             </span>
           </button>
@@ -218,17 +345,79 @@ export default function ImpostazioniPage() {
 
       {/* TAB: Generali */}
       {activeTab === "generali" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Impostazioni Generali</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Le impostazioni di configurazione saranno disponibili in una
-              versione futura.
-            </p>
-          </CardContent>
-        </Card>
+        <div className="grid gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Impostazioni Generali</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Le impostazioni di configurazione saranno disponibili in una
+                versione futura.
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Footer Email */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Footer Email</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  id="footer-attivo"
+                  title="Attiva footer email"
+                  checked={company?.footerAttivo ?? false}
+                  onChange={async (e) => {
+                    const checked = e.target.checked;
+                    try {
+                      // Carica i dati correnti dell'azienda per non sovrascrivere con vuoti
+                      const currRes = await fetch("/api/company-settings");
+                      const currData = await currRes.json();
+                      const formData = new FormData();
+                      Object.entries(currData).forEach(([key, val]) => {
+                        if (key !== "id") formData.append(key, String(val ?? ""));
+                      });
+                      formData.set("footerAttivo", String(checked));
+
+                      const res = await fetch("/api/company-settings", {
+                        method: "PUT",
+                        body: formData,
+                      });
+
+                      if (!res.ok) throw new Error();
+                      toast({ title: "Impostazione salvata", variant: "success" as any });
+                      fetchCompany();
+                    } catch {
+                      toast({ title: "Errore", description: "Salvataggio fallito", variant: "destructive" });
+                    }
+                  }}
+                  className="mt-1 h-4 w-4 rounded border-gray-300"
+                />
+                <div>
+                  <Label htmlFor="footer-attivo" className="font-medium cursor-pointer">
+                    Aggiungi dati azienda al footer delle email
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Se attivo, verranno automaticamente aggiunti in fondo alle email inviate:
+                    denominazione, indirizzo, telefono, email, P.IVA e C.F.
+                  </p>
+                  {company?.footerAttivo && company?.denominazione && (
+                    <div className="mt-3 rounded-md border bg-muted/30 p-3 text-xs text-center text-muted-foreground">
+                      <strong>Anteprima footer:</strong><br />
+                      {company.denominazione}<br />
+                      {[company.indirizzo, company.città, company.provincia].filter(Boolean).join(", ")} {company.cap}<br />
+                      Tel: {company.telefono} - Email: {company.email}<br />
+                      P.IVA: {company.piva} - C.F.: {company.cf}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* TAB: Utente */}
@@ -332,6 +521,134 @@ export default function ImpostazioniPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* TAB: Template Email */}
+      {activeTab === "template_email" && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-lg">Template Email</CardTitle>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="default" size="icon" onClick={openNewTemplate}>
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Nuovo template</TooltipContent>
+            </Tooltip>
+          </CardHeader>
+          <CardContent>
+            {templatesLoading ? (
+              <p className="text-sm text-muted-foreground">Caricamento...</p>
+            ) : templates.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nessun template. Creane uno nuovo.</p>
+            ) : (
+              <div className="space-y-3">
+                {templates.map((tmpl) => (
+                  <Card key={tmpl.id}>
+                    <CardContent className="flex items-start justify-between py-4">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{tmpl.name}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Oggetto: {tmpl.subject}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Autore: {tmpl.author}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                          {tmpl.bodyHtml.replace(/<[^>]+>/g, "")}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 ml-4 shrink-0">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" onClick={() => openEditTemplate(tmpl)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Modifica</TooltipContent>
+                        </Tooltip>
+                        <AlertDialog>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="icon">
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </AlertDialogTrigger>
+                            </TooltipTrigger>
+                            <TooltipContent>Elimina</TooltipContent>
+                          </Tooltip>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Eliminare questo template?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Questa azione è irreversibile.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Annulla</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleDeleteTemplate(tmpl.id)}>
+                                Elimina
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Dialog creazione/modifica template */}
+      <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editTemplate ? "Modifica template" : "Nuovo template"}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSaveTemplate} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="template-name">Nome</Label>
+              <Input
+                id="template-name"
+                value={templateForm.name}
+                onChange={(e) => setTemplateForm({ ...templateForm, name: e.target.value })}
+                placeholder="Nome del template"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="template-subject">Oggetto</Label>
+              <Input
+                id="template-subject"
+                value={templateForm.subject}
+                onChange={(e) => setTemplateForm({ ...templateForm, subject: e.target.value })}
+                placeholder="Oggetto dell'email"
+              />
+            </div>
+            <div className="space-y-2">
+              <HtmlEditor
+                id="template-body"
+                label="Corpo HTML"
+                value={templateForm.bodyHtml}
+                onChange={(value) => setTemplateForm({ ...templateForm, bodyHtml: value })}
+                placeholder="Scrivi il contenuto HTML dell'email..."
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" onClick={() => setTemplateDialogOpen(false)}>
+                Annulla
+              </Button>
+              <Button type="submit" disabled={savingTemplate}>
+                {savingTemplate && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {editTemplate ? "Salva" : "Crea template"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog modifica dati azienda */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>

@@ -8,6 +8,14 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "CRM FindFit",
   description: "Customer Relationship Management",
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico", sizes: "32x32" },
+    ],
+    apple: "/icon-192.png",
+  },
+  manifest: "/manifest.json",
 };
 
 export default function RootLayout({

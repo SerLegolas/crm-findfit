@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
-import { Loader2, Save, Eye, EyeOff, Server, Send } from "lucide-react";
+import { Loader2, Save, Eye, EyeOff, Send, Key, Globe, Filter, HelpCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   Select,
@@ -15,6 +15,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type ImapFormData = {
   imapHost: string;
@@ -145,54 +151,39 @@ export default function AdminImapPage() {
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Server className="h-5 w-5 text-muted-foreground" />
-            <CardTitle>Server IMAP</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSave();
-              }}
-              className="space-y-4"
-            >
+      {loading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <TooltipProvider delayDuration={300}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSave();
+          }}
+          className="space-y-6"
+        >
+          {/* ── Sezione 1: Credenziali ── */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Key className="h-5 w-5 text-muted-foreground" />
+                <CardTitle>Credenziali</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
               <div className="grid gap-4 sm:grid-cols-2">
-                {/* IMAP Host */}
                 <div className="space-y-2">
-                  <Label htmlFor="imapHost">Host IMAP</Label>
-                  <Input
-                    id="imapHost"
-                    placeholder="imaps.aruba.it"
-                    value={form.imapHost}
-                    onChange={(e) => handleChange("imapHost", e.target.value)}
-                    required
-                  />
-                </div>
-
-                {/* IMAP Port */}
-                <div className="space-y-2">
-                  <Label htmlFor="imapPort">Porta IMAP</Label>
-                  <Input
-                    id="imapPort"
-                    placeholder="993"
-                    value={form.imapPort}
-                    onChange={(e) => handleChange("imapPort", e.target.value)}
-                    required
-                  />
-                </div>
-
-                {/* User */}
-                <div className="space-y-2">
-                  <Label htmlFor="user">Utente</Label>
+                  <Label htmlFor="user" className="flex items-center gap-1">
+                    Username / Email
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>Email completa utilizzata per autenticazione</TooltipContent>
+                    </Tooltip>
+                  </Label>
                   <Input
                     id="user"
                     placeholder="services@easyasso.cloud"
@@ -201,19 +192,23 @@ export default function AdminImapPage() {
                     required
                   />
                 </div>
-
-                {/* Password */}
                 <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
+                  <Label htmlFor="password" className="flex items-center gap-1">
+                    Password
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>Password dell'account email</TooltipContent>
+                    </Tooltip>
+                  </Label>
                   <div className="relative">
                     <Input
                       id="password"
                       type={showPassword ? "text" : "password"}
                       placeholder="••••••••"
                       value={form.password}
-                      onChange={(e) =>
-                        handleChange("password", e.target.value)
-                      }
+                      onChange={(e) => handleChange("password", e.target.value)}
                       required
                     />
                     <button
@@ -229,110 +224,203 @@ export default function AdminImapPage() {
                     </button>
                   </div>
                 </div>
-
-                {/* Filter From */}
-                <div className="space-y-2">
-                  <Label htmlFor="filterFrom">
-                    Filtra mittente (opzionale)
-                  </Label>
-                  <Input
-                    id="filterFrom"
-                    placeholder="e-ross1971@live.it"
-                    value={form.filterFrom}
-                    onChange={(e) =>
-                      handleChange("filterFrom", e.target.value)
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Solo email da questo mittente.
-                  </p>
-                </div>
-
-                {/* Filter Subject */}
-                <div className="space-y-2">
-                  <Label htmlFor="filterSubject">
-                    Filtra oggetto (opzionale)
-                  </Label>
-                  <Input
-                    id="filterSubject"
-                    placeholder="parola chiave nell'oggetto"
-                    value={form.filterSubject}
-                    onChange={(e) =>
-                      handleChange("filterSubject", e.target.value)
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Solo email con questa parola nell'oggetto.
-                  </p>
-                </div>
-
               </div>
+            </CardContent>
+          </Card>
 
-              {/* ── SMTP Section ── */}
-              <div className="border-t pt-4 mt-2">
-                <div className="flex items-center gap-2 mb-4">
+          {/* ── Sezione 2 e 3: SMTP + IMAP affiancati ── */}
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Server SMTP */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
                   <Send className="h-5 w-5 text-muted-foreground" />
-                  <h3 className="text-lg font-semibold">Server SMTP (invio email)</h3>
+                  <CardTitle>Server SMTP</CardTitle>
                 </div>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Se lasci vuoti questi campi, verranno usati gli stessi valori di IMAP. Usa la stessa user/password di IMAP.
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-xs text-muted-foreground">
+                  Utilizza questa sezione per inserire i dati per l'invio delle email dal tuo provider.
                 </p>
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="smtpHost">Host SMTP</Label>
-                    <Input
-                      id="smtpHost"
-                      placeholder="smtp.aruba.it"
-                      value={form.smtpHost}
-                      onChange={(e) => handleChange("smtpHost", e.target.value)}
-                    />
+                <div className="space-y-2">
+                  <Label htmlFor="smtpHost" className="flex items-center gap-1">
+                    Host
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>Es. smtp.aruba.it</TooltipContent>
+                    </Tooltip>
+                  </Label>
+                  <Input
+                    id="smtpHost"
+                    placeholder="smtp.aruba.it"
+                    value={form.smtpHost}
+                    onChange={(e) => handleChange("smtpHost", e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="smtpPort" className="flex items-center gap-1">
+                    Porta
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>Es. 587 (TLS) o 465 (SSL)</TooltipContent>
+                    </Tooltip>
+                  </Label>
+                  <Input
+                    id="smtpPort"
+                    placeholder="587"
+                    value={form.smtpPort}
+                    onChange={(e) => handleChange("smtpPort", e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="smtpSecure" className="flex items-center gap-1">
+                    SSL / TLS
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>Abilita per connessioni sicure</TooltipContent>
+                    </Tooltip>
+                  </Label>
+                  <Select
+                    value={form.smtpSecure}
+                    onValueChange={(v) => handleChange("smtpSecure", v)}
+                  >
+                    <SelectTrigger id="smtpSecure">
+                      <SelectValue placeholder="Seleziona..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="false">No (TLS / STARTTLS)</SelectItem>
+                      <SelectItem value="true">Sì (SSL)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Server IMAP */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Globe className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle>Server IMAP</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-xs text-muted-foreground">
+                  Utilizza questa sezione per inserire i dati per la ricezione delle email dal tuo provider.
+                </p>
+                <div className="space-y-2">
+                  <Label htmlFor="imapHost" className="flex items-center gap-1">
+                    Host
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>Es. imaps.aruba.it</TooltipContent>
+                    </Tooltip>
+                  </Label>
+                  <Input
+                    id="imapHost"
+                    placeholder="imaps.aruba.it"
+                    value={form.imapHost}
+                    onChange={(e) => handleChange("imapHost", e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="imapPort" className="flex items-center gap-1">
+                    Porta
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>Es. 993 (SSL)</TooltipContent>
+                    </Tooltip>
+                  </Label>
+                  <Input
+                    id="imapPort"
+                    placeholder="993"
+                    value={form.imapPort}
+                    onChange={(e) => handleChange("imapPort", e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="border-t pt-3">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Filter className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Filtri</span>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="smtpPort">Porta SMTP</Label>
-                    <Input
-                      id="smtpPort"
-                      placeholder="587"
-                      value={form.smtpPort}
-                      onChange={(e) => handleChange("smtpPort", e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="smtpSecure">Connessione sicura</Label>
-                    <Select
-                      value={form.smtpSecure}
-                      onValueChange={(v) => handleChange("smtpSecure", v)}
-                    >
-                      <SelectTrigger id="smtpSecure">
-                        <SelectValue placeholder="Seleziona..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="false">No (TLS/STARTTLS)</SelectItem>
-                        <SelectItem value="true">Sì (SSL)</SelectItem>
-                      </SelectContent>
-                    </Select>
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="filterFrom" className="flex items-center gap-1">
+                        Mittente (opzionale)
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent>Solo email da questo indirizzo</TooltipContent>
+                        </Tooltip>
+                      </Label>
+                      <Input
+                        id="filterFrom"
+                        placeholder="mittente@esempio.com"
+                        value={form.filterFrom}
+                        onChange={(e) => handleChange("filterFrom", e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Solo email da questo mittente.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="filterSubject" className="flex items-center gap-1">
+                        Oggetto (opzionale)
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent>Solo email con questa parola nell'oggetto</TooltipContent>
+                        </Tooltip>
+                      </Label>
+                      <Input
+                        id="filterSubject"
+                        placeholder="parola chiave"
+                        value={form.filterSubject}
+                        onChange={(e) => handleChange("filterSubject", e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Solo email con questa parola nell'oggetto.
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
+              </CardContent>
+            </Card>
+          </div>
 
-              <div className="flex justify-end pt-2">
-                <Button type="submit" disabled={saving}>
-                  {saving ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Salvataggio...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="mr-2 h-4 w-4" />
-                      Salva impostazioni
-                    </>
-                  )}
-                </Button>
-              </div>
-            </form>
-          )}
-        </CardContent>
-      </Card>
+          <div className="flex justify-end">
+            <Button type="submit" disabled={saving}>
+              {saving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Salvataggio...
+                </>
+              ) : (
+                <>
+                  <Save className="mr-2 h-4 w-4" />
+                  Salva impostazioni
+                </>
+              )}
+            </Button>
+          </div>
+        </form>
+        </TooltipProvider>
+      )}
     </div>
   );
 }

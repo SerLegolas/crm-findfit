@@ -69,7 +69,9 @@ export async function PUT(request: NextRequest) {
       fields[key] = typeof val === "string" ? val : "";
     }
 
-    const updateData: Record<string, any> = { ...fields };
+    const footerAttivo = formData.get("footerAttivo") === "true";
+
+    const updateData: Record<string, any> = { ...fields, footerAttivo };
 
     // Assicura che la riga default esista
     const [existing] = await db

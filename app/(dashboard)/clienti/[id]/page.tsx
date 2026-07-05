@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import HtmlEditor from "@/components/html-editor";
 import {
   Select,
   SelectContent,
@@ -78,9 +79,10 @@ import {
   Info,
   CheckSquare,
   Save,
+  Eye,
 } from "lucide-react";
 
-type Tab = "azioni" | "dettagli" | "note" | "task" | "email";
+type Tab = "dettagli" | "azioni" | "task" | "note" | "email";
 
 interface Client {
   id: string;
@@ -163,6 +165,21 @@ export default function ClientDetailPage() {
   const [emailForm, setEmailForm] = useState({ subject: "", body: "", sender: "" });
   const [emailErrors, setEmailErrors] = useState<Record<string, string>>({});
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailTemplates, setEmailTemplates] = useState<{ id: string; name: string; subject: string; bodyHtml: string }[]>([]);
+  const [previewEmail, setPreviewEmail] = useState<EmailLog | null>(null);
+  const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
+
+  const fetchEmailTemplates = async () => {
+    try {
+      const res = await fetch("/api/email-templates");
+      if (res.ok) {
+        const data = await res.json();
+        setEmailTemplates(data);
+      }
+    } catch {
+      // silent
+    }
+  };
 
   // Current user & admin user list
   const [currentUser, setCurrentUser] = useState<{ id: string; email: string; name: string; role: string } | null>(null);
@@ -556,10 +573,10 @@ export default function ClientDetailPage() {
   })();
 
   const tabs: { key: Tab; label: string; icon?: React.ReactNode }[] = [
-    { key: "azioni", label: `Azioni (${mergedTimeline.length})`, icon: <ListChecks className="h-4 w-4" /> },
     { key: "dettagli", label: "Dettagli", icon: <Info className="h-4 w-4" /> },
-    { key: "note", label: `Note (${notes.length})`, icon: <FileText className="h-4 w-4" /> },
+    { key: "azioni", label: `Azioni (${mergedTimeline.length})`, icon: <ListChecks className="h-4 w-4" /> },
     { key: "task", label: `Task (${tasks.length})`, icon: <CheckSquare className="h-4 w-4" /> },
+    { key: "note", label: `Note (${notes.length})`, icon: <FileText className="h-4 w-4" /> },
     { key: "email", label: `Email (${emails.length})`, icon: <Mail className="h-4 w-4" /> },
   ];
 
@@ -589,6 +606,10 @@ export default function ClientDetailPage() {
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              tab.key === "task" || tab.key === "note" || tab.key === "email"
+                ? "hidden sm:inline-flex"
+                : ""
+            } ${
               activeTab === tab.key
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
@@ -652,6 +673,7 @@ export default function ClientDetailPage() {
                       size="icon"
                       onClick={() => {
                         setEmailForm({ subject: "", body: "", sender: defaultSender });
+                        fetchEmailTemplates();
                         setEmailModalOpen(true);
                         setActiveTab("email");
                       }}
@@ -763,7 +785,6 @@ export default function ClientDetailPage() {
                           </div>
                           <p className="text-sm font-medium">{email.subject}</p>
                           <p className="text-xs text-muted-foreground">Da: {email.sender}</p>
-                          <p className="text-sm text-muted-foreground mt-0.5 line-clamp-2">{email.body}</p>
                         </div>
                       );
                     })()}
@@ -819,7 +840,43 @@ export default function ClientDetailPage() {
                   rows={3}
                 />
               </div>
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-2">
+                <AlertDialog>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="destructive" size="icon">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>Elimina cliente</TooltipContent>
+                  </Tooltip>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Eliminare definitivamente questo cliente?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Verranno cancellati tutti i dati associati: anagrafica, task, note ed email.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Annulla</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={async () => {
+                          try {
+                            const res = await fetch(`/api/clients/${client!.id}`, { method: "DELETE" });
+                            if (!res.ok) throw new Error();
+                            router.push("/clienti");
+                          } catch {
+                            toast({ title: "Errore", description: "Eliminazione fallita", variant: "destructive" });
+                          }
+                        }}
+                      >
+                        Elimina
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button variant="default" size="icon" onClick={handleUpdateClient}>
@@ -1218,6 +1275,7 @@ export default function ClientDetailPage() {
                       body: "",
                       sender: defaultSender,
                     });
+                    fetchEmailTemplates();
                     setEmailModalOpen(true);
                   }}
                 >
@@ -1244,6 +1302,36 @@ export default function ClientDetailPage() {
                       Mittente configurato nelle impostazioni email.
                     </p>
                   </div>
+
+                  {emailTemplates.length > 0 && (
+                    <div className="space-y-2">
+                      <Label>Template</Label>
+                      <Select
+                        onValueChange={(val) => {
+                          const tmpl = emailTemplates.find((t) => t.id === val);
+                          if (tmpl) {
+                            setEmailForm({
+                              ...emailForm,
+                              subject: tmpl.subject,
+                              body: tmpl.bodyHtml,
+                            });
+                          }
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleziona un template..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {emailTemplates.map((tmpl) => (
+                            <SelectItem key={tmpl.id} value={tmpl.id}>
+                              {tmpl.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
                   <div className="space-y-2">
                     <Label>Oggetto</Label>
                     <Input
@@ -1322,13 +1410,26 @@ export default function ClientDetailPage() {
                         <p className="text-xs text-muted-foreground mb-1">
                           Da: {email.sender} &middot; {email.author}
                         </p>
-                        <p className="text-sm whitespace-pre-wrap line-clamp-3">
-                          {email.body}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-2">
+                        <p className="text-xs text-muted-foreground">
                           {formatDateTime(email.sentAt)}
                         </p>
                       </div>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="shrink-0"
+                            onClick={() => {
+                              setPreviewEmail(email);
+                              setPreviewDialogOpen(true);
+                            }}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Anteprima email</TooltipContent>
+                      </Tooltip>
                     </div>
                   </CardContent>
                 </Card>
@@ -1337,6 +1438,63 @@ export default function ClientDetailPage() {
           )}
         </div>
       )}
+
+      {/* Dialog anteprima email */}
+      <Dialog open={previewDialogOpen} onOpenChange={setPreviewDialogOpen}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Anteprima email</DialogTitle>
+          </DialogHeader>
+          {previewEmail && (
+            <div className="space-y-4">
+              {/* Metadati */}
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-xs text-muted-foreground font-medium">Mittente</span>
+                  <p>{previewEmail.sender}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground font-medium">Autore</span>
+                  <p>{previewEmail.author}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground font-medium">Oggetto</span>
+                  <p className="font-medium">{previewEmail.subject}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground font-medium">Data</span>
+                  <p>{formatDateTime(previewEmail.sentAt)}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground font-medium">Stato</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                    previewEmail.status === "sent"
+                      ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
+                      : previewEmail.status === "failed"
+                      ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
+                      : "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+                  }`}>
+                    {previewEmail.status === "sent" ? "Inviata" : previewEmail.status === "failed" ? "Fallita" : "In coda"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Corpo HTML renderizzato */}
+              <div className="rounded-md border bg-white p-4">
+                <div
+                  className="prose prose-sm max-w-none"
+                  dangerouslySetInnerHTML={{ __html: previewEmail.body }}
+                />
+              </div>
+            </div>
+          )}
+          <div className="flex justify-end pt-2">
+            <Button variant="outline" onClick={() => setPreviewDialogOpen(false)}>
+              Chiudi
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Transition note dialog */}
       <AlertDialog open={showTransitionDialog} onOpenChange={setShowTransitionDialog}>

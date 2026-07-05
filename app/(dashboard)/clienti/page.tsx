@@ -333,8 +333,8 @@ export default function ClientiPage() {
                   Azienda
                 </div>
               </TableHead>
-              <TableHead>Contatti</TableHead>
-              <TableHead>Assegnato a</TableHead>
+              <TableHead className="hidden sm:table-cell">Contatti</TableHead>
+              <TableHead className="hidden sm:table-cell">Assegnato a</TableHead>
               <TableHead>Azioni</TableHead>
             </TableRow>
           </TableHeader>
@@ -369,13 +369,13 @@ export default function ClientiPage() {
                       <span className="text-xs text-muted-foreground">{client.name}</span>
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden sm:table-cell">
                     <div className="flex flex-col">
                       <span>{client.email || "—"}</span>
                       <span className="text-xs text-muted-foreground">{client.phone || "—"}</span>
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden sm:table-cell">
                     {client.userId && usersMap[client.userId]
                       ? usersMap[client.userId]
                       : "—"}
@@ -404,6 +404,7 @@ export default function ClientiPage() {
                               <Button
                                 variant="ghost"
                                 size="icon"
+                                className="hidden sm:inline-flex"
                                 onClick={() => openEdit(client)}
                               >
                                 <Pencil className="h-4 w-4" />
@@ -411,35 +412,6 @@ export default function ClientiPage() {
                             </TooltipTrigger>
                             <TooltipContent>Modifica</TooltipContent>
                           </Tooltip>
-                          <AlertDialog>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <AlertDialogTrigger asChild>
-                                  <Button variant="ghost" size="icon">
-                                    <Trash2 className="h-4 w-4 text-destructive" />
-                                  </Button>
-                                </AlertDialogTrigger>
-                              </TooltipTrigger>
-                              <TooltipContent>Elimina</TooltipContent>
-                            </Tooltip>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Conferma eliminazione</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Sei sicuro di voler eliminare "{client.name}"?
-                              Questa azione è irreversibile.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Annulla</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => handleDelete(client.id)}
-                            >
-                              Elimina
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
                     </div>
                     </TooltipProvider>
                     </div>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { emailLog, imapSettings, clients } from "@/lib/schema";
+import { emailLog, imapSettings, clients, companySettings } from "@/lib/schema";
 import { emailSchema } from "@/types";
 import { eq, desc } from "drizzle-orm";
 import { decrypt } from "@/lib/crypto";
@@ -85,6 +85,47 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Sostituisci placeholder (@name, @company, @oggetto, @data)
+    const today = new Date().toLocaleDateString("it-IT", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+    const replaceTags = (text: string) =>
+      text
+        .replace(/@name/g, client.name || "")
+        .replace(/@company/g, client.company || "")
+        .replace(/@data/g, today);
+
+    const resolvedSubject = replaceTags(parsed.subject);
+    let resolvedBody = replaceTags(parsed.body);
+
+    // Footer dati azienda
+    const [companyRow] = await db
+      .select()
+      .from(companySettings)
+      .where(eq(companySettings.id, "default"))
+      .limit(1);
+
+    if (companyRow?.footerAttivo && companyRow.denominazione) {
+      const parts = [
+        companyRow.denominazione,
+        [companyRow.indirizzo, companyRow.città, companyRow.provincia].filter(Boolean).join(", ") +
+          (companyRow.cap ? ` ${companyRow.cap}` : ""),
+        `Tel: ${companyRow.telefono} - Email: ${companyRow.email}`,
+        `P.IVA: ${companyRow.piva} - C.F.: ${companyRow.cf}`,
+      ].filter(Boolean);
+
+      if (parts.length > 0) {
+        const footer = `
+<hr />
+<div style="text-align:center;font-size:12px;color:#888;">
+${parts.join("<br />")}
+</div>`;
+        resolvedBody += footer;
+      }
+    }
+
     // Leggi configurazione SMTP da imap_settings
     const rows = await db.select().from(imapSettings).limit(1);
 
@@ -118,8 +159,8 @@ export async function POST(request: NextRequest) {
       await transporter.sendMail({
         from: `"${authUser.name}" <${parsed.sender}>`,
         to: client.email,
-        subject: parsed.subject,
-        text: parsed.body,
+        subject: resolvedSubject,
+        html: resolvedBody,
       });
     } catch (sendErr) {
       console.error("[EMAIL-SEND] SMTP error:", sendErr);
@@ -131,8 +172,8 @@ export async function POST(request: NextRequest) {
       .insert(emailLog)
       .values({
         clientId,
-        subject: parsed.subject,
-        body: parsed.body,
+        subject: resolvedSubject,
+        body: resolvedBody,
         sender: parsed.sender,
         author: authUser.name,
         status,

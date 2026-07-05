@@ -83,6 +83,15 @@ export const emailSchema = z.object({
 
 export type EmailFormData = z.infer<typeof emailSchema>;
 
+// ── Email Template ──
+export const emailTemplateSchema = z.object({
+  name: z.string().min(1, "Il nome è obbligatorio"),
+  subject: z.string().min(1, "L'oggetto è obbligatorio"),
+  bodyHtml: z.string().min(1, "Il corpo è obbligatorio"),
+});
+
+export type EmailTemplateFormData = z.infer<typeof emailTemplateSchema>;
+
 // ── Transizioni status ──
 export const allowedTransitions: Record<ClientStatus, ClientStatus[]> = {
   lead: ["suspect", "won", "closed_lost"],

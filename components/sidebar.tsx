@@ -12,7 +12,6 @@ import {
   CalendarDays,
   FileText,
   Settings,
-  Mail,
   Shield,
   Server,
   Facebook,
@@ -31,10 +30,10 @@ interface SidebarProps {
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/clienti", label: "Lista Clienti", icon: Users },
   { href: "/kanban", label: "Trattative", icon: Kanban },
-  { href: "/task", label: "Task Scaduti", icon: CalendarCheck },
+  { href: "/clienti", label: "Lista Clienti", icon: Users },
   { href: "/task-calendar", label: "Calendario Task", icon: CalendarDays },
+  { href: "/task", label: "Task Scaduti", icon: CalendarCheck },
   { href: "/note", label: "Note Recenti", icon: FileText },
   { href: "/impostazioni", label: "Impostazioni", icon: Settings },
 ];
@@ -106,6 +105,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             {navItems.map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
               const Icon = item.icon;
+              const isImpostazioni = item.href === "/impostazioni";
               return (
                 <Link
                   key={item.href}
@@ -115,7 +115,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
                     isActive
                       ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground"
+                      : "text-muted-foreground",
+                    isImpostazioni && "hidden lg:flex"
                   )}
                 >
                   <Icon className="h-5 w-5 shrink-0" />
@@ -126,7 +127,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
             {/* Admin section */}
             {user?.role === "admin" && (
-              <>
+              <div className="hidden lg:block">
                 <button
                   onClick={() => setAdminOpen(!adminOpen)}
                   className="mt-4 mb-1 px-3 flex items-center justify-between w-full text-xs font-semibold uppercase text-muted-foreground hover:text-foreground transition-colors"
@@ -164,20 +165,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   )}
                 >
                   <Server className="h-5 w-5 shrink-0" />
-                  <span>Configurazione IMAP</span>
-                </Link>
-                <Link
-                  href="/admin/email-test"
-                  onClick={onClose}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
-                    pathname === "/admin/email-test"
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground"
-                  )}
-                >
-                  <Mail className="h-5 w-5 shrink-0" />
-                  <span>Test Email</span>
+                  <span>Configurazione Email</span>
                 </Link>
                 <Link
                   href="/test-email"
@@ -207,7 +195,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 </Link>
               </>
             )}
-              </>
+              </div>
             )}
           </nav>
         </div>

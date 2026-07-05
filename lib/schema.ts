@@ -150,6 +150,24 @@ export const emailLog = sqliteTable("email_log", {
     .$defaultFn(() => new Date()),
 });
 
+// ── Email Templates ──
+export const emailTemplates = sqliteTable("email_templates", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => randomUUID()),
+  name: text("name").notNull(),
+  subject: text("subject").notNull(),
+  bodyHtml: text("body_html").notNull(),
+  author: text("author").notNull().default("Utente"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
 // ── Company Settings ──
 export const companySettings = sqliteTable("company_settings", {
   id: text("id").primaryKey().$defaultFn(() => "default"),
@@ -162,6 +180,7 @@ export const companySettings = sqliteTable("company_settings", {
   cap: text("cap").notNull().default(""),
   email: text("email").notNull().default(""),
   telefono: text("telefono").notNull().default(""),
+  footerAttivo: integer("footer_attivo", { mode: "boolean" }).notNull().default(false),
 });
 
 // ── Tipi ──
@@ -177,5 +196,7 @@ export type ImapSetting = typeof imapSettings.$inferSelect;
 export type NewImapSetting = typeof imapSettings.$inferInsert;
 export type EmailLog = typeof emailLog.$inferSelect;
 export type NewEmailLog = typeof emailLog.$inferInsert;
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
+export type NewEmailTemplate = typeof emailTemplates.$inferInsert;
 export type CompanySetting = typeof companySettings.$inferSelect;
 export type NewCompanySetting = typeof companySettings.$inferInsert;
