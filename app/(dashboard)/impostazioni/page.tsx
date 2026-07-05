@@ -662,7 +662,7 @@ export default function ImpostazioniPage() {
                 <Label htmlFor={key}>{label}</Label>
                 <Input
                   id={key}
-                  value={editForm[key] || ""}
+                  value={String(editForm[key] ?? "")}
                   onChange={(e) => setEditForm({ ...editForm, [key]: e.target.value })}
                 />
               </div>
