@@ -42,6 +42,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
   const [user, setUser] = useState<{ name: string; role: string } | null>(null);
   const [companyName, setCompanyName] = useState("");
+  const [appVersion, setAppVersion] = useState("");
   const [adminOpen, setAdminOpen] = useState(false);
   const router = usePathname(); // just for reactivity
 
@@ -57,6 +58,13 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       .then((r) => r.json())
       .then((data) => {
         if (data.denominazione) setCompanyName(data.denominazione);
+      })
+      .catch(() => {});
+
+    fetch("/version.json")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.version) setAppVersion(data.version);
       })
       .catch(() => {});
   }, [pathname]);
@@ -206,6 +214,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium truncate">{user.name}</p>
                 <p className="text-xs text-muted-foreground capitalize">{user.role}</p>
+                {appVersion && (
+                  <p className="text-[10px] text-muted-foreground italic mt-0.5">v{appVersion}</p>
+                )}
               </div>
               <Button variant="ghost" size="icon" onClick={handleLogout} title="Esci">
                 <LogOut className="h-4 w-4" />
