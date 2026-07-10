@@ -11,7 +11,7 @@
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "version:patch": "node -e \"const fs=require('fs');const v=JSON.parse(fs.readFileSync('version.json'));const parts=v.version.split('.');parts[2]=parseInt(parts[2])+1;v.version=parts.join('.');fs.writeFileSync('version.json',JSON.stringify(v,null,2));\""
+    "version:patch": "node -e \"const fs=require('fs');const v=JSON.parse(fs.readFileSync('public/version.json'));const parts=v.version.split('.');parts[2]=parseInt(parts[2])+1;v.version=parts.join('.');fs.writeFileSync('public/version.json',JSON.stringify(v,null,2));\""
   },
   "dependencies": {
     "@hello-pangea/dnd": "^16.6.0",

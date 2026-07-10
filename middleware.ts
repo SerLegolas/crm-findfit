@@ -12,7 +12,7 @@ const COOKIE_NAME = "session";
 const protectedPaths = ["/dashboard", "/clienti", "/kanban", "/task", "/note", "/impostazioni", "/admin"];
 
 // Rotte API protette (esclusa auth)
-const protectedApiPaths = ["/api/clients", "/api/dashboard", "/api/tasks", "/api/note", "/api/users"];
+const protectedApiPaths = ["/api/clients", "/api/dashboard", "/api/tasks", "/api/note", "/api/users", "/api/email-templates"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -79,5 +79,6 @@ export const config = {
     "/api/note/:path*",
     "/api/users/:path*",
     "/api/auth/:path*",
+    "/api/email-templates/:path*",
   ],
 };
