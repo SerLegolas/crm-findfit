@@ -91,6 +91,7 @@ interface Client {
   phone: string | null;
   company: string | null;
   status: ClientStatus;
+  categoria: string | null;
   notes: string | null;
   userId: string | null;
   createdAt: number;
@@ -156,7 +157,7 @@ export default function ClientDetailPage() {
   const [pendingTransition, setPendingTransition] = useState<ClientStatus | null>(null);
 
   // Form state for edit
-  const [editForm, setEditForm] = useState({ name: "", email: "", phone: "", company: "", notes: "" });
+  const [editForm, setEditForm] = useState({ name: "", email: "", phone: "", company: "", categoria: "", notes: "" });
 
   // Email
   const [emails, setEmails] = useState<EmailLog[]>([]);
@@ -209,6 +210,7 @@ export default function ClientDetailPage() {
         email: data.email || "",
         phone: data.phone || "",
         company: data.company || "",
+        categoria: data.categoria || "",
         notes: data.notes || "",
       });
     } catch {
@@ -949,6 +951,34 @@ export default function ClientDetailPage() {
                   </Select>
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Categoria</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Categoria cliente</Label>
+                <Input
+                  value={editForm.categoria}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, categoria: e.target.value })
+                  }
+                  placeholder="es. Cliente, Prospect, Partner..."
+                />
+              </div>
+              <div className="flex justify-end">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="default" size="icon" onClick={handleUpdateClient}>
+                      <Save className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Salva categoria</TooltipContent>
+                </Tooltip>
+              </div>
             </CardContent>
           </Card>
         </div>

@@ -67,6 +67,7 @@ interface Client {
   phone: string | null;
   company: string | null;
   status: ClientStatus;
+  categoria: string | null;
   notes: string | null;
   userId: string | null;
   createdAt: number;
@@ -81,6 +82,7 @@ export default function ClientiPage() {
   const [limit] = useState(10);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [categoriaFilter, setCategoriaFilter] = useState("");
   const [sort, setSort] = useState("createdAt");
   const [order, setOrder] = useState("desc");
   const [loading, setLoading] = useState(true);
@@ -96,6 +98,7 @@ export default function ClientiPage() {
     phone: "",
     company: "",
     status: "lead" as ClientStatus,
+    categoria: "",
     notes: "",
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -111,11 +114,12 @@ export default function ClientiPage() {
       });
       if (search) params.set("search", search);
       if (statusFilter) params.set("status", statusFilter);
+      if (categoriaFilter) params.set("categoria", categoriaFilter);
 
       const res = await fetch(`/api/clients?${params}`);
       const data = await res.json();
-      setClients(data.data);
-      setTotal(data.total);
+      setClients(Array.isArray(data?.data) ? data.data : []);
+      setTotal(data?.total ?? 0);
     } catch {
       toast({
         title: "Errore",
@@ -125,7 +129,7 @@ export default function ClientiPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, statusFilter, sort, order, toast]);
+  }, [page, limit, search, statusFilter, categoriaFilter, sort, order, toast]);
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -222,8 +226,7 @@ export default function ClientiPage() {
       email: "",
       phone: "",
       company: "",
-      status: "lead",
-      notes: "",
+      status: "lead",      categoria: "",      notes: "",
     });
     setEditClient(null);
     setFormErrors({});
@@ -237,6 +240,7 @@ export default function ClientiPage() {
       phone: client.phone || "",
       company: client.company || "",
       status: client.status,
+      categoria: client.categoria || "",
       notes: client.notes || "",
     });
     setModalOpen(true);
@@ -312,6 +316,18 @@ export default function ClientiPage() {
             ))}
           </SelectContent>
         </Select>
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Cerca per categoria..."
+            value={categoriaFilter}
+            onChange={(e) => {
+              setCategoriaFilter(e.target.value);
+              setPage(1);
+            }}
+            className="pl-9 w-full sm:w-44"
+          />
+        </div>
       </div>
 
       {/* Table */}
@@ -367,6 +383,9 @@ export default function ClientiPage() {
                     <div className="flex flex-col">
                       <span className="font-medium">{client.company || "—"}</span>
                       <span className="text-xs text-muted-foreground">{client.name}</span>
+                      {client.categoria && (
+                        <span className="text-xs text-muted-foreground italic">{client.categoria}</span>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="hidden sm:table-cell">
@@ -510,6 +529,18 @@ export default function ClientiPage() {
                 onChange={(e) =>
                   setFormData({ ...formData, company: e.target.value })
                 }
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="categoria">Categoria</Label>
+              <Input
+                id="categoria"
+                value={formData.categoria}
+                onChange={(e) =>
+                  setFormData({ ...formData, categoria: e.target.value })
+                }
+                placeholder="es. Cliente, Prospect, Partner..."
               />
             </div>
 

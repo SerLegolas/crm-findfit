@@ -32,6 +32,7 @@ export const clientSchema = z.object({
   phone: z.string().optional().or(z.literal("")),
   company: z.string().optional().or(z.literal("")),
   status: z.enum(clientStatuses).default("lead"),
+  categoria: z.string().optional().or(z.literal("")),
   notes: z.string().optional().or(z.literal("")),
 });
 

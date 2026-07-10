@@ -38,6 +38,7 @@ export const clients = sqliteTable("clients", {
   })
     .notNull()
     .default("lead"),
+  categoria: text("categoria"),
   notes: text("notes"),
   userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: integer("created_at", { mode: "timestamp" })

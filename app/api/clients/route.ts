@@ -15,6 +15,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search") || "";
     const status = searchParams.get("status") || "";
+    const categoria = searchParams.get("categoria") || "";
     const sort = searchParams.get("sort") || "createdAt";
     const order = searchParams.get("order") || "desc";
     const page = parseInt(searchParams.get("page") || "1");
@@ -33,6 +34,9 @@ export async function GET(request: NextRequest) {
     }
     if (status && status !== "all") {
       conditions.push(eq(clients.status, status as any));
+    }
+    if (categoria && categoria !== "all") {
+      conditions.push(like(clients.categoria, `%${categoria}%`));
     }
     // Filtra per user_id se l'utente non è admin: vede i non assegnati + i propri
     if (authUser.role !== "admin") {
@@ -91,6 +95,7 @@ export async function POST(request: NextRequest) {
         phone: parsed.phone || null,
         company: parsed.company || null,
         status: parsed.status,
+        categoria: parsed.categoria || null,
         notes: parsed.notes || null,
         userId: authUser.role === "admin" ? null : authUser.id,
       })
