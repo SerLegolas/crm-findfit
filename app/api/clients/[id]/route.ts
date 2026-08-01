@@ -118,11 +118,12 @@ export async function PATCH(
         content: body.noteContent,
         type: "decisione",
         author: "Sistema",
+        companyId: currentClient.companyId,
       });
     }
 
     // Create automatic tasks on new status
-    const authUserCompanyId = authUser?.companyId;
+    const authUserCompanyId = currentClient.companyId;
     if (body.status === "suspect" && body.status !== currentClient.status) {
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 3);

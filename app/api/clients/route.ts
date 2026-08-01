@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { clients, tasks } from "@/lib/schema";
 import { clientSchema } from "@/types";
-import { eq, desc, like, or, and, sql } from "drizzle-orm";
+import { eq, desc, like, or, and, sql, type SQL } from "drizzle-orm";
 import { getAuthUser, requireCompany } from "@/lib/auth";
 import {
   checkMaxClients,
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "10");
     const offset = (page - 1) * limit;
 
-    const conditions = [eq(clients.companyId, companyId)];
+    const conditions: (SQL | undefined)[] = [eq(clients.companyId, companyId)];
     if (search) {
       conditions.push(
         or(

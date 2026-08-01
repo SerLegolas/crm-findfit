@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tasks, clients } from "@/lib/schema";
 import { taskSchema } from "@/types";
-import { eq, desc, and, lte, gte, or, sql } from "drizzle-orm";
+import { eq, desc, and, lte, gte, or, sql, type SQL } from "drizzle-orm";
 import { getAuthUser } from "@/lib/auth";
 import {
   checkMaxTasks,
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
     const clientId = searchParams.get("clientId") || "";
     const upcomingDays = parseInt(searchParams.get("upcomingDays") || "7");
 
-    const conditions = [eq(tasks.companyId, companyId)];
+    const conditions: (SQL | undefined)[] = [eq(tasks.companyId, companyId)];
 
     if (status && status !== "all") {
       conditions.push(eq(tasks.status, status as any));
