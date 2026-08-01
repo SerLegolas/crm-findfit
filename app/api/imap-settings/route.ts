@@ -2,15 +2,37 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { imapSettings } from "@/lib/schema";
 import { encrypt, decrypt } from "@/lib/crypto";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
+import { getAuthUser } from "@/lib/auth";
+import { checkAdminFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** GET: recupera le impostazioni IMAP/SMTP (decriptate) */
+/** GET: recupera le impostazioni IMAP/SMTP (decriptate) per la company corrente */
 export async function GET() {
   try {
-    const rows = await db.select().from(imapSettings).limit(1);
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    // Verifica feature admin
+    try {
+      await checkAdminFeatureEnabled(authUser.companyId, "configurazione_email");
+    } catch (e) {
+      if (e instanceof FeatureDisabledError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
+
+    const rows = await db
+      .select()
+      .from(imapSettings)
+      .where(eq(imapSettings.companyId, authUser.companyId))
+      .limit(1);
+
     if (rows.length === 0) {
       return NextResponse.json({ settings: null });
     }
@@ -39,9 +61,14 @@ export async function GET() {
   }
 }
 
-/** PUT: salva (upsert) le impostazioni IMAP/SMTP (criptate) */
+/** PUT: salva (upsert) le impostazioni IMAP/SMTP (criptate) per la company corrente */
 export async function PUT(request: NextRequest) {
   try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
     const body = await request.json();
     const { imapHost, imapPort, user, password, filterFrom, filterSubject, smtpHost, smtpPort, smtpSecure } = body;
 
@@ -62,10 +89,15 @@ export async function PUT(request: NextRequest) {
       smtpHost: smtpHost ? encrypt(smtpHost) : null,
       smtpPort: smtpPort ? encrypt(smtpPort) : null,
       smtpSecure: smtpSecure ?? false,
+      companyId: authUser.companyId,
     };
 
-    // Upsert: verifica se esiste già una riga
-    const existing = await db.select().from(imapSettings).limit(1);
+    // Upsert: verifica se esiste già una riga per questa company
+    const existing = await db
+      .select()
+      .from(imapSettings)
+      .where(eq(imapSettings.companyId, authUser.companyId))
+      .limit(1);
 
     if (existing.length > 0) {
       await db
@@ -73,9 +105,11 @@ export async function PUT(request: NextRequest) {
         .set({ ...encrypted, updatedAt: new Date() })
         .where(eq(imapSettings.id, existing[0].id));
     } else {
+      // id univoco per azienda: evita il conflitto di chiave primaria
+      // (l'id fisso "default" permetteva una sola riga in tutta la tabella)
       await db.insert(imapSettings).values({
         ...encrypted,
-        id: "default",
+        id: authUser.companyId,
       });
     }
 

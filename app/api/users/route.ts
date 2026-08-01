@@ -1,13 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
-import { requireAuth, requireAdmin, hashPassword } from "@/lib/auth";
+import { requireAuth, requireAdmin, requireCompany, hashPassword } from "@/lib/auth";
 import { userSchema } from "@/types";
+import { checkMaxUsers, MaxLimitError, checkAdminFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
 import { eq, desc } from "drizzle-orm";
 
 export async function GET() {
   try {
-    await requireAuth();
+    const authUser = await requireAuth();
+    const companyId = authUser.companyId;
+
+    // Verifica feature admin
+    try {
+      await checkAdminFeatureEnabled(authUser.companyId, "gestione_utenti");
+    } catch (e) {
+      if (e instanceof FeatureDisabledError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
 
     const data = await db
       .select({
@@ -19,6 +31,7 @@ export async function GET() {
         createdAt: users.createdAt,
       })
       .from(users)
+      .where(eq(users.companyId, companyId))
       .orderBy(desc(users.createdAt));
 
     return NextResponse.json({ data });
@@ -36,7 +49,18 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    await requireAdmin();
+    const authUser = await requireAdmin();
+    const companyId = authUser.companyId;
+
+    // Controlla limite massimo utenti
+    try {
+      await checkMaxUsers(companyId);
+    } catch (e) {
+      if (e instanceof MaxLimitError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
 
     const body = await request.json();
     const parsed = userSchema.safeParse(body);
@@ -50,7 +74,7 @@ export async function POST(request: NextRequest) {
 
     const { email, password, name, role, isActive } = parsed.data;
 
-    // Verifica email univoca
+    // Verifica email univoca (globale)
     const existing = await db
       .select()
       .from(users)
@@ -81,6 +105,7 @@ export async function POST(request: NextRequest) {
         name,
         role,
         isActive,
+        companyId,
       })
       .returning();
 

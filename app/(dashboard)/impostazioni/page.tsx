@@ -291,12 +291,18 @@ export default function ImpostazioniPage() {
     }
   };
 
-  const tabs: { key: Tab; label: string }[] = [
+  const allTabs: { key: Tab; label: string }[] = [
     { key: "generali", label: "Generali" },
     { key: "utente", label: "Utente" },
     { key: "azienda", label: "Azienda" },
     { key: "template_email", label: "Template Email" },
   ];
+
+  const tabs = allTabs.filter((tab) => {
+    if (user?.role === "admin") return true;
+    // Ruolo "user": mostra solo Utente e Template Email
+    return tab.key === "utente" || tab.key === "template_email";
+  });
 
   const companyFields: { key: keyof CompanyData; label: string }[] = [
     { key: "denominazione", label: "Denominazione" },

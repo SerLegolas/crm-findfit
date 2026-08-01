@@ -2,22 +2,28 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tasks } from "@/lib/schema";
 import { taskSchema } from "@/types";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
+import { getAuthUser } from "@/lib/auth";
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
     const { id } = await params;
     const body = await request.json();
     const parsed = taskSchema.partial().parse(body);
 
-    // Get current task to check status change
+    // Get current task to check status change (filter by company)
     const existing = await db
       .select()
       .from(tasks)
-      .where(eq(tasks.id, id))
+      .where(and(eq(tasks.id, id), eq(tasks.companyId, authUser.companyId)))
       .limit(1);
 
     if (!existing.length) {
@@ -70,8 +76,15 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
     const { id } = await params;
-    await db.delete(tasks).where(eq(tasks.id, id));
+    await db
+      .delete(tasks)
+      .where(and(eq(tasks.id, id), eq(tasks.companyId, authUser.companyId)));
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error deleting task:", error);

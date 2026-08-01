@@ -3,7 +3,13 @@ import { db } from "@/lib/db";
 import { clients, tasks } from "@/lib/schema";
 import { clientSchema } from "@/types";
 import { eq, desc, like, or, and, sql } from "drizzle-orm";
-import { getAuthUser } from "@/lib/auth";
+import { getAuthUser, requireCompany } from "@/lib/auth";
+import {
+  checkMaxClients,
+  MaxLimitError,
+  checkFeatureEnabled,
+  FeatureDisabledError,
+} from "@/lib/company-rules";
 
 export async function GET(request: NextRequest) {
   try {
@@ -11,6 +17,18 @@ export async function GET(request: NextRequest) {
     if (!authUser) {
       return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
     }
+
+    // Verifica feature abilitata
+    try {
+      await checkFeatureEnabled(authUser.companyId, "clienti");
+    } catch (e) {
+      if (e instanceof FeatureDisabledError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
+
+    const companyId = authUser.companyId;
 
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search") || "";
@@ -22,7 +40,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "10");
     const offset = (page - 1) * limit;
 
-    const conditions = [];
+    const conditions = [eq(clients.companyId, companyId)];
     if (search) {
       conditions.push(
         or(
@@ -84,6 +102,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
     }
 
+    // Controlla limite massimo clienti
+    try {
+      await checkMaxClients(authUser.companyId);
+    } catch (e) {
+      if (e instanceof MaxLimitError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
+
     const body = await request.json();
     const parsed = clientSchema.parse(body);
 
@@ -98,6 +126,7 @@ export async function POST(request: NextRequest) {
         categoria: parsed.categoria || null,
         notes: parsed.notes || null,
         userId: authUser.role === "admin" ? null : authUser.id,
+        companyId: authUser.companyId,
       })
       .returning();
 
@@ -111,6 +140,7 @@ export async function POST(request: NextRequest) {
         description: "Chiamata di qualificazione per il nuovo suspect",
         dueDate,
         priority: "high",
+        companyId: authUser.companyId,
       });
     }
 
@@ -127,6 +157,7 @@ export async function POST(request: NextRequest) {
           description: "Inviare il contratto al cliente",
           dueDate: dueContract,
           priority: "high",
+          companyId: authUser.companyId,
         },
         {
           clientId: client.id,
@@ -134,6 +165,7 @@ export async function POST(request: NextRequest) {
           description: "Completare l'onboarding del cliente",
           dueDate: dueOnboarding,
           priority: "medium",
+          companyId: authUser.companyId,
         },
       ]);
     }

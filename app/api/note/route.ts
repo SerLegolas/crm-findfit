@@ -4,6 +4,7 @@ import { notes, clients } from "@/lib/schema";
 import { noteSchema } from "@/types";
 import { eq, desc, like, and, gte, sql, or } from "drizzle-orm";
 import { getAuthUser } from "@/lib/auth";
+import { checkFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
 
 export async function GET(request: NextRequest) {
   try {
@@ -11,6 +12,18 @@ export async function GET(request: NextRequest) {
     if (!authUser) {
       return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
     }
+
+    // Verifica feature abilitata
+    try {
+      await checkFeatureEnabled(authUser.companyId, "note");
+    } catch (e) {
+      if (e instanceof FeatureDisabledError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
+
+    const companyId = authUser.companyId;
 
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search") || "";
@@ -21,7 +34,10 @@ export async function GET(request: NextRequest) {
     const dateThreshold = new Date();
     dateThreshold.setDate(dateThreshold.getDate() - days);
 
-    const conditions = [gte(notes.createdAt, dateThreshold)];
+    const conditions = [
+      gte(notes.createdAt, dateThreshold),
+      eq(notes.companyId, companyId),
+    ];
 
     if (type) {
       conditions.push(eq(notes.type, type as any));
@@ -104,6 +120,7 @@ export async function POST(request: NextRequest) {
         content: parsed.content,
         type: parsed.type,
         author: parsed.author,
+        companyId: authUser.companyId,
       })
       .returning();
 

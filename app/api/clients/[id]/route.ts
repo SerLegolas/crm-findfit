@@ -11,9 +11,10 @@ async function getClientIfAuthorized(id: string) {
 
   const where =
     authUser.role === "admin"
-      ? eq(clients.id, id)
+      ? and(eq(clients.id, id), eq(clients.companyId, authUser.companyId))
       : and(
           eq(clients.id, id),
+          eq(clients.companyId, authUser.companyId),
           or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`)
         );
 
@@ -121,6 +122,7 @@ export async function PATCH(
     }
 
     // Create automatic tasks on new status
+    const authUserCompanyId = authUser?.companyId;
     if (body.status === "suspect" && body.status !== currentClient.status) {
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 3);
@@ -130,6 +132,7 @@ export async function PATCH(
         description: "Chiamata di qualificazione per il nuovo suspect",
         dueDate,
         priority: "high",
+        companyId: authUserCompanyId,
       });
     }
 
@@ -146,6 +149,7 @@ export async function PATCH(
           description: "Inviare il contratto al cliente",
           dueDate: dueContract,
           priority: "high",
+          companyId: authUserCompanyId,
         },
         {
           clientId: id,
@@ -153,6 +157,7 @@ export async function PATCH(
           description: "Completare l'onboarding del cliente",
           dueDate: dueOnboarding,
           priority: "medium",
+          companyId: authUserCompanyId,
         },
       ]);
     }

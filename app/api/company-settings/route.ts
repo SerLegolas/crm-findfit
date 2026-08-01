@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** GET: restituisce i dati azienda (accesso autenticato) */
+/** GET: restituisce i dati azienda per la company corrente */
 export async function GET() {
   try {
     const authUser = await getAuthUser();
@@ -15,17 +15,19 @@ export async function GET() {
       return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
     }
 
+    const companyId = authUser.companyId;
+
     let [settings] = await db
       .select()
       .from(companySettings)
-      .where(eq(companySettings.id, "default"))
+      .where(eq(companySettings.companyId, companyId))
       .limit(1);
 
-    // Se non esiste, crea riga default
+    // Se non esiste, crea riga per questa company (id = companyId)
     if (!settings) {
       [settings] = await db
         .insert(companySettings)
-        .values({ id: "default" })
+        .values({ id: companyId, companyId })
         .returning();
     }
 
@@ -50,6 +52,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Accesso negato" }, { status: 403 });
     }
 
+    const companyId = authUser.companyId;
     const formData = await request.formData();
 
     const fields: Record<string, string> = {
@@ -73,20 +76,20 @@ export async function PUT(request: NextRequest) {
 
     const updateData: Record<string, any> = { ...fields, footerAttivo };
 
-    // Assicura che la riga default esista
+    // Assicura che la riga per questa company esista
     const [existing] = await db
       .select()
       .from(companySettings)
-      .where(eq(companySettings.id, "default"))
+      .where(eq(companySettings.companyId, companyId))
       .limit(1);
 
     if (!existing) {
-      await db.insert(companySettings).values({ id: "default", ...updateData });
+      await db.insert(companySettings).values({ id: companyId, companyId, ...updateData });
     } else {
       await db
         .update(companySettings)
         .set(updateData)
-        .where(eq(companySettings.id, "default"));
+        .where(eq(companySettings.companyId, companyId));
     }
 
     return NextResponse.json({ success: true });

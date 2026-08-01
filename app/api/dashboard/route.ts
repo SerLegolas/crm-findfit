@@ -37,17 +37,21 @@ export async function GET() {
     endOfToday.setHours(23, 59, 59, 999);
 
     const isAdmin = authUser.role === "admin";
+    const companyId = authUser.companyId;
+
+    // Filtro companyId per tutti
+    const companyClause = eq(clients.companyId, companyId);
 
     // Condition per filtrare per user_id se non admin: vede non assegnati + propri
     const userFilter = isAdmin
-      ? undefined
-      : or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`);
+      ? companyClause
+      : and(companyClause, or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`));
     const taskUserFilter = isAdmin
-      ? undefined
-      : or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`);
+      ? and(eq(tasks.companyId, companyId))
+      : and(eq(tasks.companyId, companyId), or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`));
 
     // Count per status
-    const statusWhere = userFilter ? and(userFilter) : undefined;
+    const statusWhere = userFilter;
     const statusCounts = await db
       .select({
         status: clients.status,
@@ -68,9 +72,11 @@ export async function GET() {
     });
 
     // Overdue tasks banner count (solo prima di oggi, non include oggi)
-    const overdueWhere = taskUserFilter
-      ? and(lte(tasks.dueDate, startOfToday), sql`${tasks.status} IN ('todo', 'in_progress')`, taskUserFilter)
-      : and(lte(tasks.dueDate, startOfToday), sql`${tasks.status} IN ('todo', 'in_progress')`);
+    const overdueWhere = and(
+      lte(tasks.dueDate, startOfToday),
+      sql`${tasks.status} IN ('todo', 'in_progress')`,
+      taskUserFilter
+    );
 
     const overdueCount = await db
       .select({ count: sql<number>`count(*)` })
@@ -79,9 +85,11 @@ export async function GET() {
       .where(overdueWhere);
 
     // Top 10 overdue tasks (due before today, not completed), ordered by priority
-    const overdueWhere2 = taskUserFilter
-      ? and(lte(tasks.dueDate, startOfToday), sql`${tasks.status} IN ('todo', 'in_progress')`, taskUserFilter)
-      : and(lte(tasks.dueDate, startOfToday), sql`${tasks.status} IN ('todo', 'in_progress')`);
+    const overdueWhere2 = and(
+      lte(tasks.dueDate, startOfToday),
+      sql`${tasks.status} IN ('todo', 'in_progress')`,
+      taskUserFilter
+    );
 
     const overdueTodayTasks = await db
       .select({
@@ -100,18 +108,12 @@ export async function GET() {
       .limit(10);
 
     // Top 10 tasks due today (not yet overdue), ordered by priority
-    const dueTodayWhere = taskUserFilter
-      ? and(
-          gte(tasks.dueDate, startOfToday),
-          lte(tasks.dueDate, endOfToday),
-          sql`${tasks.status} IN ('todo', 'in_progress')`,
-          taskUserFilter
-        )
-      : and(
-          gte(tasks.dueDate, startOfToday),
-          lte(tasks.dueDate, endOfToday),
-          sql`${tasks.status} IN ('todo', 'in_progress')`
-        );
+    const dueTodayWhere = and(
+      gte(tasks.dueDate, startOfToday),
+      lte(tasks.dueDate, endOfToday),
+      sql`${tasks.status} IN ('todo', 'in_progress')`,
+      taskUserFilter
+    );
 
     const dueTodayTasks = await db
       .select({
@@ -139,9 +141,7 @@ export async function GET() {
       const dayEnd = new Date(day);
       dayEnd.setHours(23, 59, 59, 999);
 
-      const trendWhere = userFilter
-        ? and(gte(clients.createdAt, dayStart), lte(clients.createdAt, dayEnd), userFilter)
-        : and(gte(clients.createdAt, dayStart), lte(clients.createdAt, dayEnd));
+      const trendWhere = and(gte(clients.createdAt, dayStart), lte(clients.createdAt, dayEnd), userFilter);
 
       const [countResult] = await db
         .select({ count: sql<number>`count(*)` })

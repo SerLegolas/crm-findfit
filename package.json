@@ -11,7 +11,8 @@
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "version:patch": "node -e \"const fs=require('fs');const v=JSON.parse(fs.readFileSync('public/version.json'));const parts=v.version.split('.');parts[2]=parseInt(parts[2])+1;v.version=parts.join('.');fs.writeFileSync('public/version.json',JSON.stringify(v,null,2));\""
+    "db:migrate-multi-tenant": "npx tsx scripts/migrate-multi-tenant.ts",
+    "version:patch": "node scripts/version-patch.mjs"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^16.6.0",
@@ -32,6 +33,7 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
+    "dayjs": "^1.11.21",
     "drizzle-orm": "^0.45.2",
     "imapflow": "^1.4.0",
     "jose": "^6.2.3",

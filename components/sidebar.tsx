@@ -38,13 +38,25 @@ const navItems = [
   { href: "/impostazioni", label: "Impostazioni", icon: Settings },
 ];
 
+// Mappa: href del navItem → feature key
+// Solo gli item con una feature key vengono filtrati; /dashboard è sempre visibile.
+const navFeatureMap: Record<string, string> = {
+  "/clienti": "clienti",
+  "/kanban": "kanban",
+  "/task": "task",
+  "/task-calendar": "task",
+  "/note": "note",
+  "/impostazioni": "impostazioni",
+};
+
 export function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
   const [user, setUser] = useState<{ name: string; role: string } | null>(null);
   const [companyName, setCompanyName] = useState("");
   const [appVersion, setAppVersion] = useState("");
   const [adminOpen, setAdminOpen] = useState(false);
-  const router = usePathname(); // just for reactivity
+  const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
+  const [featuresAdmin, setFeaturesAdmin] = useState<Record<string, boolean> | null>(null);
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -67,7 +79,53 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         if (data.version) setAppVersion(data.version);
       })
       .catch(() => {});
+
+    // Carica le regole azienda per filtrare le voci di menu
+    fetch("/api/company-rules")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data) {
+          if (data.features) setEnabledFeatures(data.features);
+          if (data.featuresAdmin) setFeaturesAdmin(data.featuresAdmin);
+        }
+      })
+      .catch(() => {});
   }, [pathname]);
+
+  // Mappa: href admin → featureAdmin key (opt-in)
+  const adminLinkFeature: Record<string, string> = {
+    "/admin/users": "gestione_utenti",
+    "/admin/imap": "configurazione_email",
+    "/test-email": "recupero_email",
+    "/admin/facebook-post": "facebook_post",
+  };
+
+  // Filtra i link admin in base a featuresAdmin
+  function isAdminLinkEnabled(href: string): boolean {
+    const key = adminLinkFeature[href];
+    if (!key) return true; // link senza feature key sempre visibile
+    if (!featuresAdmin) return true; // nessuna regola = tutto visibile
+    return featuresAdmin[key] === true; // opt-in
+  }
+
+  // Filtra navItems in base alle feature abilitate
+  // Modello opt-in: mostra solo gli item la cui feature key è esplicitamente true
+  const filteredNavItems = navItems.filter((item) => {
+    // Se le features non sono ancora caricate, mostra tutto
+    if (!enabledFeatures) return true;
+
+    // /dashboard è sempre visibile
+    if (item.href === "/dashboard") return true;
+
+    // Cerca la feature key corrispondente all'href
+    const featureKey = navFeatureMap[item.href];
+
+    // Se non c'è una feature associata, mostra sempre
+    if (!featureKey) return true;
+
+    // Mostra SOLO se la feature è esplicitamente true nell'oggetto features
+    return enabledFeatures[featureKey] === true;
+  });
 
   const handleLogout = async () => {
     await fetch("/api/auth/me", { method: "DELETE" });
@@ -110,7 +168,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             )}
           </div>
           <nav className="flex flex-col gap-1">
-            {navItems.map((item) => {
+            {filteredNavItems.map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
               const Icon = item.icon;
               const isImpostazioni = item.href === "/impostazioni";
@@ -133,8 +191,12 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               );
             })}
 
-            {/* Admin section */}
+            {/* Admin section — visibile se impostazioni è true oppure qualche admin feature è true */}
             {user?.role === "admin" && (
+              !enabledFeatures ||
+              enabledFeatures.impostazioni === true ||
+              (featuresAdmin && Object.values(featuresAdmin).some(v => v === true))
+            ) && (
               <div className="hidden lg:block">
                 <button
                   onClick={() => setAdminOpen(!adminOpen)}
@@ -149,6 +211,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 </button>
                 {adminOpen && (
                   <>
+                {isAdminLinkEnabled("/admin/users") && (
                 <Link
                   href="/admin/users"
                   onClick={onClose}
@@ -162,6 +225,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   <Shield className="h-5 w-5 shrink-0" />
                   <span>Gestione Utenti</span>
                 </Link>
+                )}
+                {isAdminLinkEnabled("/admin/imap") && (
                 <Link
                   href="/admin/imap"
                   onClick={onClose}
@@ -175,6 +240,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   <Server className="h-5 w-5 shrink-0" />
                   <span>Configurazione Email</span>
                 </Link>
+                )}
+                {isAdminLinkEnabled("/test-email") && (
                 <Link
                   href="/test-email"
                   onClick={onClose}
@@ -188,6 +255,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   <Download className="h-5 w-5 shrink-0" />
                   <span>Recupero email</span>
                 </Link>
+                )}
+                {isAdminLinkEnabled("/admin/facebook-post") && (
                 <Link
                   href="/admin/facebook-post"
                   onClick={onClose}
@@ -201,6 +270,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   <Facebook className="h-5 w-5 shrink-0" />
                   <span>Facebook Post</span>
                 </Link>
+                )}
               </>
             )}
               </div>

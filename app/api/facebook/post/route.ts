@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth";
+import { checkAdminFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,6 +10,16 @@ export async function POST(request: NextRequest) {
     const authUser = await getAuthUser();
     if (!authUser) {
       return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    // Verifica feature admin
+    try {
+      await checkAdminFeatureEnabled(authUser.companyId, "facebook_post");
+    } catch (e) {
+      if (e instanceof FeatureDisabledError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
     }
     if (authUser.role !== "admin") {
       return NextResponse.json({ error: "Accesso negato" }, { status: 403 });

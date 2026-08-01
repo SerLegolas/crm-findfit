@@ -3,6 +3,7 @@ import { getAuthUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { imapSettings } from "@/lib/schema";
 import { decrypt } from "@/lib/crypto";
+import { eq } from "drizzle-orm";
 import nodemailer from "nodemailer";
 
 export const runtime = "nodejs";
@@ -18,8 +19,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Accesso negato" }, { status: 403 });
     }
 
-    // Leggi configurazione SMTP da imap_settings
-    const rows = await db.select().from(imapSettings).limit(1);
+    // Leggi configurazione SMTP da imap_settings per la company corrente
+    const rows = await db
+      .select()
+      .from(imapSettings)
+      .where(eq(imapSettings.companyId, authUser.companyId))
+      .limit(1);
     if (rows.length === 0) {
       return NextResponse.json(
         { error: "Configurazione SMTP mancante. Vai su Admin > Configurazione Email per impostarla." },

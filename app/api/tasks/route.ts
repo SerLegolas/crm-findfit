@@ -4,6 +4,12 @@ import { tasks, clients } from "@/lib/schema";
 import { taskSchema } from "@/types";
 import { eq, desc, and, lte, gte, or, sql } from "drizzle-orm";
 import { getAuthUser } from "@/lib/auth";
+import {
+  checkMaxTasks,
+  MaxLimitError,
+  checkFeatureEnabled,
+  FeatureDisabledError,
+} from "@/lib/company-rules";
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,12 +18,24 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
     }
 
+    // Verifica feature abilitata
+    try {
+      await checkFeatureEnabled(authUser.companyId, "task");
+    } catch (e) {
+      if (e instanceof FeatureDisabledError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
+
+    const companyId = authUser.companyId;
+
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status") || "";
     const clientId = searchParams.get("clientId") || "";
     const upcomingDays = parseInt(searchParams.get("upcomingDays") || "7");
 
-    const conditions = [];
+    const conditions = [eq(tasks.companyId, companyId)];
 
     if (status && status !== "all") {
       conditions.push(eq(tasks.status, status as any));
@@ -93,6 +111,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
     }
 
+    // Controlla limite massimo task
+    try {
+      await checkMaxTasks(authUser.companyId);
+    } catch (e) {
+      if (e instanceof MaxLimitError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
+
     const body = await request.json();
     const parsed = taskSchema.parse(body);
 
@@ -121,6 +149,7 @@ export async function POST(request: NextRequest) {
         dueDate: parsed.dueDate ? new Date(parsed.dueDate) : null,
         status: parsed.status,
         priority: parsed.priority,
+        companyId: authUser.companyId,
       })
       .returning();
 

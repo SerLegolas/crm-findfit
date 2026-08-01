@@ -2,13 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { notes } from "@/lib/schema";
 import { noteSchema } from "@/types";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
+import { getAuthUser } from "@/lib/auth";
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
     const { id } = await params;
     const body = await request.json();
     const parsed = noteSchema.partial().parse(body);
@@ -16,7 +22,7 @@ export async function PATCH(
     const [updated] = await db
       .update(notes)
       .set({ ...parsed, updatedAt: new Date() })
-      .where(eq(notes.id, id))
+      .where(and(eq(notes.id, id), eq(notes.companyId, authUser.companyId)))
       .returning();
 
     if (!updated) {
@@ -47,8 +53,15 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
     const { id } = await params;
-    await db.delete(notes).where(eq(notes.id, id));
+    await db
+      .delete(notes)
+      .where(and(eq(notes.id, id), eq(notes.companyId, authUser.companyId)));
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error deleting note:", error);

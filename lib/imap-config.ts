@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { imapSettings } from "@/lib/schema";
 import { decrypt } from "@/lib/crypto";
+import { eq } from "drizzle-orm";
 
 export type ImapConfig = {
   host: string;
@@ -12,12 +13,21 @@ export type ImapConfig = {
 };
 
 /**
- * Legge le impostazioni IMAP dal database (decriptate).
+ * Legge le impostazioni IMAP dal database (decriptate) per una specifica company.
  * Se non presenti nel DB, cade sul fallback delle variabili d'ambiente.
  */
-export async function getImapConfig(): Promise<ImapConfig | null> {
+export async function getImapConfig(companyId?: string): Promise<ImapConfig | null> {
   try {
-    const rows = await db.select().from(imapSettings).limit(1);
+    const where = companyId
+      ? eq(imapSettings.companyId, companyId)
+      : undefined;
+
+    const rows = await db
+      .select()
+      .from(imapSettings)
+      .where(where)
+      .limit(1);
+
     if (rows.length === 0) {
       // Fallback su env
       const host = process.env.IMAP_HOST;

@@ -3,9 +3,10 @@ import { getAuthUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { emailLog, imapSettings, clients, companySettings } from "@/lib/schema";
 import { emailSchema } from "@/types";
-import { eq, desc } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { decrypt } from "@/lib/crypto";
 import nodemailer from "nodemailer";
+import { checkFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +17,16 @@ export async function GET(request: NextRequest) {
     const authUser = await getAuthUser();
     if (!authUser) {
       return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    // Verifica feature abilitata
+    try {
+      await checkFeatureEnabled(authUser.companyId, "email");
+    } catch (e) {
+      if (e instanceof FeatureDisabledError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
     }
 
     const { searchParams } = new URL(request.url);
@@ -104,7 +115,7 @@ export async function POST(request: NextRequest) {
     const [companyRow] = await db
       .select()
       .from(companySettings)
-      .where(eq(companySettings.id, "default"))
+      .where(eq(companySettings.companyId, authUser.companyId))
       .limit(1);
 
     if (companyRow?.footerAttivo && companyRow.denominazione) {
@@ -126,8 +137,12 @@ ${parts.join("<br />")}
       }
     }
 
-    // Leggi configurazione SMTP da imap_settings
-    const rows = await db.select().from(imapSettings).limit(1);
+    // Leggi configurazione SMTP da imap_settings (della company corrente)
+    const rows = await db
+      .select()
+      .from(imapSettings)
+      .where(eq(imapSettings.companyId, authUser.companyId))
+      .limit(1);
 
     if (rows.length === 0 || !rows[0].imapHost || !rows[0].imapPort || !rows[0].user || !rows[0].password) {
       return NextResponse.json(
@@ -178,6 +193,7 @@ ${parts.join("<br />")}
         author: authUser.name,
         status,
         sentAt,
+        companyId: authUser.companyId,
       })
       .returning();
 

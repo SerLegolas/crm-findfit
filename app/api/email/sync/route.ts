@@ -3,13 +3,30 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { getImapConfig } from "@/lib/imap-config";
 import { parseContactRequest, processContactRequest } from "@/lib/email-parser";
+import { getAuthUser } from "@/lib/auth";
+import { checkFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(_request: NextRequest) {
   try {
-    const config = await getImapConfig();
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    // Verifica feature abilitata
+    try {
+      await checkFeatureEnabled(authUser.companyId, "email");
+    } catch (e) {
+      if (e instanceof FeatureDisabledError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
+
+    const config = await getImapConfig(authUser.companyId);
 
     if (!config) {
       return NextResponse.json(
@@ -98,7 +115,7 @@ export async function GET(_request: NextRequest) {
         const contactData = parseContactRequest(bodyText);
         if (contactData) {
           try {
-            crmAction = await processContactRequest(contactData);
+            crmAction = await processContactRequest(contactData, authUser.companyId);
           } catch (err: any) {
             console.error("Errore processContactRequest:", err);
           }

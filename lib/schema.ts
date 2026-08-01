@@ -1,6 +1,18 @@
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 import { randomUUID } from "crypto";
 
+// ── Companies (multi-tenant) ──
+export const companies = sqliteTable("companies", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => randomUUID()),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 // ── Utenti ──
 export const users = sqliteTable("users", {
   id: text("id")
@@ -15,6 +27,9 @@ export const users = sqliteTable("users", {
   isActive: integer("is_active", { mode: "boolean" })
     .notNull()
     .default(true),
+  companyId: text("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -41,6 +56,9 @@ export const clients = sqliteTable("clients", {
   categoria: text("categoria"),
   notes: text("notes"),
   userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  companyId: text("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -65,6 +83,9 @@ export const notes = sqliteTable("notes", {
     .notNull()
     .default("conversazione"),
   author: text("author").notNull().default("Utente"),
+  companyId: text("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -94,6 +115,9 @@ export const tasks = sqliteTable("tasks", {
     .notNull()
     .default("medium"),
   completedAt: integer("completed_at", { mode: "timestamp" }),
+  companyId: text("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -117,6 +141,9 @@ export const imapSettings = sqliteTable("imap_settings", {
   smtpHost: text("smtp_host"),
   smtpPort: text("smtp_port"),
   smtpSecure: integer("smtp_secure", { mode: "boolean" }).default(false),
+  companyId: text("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -146,6 +173,9 @@ export const emailLog = sqliteTable("email_log", {
   })
     .notNull()
     .default("pending"),
+  companyId: text("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -160,6 +190,9 @@ export const emailTemplates = sqliteTable("email_templates", {
   subject: text("subject").notNull(),
   bodyHtml: text("body_html").notNull(),
   author: text("author").notNull().default("Utente"),
+  companyId: text("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -171,7 +204,9 @@ export const emailTemplates = sqliteTable("email_templates", {
 
 // ── Company Settings ──
 export const companySettings = sqliteTable("company_settings", {
-  id: text("id").primaryKey().$defaultFn(() => "default"),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => randomUUID()),
   denominazione: text("denominazione").notNull().default(""),
   piva: text("piva").notNull().default(""),
   cf: text("cf").notNull().default(""),
@@ -182,9 +217,74 @@ export const companySettings = sqliteTable("company_settings", {
   email: text("email").notNull().default(""),
   telefono: text("telefono").notNull().default(""),
   footerAttivo: integer("footer_attivo", { mode: "boolean" }).notNull().default(false),
+  companyId: text("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+});
+
+// ── Global Settings (superadmin) ──
+export const globalSettings = sqliteTable("global_settings", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => randomUUID()),
+  key: text("key").notNull().unique(),
+  value: text("value").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
+// ── Company Rules ──
+export const companyRules = sqliteTable("company_rules", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => randomUUID()),
+  companyId: text("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  maxUsers: integer("max_users").notNull().default(0), // 0 = illimitato
+  maxClients: integer("max_clients").notNull().default(0), // 0 = illimitato
+  maxTasks: integer("max_tasks").notNull().default(0), // 0 = illimitato
+  features: text("features", { mode: "json" })
+    .notNull()
+    .$default(() => "{}"),
+  featuresAdmin: text("features_admin", { mode: "json" })
+    .notNull()
+    .$default(() => "{}"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
+// ── Log sincronizzazione automatica email (cron) ──
+export const cronLog = sqliteTable("cron_log", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => randomUUID()),
+  companyId: text("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  startedAt: integer("started_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+  emailsFound: integer("emails_found").notNull().default(0),
+  clientsCreated: integer("clients_created").notNull().default(0),
+  tasksCreated: integer("tasks_created").notNull().default(0),
+  error: text("error"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
 });
 
 // ── Tipi ──
+export type Company = typeof companies.$inferSelect;
+export type NewCompany = typeof companies.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Client = typeof clients.$inferSelect;
@@ -201,3 +301,9 @@ export type EmailTemplate = typeof emailTemplates.$inferSelect;
 export type NewEmailTemplate = typeof emailTemplates.$inferInsert;
 export type CompanySetting = typeof companySettings.$inferSelect;
 export type NewCompanySetting = typeof companySettings.$inferInsert;
+export type GlobalSetting = typeof globalSettings.$inferSelect;
+export type NewGlobalSetting = typeof globalSettings.$inferInsert;
+export type CompanyRule = typeof companyRules.$inferSelect;
+export type NewCompanyRule = typeof companyRules.$inferInsert;
+export type CronLog = typeof cronLog.$inferSelect;
+export type NewCronLog = typeof cronLog.$inferInsert;

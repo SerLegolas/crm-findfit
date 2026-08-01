@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { emailTemplates } from "@/lib/schema";
 import { emailTemplateSchema } from "@/types";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { ZodError } from "zod";
 import { getAuthUser } from "@/lib/auth";
 
@@ -112,7 +112,7 @@ export async function PATCH(
         bodyHtml: parsed.bodyHtml,
         updatedAt: new Date(),
       })
-      .where(eq(emailTemplates.id, id))
+      .where(and(eq(emailTemplates.id, id), eq(emailTemplates.companyId, authUser.companyId)))
       .returning();
 
     if (!template) {
@@ -172,7 +172,7 @@ export async function DELETE(
 
     const [template] = await db
       .delete(emailTemplates)
-      .where(eq(emailTemplates.id, id))
+      .where(and(eq(emailTemplates.id, id), eq(emailTemplates.companyId, authUser.companyId)))
       .returning();
 
     if (!template) {

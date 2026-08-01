@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
-import { requireAdmin, hashPassword } from "@/lib/auth";
-import { eq } from "drizzle-orm";
+import { requireAdmin, hashPassword, getAuthUser } from "@/lib/auth";
+import { eq, and } from "drizzle-orm";
 import { userSchema } from "@/types";
 
 export async function PATCH(
@@ -10,7 +10,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await requireAdmin();
+    const authUser = await requireAdmin();
+    const companyId = authUser.companyId;
 
     const { id } = await params;
     const body = await request.json();
@@ -18,7 +19,7 @@ export async function PATCH(
     const existing = await db
       .select()
       .from(users)
-      .where(eq(users.id, id))
+      .where(and(eq(users.id, id), eq(users.companyId, companyId)))
       .limit(1);
 
     if (!existing.length) {
@@ -28,7 +29,7 @@ export async function PATCH(
       );
     }
 
-    // Se si cambia email, verifica univocità
+    // Se si cambia email, verifica univocità (globale)
     if (body.email && body.email !== existing[0].email) {
       const duplicate = await db
         .select()
@@ -61,7 +62,7 @@ export async function PATCH(
     const [updated] = await db
       .update(users)
       .set(updateData)
-      .where(eq(users.id, id))
+      .where(and(eq(users.id, id), eq(users.companyId, companyId)))
       .returning();
 
     return NextResponse.json({
@@ -89,12 +90,12 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await requireAdmin();
+    const authUser = await requireAdmin();
+    const companyId = authUser.companyId;
 
     const { id } = await params;
 
     // Impedisci auto-eliminazione
-    const { getAuthUser } = await import("@/lib/auth");
     const currentUser = await getAuthUser();
     if (currentUser?.id === id) {
       return NextResponse.json(
@@ -106,7 +107,7 @@ export async function DELETE(
     const existing = await db
       .select()
       .from(users)
-      .where(eq(users.id, id))
+      .where(and(eq(users.id, id), eq(users.companyId, companyId)))
       .limit(1);
 
     if (!existing.length) {
@@ -116,7 +117,9 @@ export async function DELETE(
       );
     }
 
-    await db.delete(users).where(eq(users.id, id));
+    await db
+      .delete(users)
+      .where(and(eq(users.id, id), eq(users.companyId, companyId)));
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

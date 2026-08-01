@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { emailTemplates } from "@/lib/schema";
 import { emailTemplateSchema } from "@/types";
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { ZodError } from "zod";
 import { getAuthUser } from "@/lib/auth";
+import { checkFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,7 +49,7 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders() });
 }
 
-/** GET: elenco di tutti i template */
+/** GET: elenco di tutti i template (filtrati per company) */
 export async function GET() {
   try {
     const authUser = await getAuthUser();
@@ -59,6 +60,16 @@ export async function GET() {
       );
     }
 
+    // Verifica feature abilitata
+    try {
+      await checkFeatureEnabled(authUser.companyId, "email");
+    } catch (e) {
+      if (e instanceof FeatureDisabledError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
+
     logError("GET - inizio caricamento template", null, {
       userId: authUser.id,
       userRole: authUser.role,
@@ -67,6 +78,7 @@ export async function GET() {
     const templates = await db
       .select()
       .from(emailTemplates)
+      .where(eq(emailTemplates.companyId, authUser.companyId))
       .orderBy(desc(emailTemplates.createdAt));
 
     logError("GET - template caricati con successo", null, {
@@ -151,6 +163,7 @@ export async function POST(request: NextRequest) {
         subject: parsed.subject,
         bodyHtml: parsed.bodyHtml,
         author: authUser.name,
+        companyId: authUser.companyId,
       })
       .returning();
 
