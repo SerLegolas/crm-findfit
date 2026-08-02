@@ -13,9 +13,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Menu, Bell, CalendarDays } from "lucide-react";
+import { Menu, Bell, CalendarDays, RefreshCw, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatDateTime } from "@/lib/utils";
 
 interface TopbarProps {
   onMenuClick: () => void;
@@ -29,9 +29,24 @@ interface OverdueTask {
   clientName: string | null;
 }
 
+interface CronRun {
+  id: string;
+  startedAt: string | number | null;
+  completedAt: string | number | null;
+  emailsFound: number;
+  clientsCreated: number;
+  tasksCreated: number;
+  error: string | null;
+}
+
+const CRON_READ_KEY_PREFIX = "cron-last-read";
+
 export function Topbar({ onMenuClick }: TopbarProps) {
   const [user, setUser] = useState<{ name: string; email: string; role: string } | null>(null);
+  const [companyId, setCompanyId] = useState<string | null>(null);
   const [overdueTasks, setOverdueTasks] = useState<OverdueTask[]>([]);
+  const [cronRun, setCronRun] = useState<CronRun | null>(null);
+  const [readRunId, setReadRunId] = useState<string | null>(null);
 
   const fetchOverdueTasks = useCallback(async () => {
     try {
@@ -62,11 +77,24 @@ export function Topbar({ onMenuClick }: TopbarProps) {
     }
   }, []);
 
+  const fetchCron = useCallback(async () => {
+    try {
+      const res = await fetch("/api/cron/last-run");
+      const data = await res.json();
+      setCronRun(data.run ?? null);
+    } catch {
+      // silent
+    }
+  }, []);
+
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => r.json())
       .then((json) => {
-        if (json.user) setUser(json.user);
+        if (json.user) {
+          setUser(json.user);
+          setCompanyId(json.user.companyId ?? null);
+        }
       })
       .catch(() => {});
 
@@ -74,6 +102,30 @@ export function Topbar({ onMenuClick }: TopbarProps) {
     const interval = setInterval(fetchOverdueTasks, 60000); // refresh ogni minuto
     return () => clearInterval(interval);
   }, [fetchOverdueTasks]);
+
+  // Polling stato cron ogni 10 secondi
+  useEffect(() => {
+    fetchCron();
+    const interval = setInterval(fetchCron, 10000);
+    return () => clearInterval(interval);
+  }, [fetchCron]);
+
+  // Ripristina l'ultima esecuzione "letta" per questa azienda
+  useEffect(() => {
+    if (!companyId) return;
+    const stored = localStorage.getItem(`${CRON_READ_KEY_PREFIX}:${companyId}`);
+    if (stored) setReadRunId(stored);
+  }, [companyId]);
+
+  const cronRunning = !!cronRun && !cronRun.completedAt;
+  const cronUnread =
+    !!cronRun && !!cronRun.completedAt && cronRun.emailsFound > 0 && cronRun.id !== readRunId;
+
+  const markCronRead = () => {
+    if (!cronRun || !companyId) return;
+    localStorage.setItem(`${CRON_READ_KEY_PREFIX}:${companyId}`, cronRun.id);
+    setReadRunId(cronRun.id);
+  };
 
   const initials = user
     ? user.name
@@ -104,6 +156,88 @@ export function Topbar({ onMenuClick }: TopbarProps) {
       </Link>
 
       <div className="flex-1" />
+
+      {/* Icona sincronizzazione cron */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="relative">
+            {cronRunning ? (
+              <Loader2 className="h-5 w-5 animate-spin text-amber-500" />
+            ) : (
+              <RefreshCw
+                className={`h-5 w-5 ${
+                  cronUnread ? "text-foreground" : "text-muted-foreground"
+                }`}
+              />
+            )}
+            {cronUnread && cronRun && (
+              <Badge
+                variant="destructive"
+                className="absolute -top-1.5 -right-1.5 h-5 min-w-[20px] px-1 flex items-center justify-center text-[10px]"
+              >
+                {cronRun.emailsFound}
+              </Badge>
+            )}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-80">
+          <DropdownMenuLabel>Sincronizzazione email</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {!cronRun ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">
+              Nessuna esecuzione registrata
+            </div>
+          ) : (
+            <div className="space-y-2 p-2 text-sm">
+              {cronRunning && (
+                <div className="flex items-center gap-2 text-amber-600">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="font-medium">Sincronizzazione in corso…</span>
+                </div>
+              )}
+              {!cronRunning && cronRun.error && (
+                <div className="rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
+                  Errore: {cronRun.error}
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-y-1.5 text-xs text-muted-foreground">
+                <span>Email trovate</span>
+                <span className="text-right font-medium text-foreground">
+                  {cronRun.emailsFound}
+                </span>
+                <span>Clienti creati</span>
+                <span className="text-right font-medium text-foreground">
+                  {cronRun.clientsCreated}
+                </span>
+                <span>Task creati</span>
+                <span className="text-right font-medium text-foreground">
+                  {cronRun.tasksCreated}
+                </span>
+                <span>Avviato</span>
+                <span className="text-right font-medium text-foreground">
+                  {cronRun.startedAt
+                    ? formatDateTime(cronRun.startedAt as number | null)
+                    : "—"}
+                </span>
+                <span>Completato</span>
+                <span className="text-right font-medium text-foreground">
+                  {cronRun.completedAt
+                    ? formatDateTime(cronRun.completedAt as number | null)
+                    : "In corso"}
+                </span>
+              </div>
+            </div>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={markCronRead}
+            disabled={!cronUnread}
+            className="justify-center text-sm font-medium cursor-pointer"
+          >
+            Segna come letto
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {/* Pulsante task scaduti */}
       <DropdownMenu>
