@@ -27,6 +27,13 @@ interface DashboardData {
   trendData: { date: string; count: number }[];
 }
 
+// Colore del pallino priorità in base al livello
+const priorityDotClass: Record<Priority, string> = {
+  high: "bg-red-500",
+  medium: "bg-amber-500",
+  low: "bg-green-500",
+};
+
 export default function DashboardPage() {
   const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
@@ -140,22 +147,29 @@ export default function DashboardPage() {
                 Nessun task scaduto
               </p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-2 max-w-full">
                 {data.overdueTasks.map((task) => (
                   <button
                     key={task.id}
                     onClick={() => router.push(`/clienti/${task.clientId}`)}
-                    className="w-full flex items-center gap-3 rounded-lg border border-red-100 bg-red-50/50 p-3 text-left text-sm transition-colors hover:bg-red-100 dark:border-red-900 dark:bg-red-950/20 dark:hover:bg-red-950/40"
+                    className="w-full max-w-full overflow-hidden flex items-center gap-3 rounded-lg border border-red-100 bg-red-50/50 p-3 text-left text-sm transition-colors hover:bg-red-100 dark:border-red-900 dark:bg-red-950/20 dark:hover:bg-red-950/40"
                   >
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{task.title}</p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        <span className="font-medium">{task.clientName || "Sconosciuto"}</span>
+                    <div className="flex-1 min-w-0 overflow-hidden">
+                      <p className="font-medium truncate break-words">{task.title}</p>
+                      <p className="text-xs text-muted-foreground truncate break-words">
+                        <span className="font-medium whitespace-nowrap truncate">{task.clientName || "Sconosciuto"}</span>
                         {task.clientPhone && <> · {task.clientPhone}</>}
                         {task.dueDate && <> · scad. {formatDate(task.dueDate)}</>}
                       </p>
                     </div>
-                    <PriorityBadge priority={task.priority} />
+                    <div
+                      className={`block sm:hidden w-2 h-2 rounded-full shrink-0 ${priorityDotClass[task.priority]}`}
+                      title={`Priorità: ${task.priority}`}
+                    />
+                    <PriorityBadge
+                      priority={task.priority}
+                      className="hidden sm:inline-flex"
+                    />
                   </button>
                 ))}
               </div>
@@ -180,22 +194,29 @@ export default function DashboardPage() {
                 Nessun task in scadenza oggi
               </p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-2 max-w-full">
                 {data.dueTodayTasks.map((task) => (
                   <button
                     key={task.id}
                     onClick={() => router.push(`/clienti/${task.clientId}`)}
-                    className="w-full flex items-center gap-3 rounded-lg border border-amber-100 bg-amber-50/50 p-3 text-left text-sm transition-colors hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/20 dark:hover:bg-amber-950/40"
+                    className="w-full max-w-full overflow-hidden flex items-center gap-3 rounded-lg border border-amber-100 bg-amber-50/50 p-3 text-left text-sm transition-colors hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/20 dark:hover:bg-amber-950/40"
                   >
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{task.title}</p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        <span className="font-medium">{task.clientName || "Sconosciuto"}</span>
+                    <div className="flex-1 min-w-0 overflow-hidden">
+                      <p className="font-medium truncate break-words">{task.title}</p>
+                      <p className="text-xs text-muted-foreground truncate break-words">
+                        <span className="font-medium whitespace-nowrap truncate">{task.clientName || "Sconosciuto"}</span>
                         {task.clientPhone && <> · {task.clientPhone}</>}
                         {task.dueDate && <> · scad. {formatDate(task.dueDate)}</>}
                       </p>
                     </div>
-                    <PriorityBadge priority={task.priority} />
+                    <div
+                      className={`block sm:hidden w-2 h-2 rounded-full shrink-0 ${priorityDotClass[task.priority]}`}
+                      title={`Priorità: ${task.priority}`}
+                    />
+                    <PriorityBadge
+                      priority={task.priority}
+                      className="hidden sm:inline-flex"
+                    />
                   </button>
                 ))}
               </div>

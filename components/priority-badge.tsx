@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import type { Priority } from "@/types";
 
 const priorityConfig: Record<
@@ -10,10 +11,16 @@ const priorityConfig: Record<
   low: { label: "Bassa", variant: "success" },
 };
 
-export function PriorityBadge({ priority }: { priority: Priority }) {
+export function PriorityBadge({
+  priority,
+  className,
+}: {
+  priority: Priority;
+  className?: string;
+}) {
   const config = priorityConfig[priority];
   return (
-    <Badge variant={config.variant} className="font-medium">
+    <Badge variant={config.variant} className={cn("font-medium", className)}>
       {config.label}
     </Badge>
   );

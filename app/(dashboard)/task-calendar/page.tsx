@@ -62,6 +62,38 @@ const STATUS_LABELS: Record<string, string> = {
 
 const DAYS_OF_WEEK = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
 
+// Colore del pallino priorità (stile dashboard)
+const priorityDotClass: Record<Priority, string> = {
+  high: "bg-red-500",
+  medium: "bg-amber-500",
+  low: "bg-green-500",
+};
+
+// Data corta DD/MM/YYYY
+const formatDateShort = (value: number | string) =>
+  new Date(value).toLocaleDateString("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+
+// Stile card in base alla scadenza (come la dashboard)
+const getTaskCardClass = (task: TaskItem): string => {
+  if (!task.dueDate)
+    return "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900";
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(task.dueDate);
+  due.setHours(0, 0, 0, 0);
+  if (due.getTime() < today.getTime()) {
+    return "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/20";
+  }
+  if (due.getTime() === today.getTime()) {
+    return "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20";
+  }
+  return "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900";
+};
+
 export default function TaskCalendarPage() {
   const router = useRouter();
   const { toast } = useToast();
@@ -75,6 +107,7 @@ export default function TaskCalendarPage() {
   });
   const [viewMode, setViewMode] = useState<"calendar" | "list">("calendar");
   const [listFilter, setListFilter] = useState<"today" | "all">("all");
+  const [isMobile, setIsMobile] = useState(false);
 
   // Chiave "YYYY-MM" del mese visualizzato
   const monthKey = useMemo(
@@ -117,6 +150,18 @@ export default function TaskCalendarPage() {
       loadMonth(monthKey);
     }
   }, [monthKey, tasksByMonth, loadMonth]);
+
+  // Rileva schermi mobili (< 640px = breakpoint sm): su mobile si mostra sempre la lista
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  // Vista effettiva: su mobile sempre "list" (il toggle è nascosto con hidden sm:flex)
+  const effectiveViewMode = isMobile ? "list" : viewMode;
 
   // Navigazione mensile
   const goPrevMonth = () =>
@@ -352,12 +397,12 @@ export default function TaskCalendarPage() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Calendario Task</h2>
           <p className="text-muted-foreground">
-            {viewMode === "calendar"
+            {effectiveViewMode === "calendar"
               ? "Trascina i task tra i giorni per modificarne la scadenza"
               : "Elenco dei task del mese visualizzato"}
           </p>
         </div>
-        <div className="flex items-center gap-1 rounded-lg border p-0.5">
+        <div className="hidden sm:flex items-center gap-1 rounded-lg border p-0.5">
           <Button
             variant={viewMode === "calendar" ? "secondary" : "ghost"}
             size="sm"
@@ -407,7 +452,7 @@ export default function TaskCalendarPage() {
         <h3 className="text-lg font-semibold capitalize">{monthLabel}</h3>
       </div>
 
-      {viewMode === "calendar" ? (
+      {effectiveViewMode === "calendar" ? (
         /* ─── Vista calendario ─── */
         <TooltipProvider delayDuration={300}>
         <DragDropContext onDragEnd={handleDragEnd}>
@@ -670,6 +715,71 @@ export default function TaskCalendarPage() {
                       Riprova
                     </Button>
                   </div>
+                )}
+              </div>
+            ) : isMobile ? (
+              /* Vista lista mobile: card stile dashboard */
+              <div className="max-h-[65vh] space-y-2 overflow-y-auto p-3">
+                {listTasks
+                  .slice()
+                  .sort((a, b) => {
+                    if (!a.dueDate) return 1;
+                    if (!b.dueDate) return -1;
+                    return b.dueDate - a.dueDate;
+                  })
+                  .map((task) => (
+                    <div
+                      key={task.id}
+                      onClick={() => router.push(`/clienti/${task.clientId}`)}
+                      className={`w-full flex items-center gap-3 rounded-lg border p-3 text-left text-sm transition-colors cursor-pointer hover:brightness-95 ${
+                        task.status === "completed"
+                          ? "border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/20"
+                          : getTaskCardClass(task)
+                      }`}
+                    >
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggle(task.id, task.status);
+                        }}
+                        className="shrink-0"
+                        aria-label={
+                          task.status === "completed" ? "Riapri task" : "Completa task"
+                        }
+                      >
+                        {task.status === "completed" ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <Circle className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </button>
+                      <div className="flex-1 min-w-0 overflow-hidden">
+                        <p
+                          className={`font-medium truncate ${
+                            task.status === "completed"
+                              ? "line-through text-muted-foreground"
+                              : ""
+                          }`}
+                        >
+                          {task.title}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          <span className="font-medium whitespace-nowrap truncate">
+                            {task.clientName || "Sconosciuto"}
+                          </span>
+                          {task.dueDate && <> · {formatDateShort(task.dueDate)}</>}
+                        </p>
+                      </div>
+                      <div
+                        className={`w-2 h-2 rounded-full shrink-0 ${priorityDotClass[task.priority]}`}
+                        title={`Priorità: ${task.priority}`}
+                      />
+                    </div>
+                  ))}
+                {listTasks.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-8">
+                    Nessun task trovato
+                  </p>
                 )}
               </div>
             ) : (

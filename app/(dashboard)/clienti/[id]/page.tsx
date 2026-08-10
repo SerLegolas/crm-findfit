@@ -613,12 +613,14 @@ export default function ClientDetailPage() {
           onClick={() =>
             router.push(from === "task-calendar" ? "/task-calendar" : "/clienti")
           }
-          className="gap-2"
+          className="gap-2 sm:gap-2"
         >
           <ArrowLeft className="h-4 w-4" />
-          {from === "task-calendar"
-            ? "Torna al Calendario Task"
-            : "Torna ai Clienti"}
+          <span className="hidden sm:inline">
+            {from === "task-calendar"
+              ? "Torna al Calendario Task"
+              : "Torna ai Clienti"}
+          </span>
         </Button>
         <div className="flex-1">
           <div className="flex items-center gap-3">
