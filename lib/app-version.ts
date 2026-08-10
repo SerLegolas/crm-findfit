@@ -1,7 +1,5 @@
-import pkg from "@/package.json";
-
-// Versione statica letta da package.json (inclusa nel bundle al build time).
-const version = pkg.version as string;
+// Versione statica, iniettata a build time da next.config.js (NEXT_PUBLIC_APP_VERSION).
+const version = process.env.NEXT_PUBLIC_APP_VERSION || "1.0.0";
 
 // Build number di Vercel, iniettato a build time (NEXT_PUBLIC_).
 const buildNumber = (process.env.NEXT_PUBLIC_VERCEL_BUILD_NUMBER ?? "").trim();
