@@ -1,10 +1,17 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import { useRouter } from "next/navigation";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Loader2,
   RefreshCw,
@@ -42,17 +49,27 @@ function formatDuration(start: string, end: string | null): string {
   return `${Math.floor(sec / 60)}m ${sec % 60}s`;
 }
 
+type CronCompany = {
+  id: string;
+  name: string | null;
+};
+
 export default function SuperuserCronPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [logs, setLogs] = useState<CronLogEntry[]>([]);
+  const [companies, setCompanies] = useState<CronCompany[]>([]);
+  const [days, setDays] = useState("1");
+  const [companyId, setCompanyId] = useState("__all");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     setRefreshing(true);
     try {
-      const res = await fetch("/api/cron/logs");
+      const params = new URLSearchParams({ days });
+      if (companyId && companyId !== "__all") params.set("companyId", companyId);
+      const res = await fetch(`/api/cron/logs?${params.toString()}`);
       if (res.status === 401) {
         router.push("/superuser/login");
         return;
@@ -60,6 +77,7 @@ export default function SuperuserCronPage() {
       if (!res.ok) throw new Error("Errore caricamento");
       const data = await res.json();
       setLogs(data.logs || []);
+      setCompanies(data.companies || []);
     } catch {
       toast({
         title: "Errore",
@@ -70,12 +88,11 @@ export default function SuperuserCronPage() {
       setRefreshing(false);
       setLoading(false);
     }
-  };
+  }, [days, companyId, router, toast]);
 
   useEffect(() => {
     fetchLogs();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchLogs]);
 
   return (
     <div className="space-y-6">
@@ -97,6 +114,39 @@ export default function SuperuserCronPage() {
           )}
           Aggiorna
         </Button>
+      </div>
+
+      {/* Filtri: periodo e azienda */}
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Periodo:</span>
+          <Select value={days} onValueChange={setDays}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1">Oggi</SelectItem>
+              <SelectItem value="3">3 giorni</SelectItem>
+              <SelectItem value="5">5 giorni</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Azienda:</span>
+          <Select value={companyId} onValueChange={setCompanyId}>
+            <SelectTrigger className="w-[220px]">
+              <SelectValue placeholder="Tutte le aziende" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all">Tutte le aziende</SelectItem>
+              {companies.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name || c.id}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <Card>

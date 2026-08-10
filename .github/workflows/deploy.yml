@@ -14,14 +14,3 @@ jobs:
           node-version: 20
 
       - run: npm ci
-
-      - name: Bump version
-        run: npm run version:patch
-
-      - name: Commit version bump
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add public/version.json
-          git commit -m "Bump version" || echo "No changes to commit"
-          git push

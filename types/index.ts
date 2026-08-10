@@ -26,6 +26,16 @@ export type LoginFormData = z.infer<typeof loginSchema>;
 export const clientStatuses = ["lead", "suspect", "won", "closed_lost"] as const;
 export type ClientStatus = (typeof clientStatuses)[number];
 
+export const clientCategories = [
+  "Palestra",
+  "PT",
+  "Piscina",
+  "Osteopata",
+  "Fisioterapista",
+  "Nutrizionista",
+  "Altro",
+] as const;
+
 export const clientSchema = z.object({
   name: z.string().min(1, "Il nome è obbligatorio"),
   email: z.string().email("Email non valida").optional().or(z.literal("")),
@@ -89,6 +99,7 @@ export const emailTemplateSchema = z.object({
   name: z.string().min(1, "Il nome è obbligatorio"),
   subject: z.string().min(1, "L'oggetto è obbligatorio"),
   bodyHtml: z.string().min(1, "Il corpo è obbligatorio"),
+  footerImageUrl: z.string().optional(),
 });
 
 export type EmailTemplateFormData = z.infer<typeof emailTemplateSchema>;

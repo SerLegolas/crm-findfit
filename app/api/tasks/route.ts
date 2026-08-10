@@ -33,6 +33,9 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status") || "";
     const clientId = searchParams.get("clientId") || "";
+    const from = searchParams.get("from") || "";
+    const to = searchParams.get("to") || "";
+    const month = searchParams.get("month") || "";
     const upcomingDays = parseInt(searchParams.get("upcomingDays") || "7");
 
     const conditions: (SQL | undefined)[] = [eq(tasks.companyId, companyId)];
@@ -52,12 +55,30 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Default: filtra solo todo/in_progress se nessun filtro status specificato
+    // Filtro per intervallo di date (es. mese visualizzato nel calendario)
+    if (from) {
+      conditions.push(gte(tasks.dueDate, new Date(`${from}T00:00:00`)));
+    }
+    if (to) {
+      conditions.push(lte(tasks.dueDate, new Date(`${to}T23:59:59.999`)));
+    }
+
+    // Filtro per mese "YYYY-MM" (es. "2026-08"): primo e ultimo giorno del mese
+    if (month) {
+      const [y, m] = month.split("-").map(Number);
+      if (y && m && m >= 1 && m <= 12) {
+        conditions.push(gte(tasks.dueDate, new Date(y, m - 1, 1)));
+        conditions.push(lte(tasks.dueDate, new Date(y, m, 0, 23, 59, 59, 999)));
+      }
+    }
+
+    // Default: filtra solo todo/in_progress se nessun filtro specificato
+    // (salta se è presente un intervallo di date o un mese: in quel caso restituisce tutti i task del periodo)
     const now = new Date();
     const futureDate = new Date();
     futureDate.setDate(futureDate.getDate() + upcomingDays);
 
-    if (!status && !clientId) {
+    if (!status && !clientId && !from && !to && !month) {
       conditions.push(
         or(
           and(

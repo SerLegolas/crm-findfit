@@ -176,6 +176,9 @@ export const emailLog = sqliteTable("email_log", {
   companyId: text("company_id")
     .notNull()
     .references(() => companies.id, { onDelete: "cascade" }),
+  trackingId: text("tracking_id"),
+  openedAt: integer("opened_at", { mode: "timestamp" }),
+  deliveredAt: integer("delivered_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -189,6 +192,7 @@ export const emailTemplates = sqliteTable("email_templates", {
   name: text("name").notNull(),
   subject: text("subject").notNull(),
   bodyHtml: text("body_html").notNull(),
+  footerImageUrl: text("footer_image_url"),
   author: text("author").notNull().default("Utente"),
   companyId: text("company_id")
     .notNull()
@@ -282,6 +286,23 @@ export const cronLog = sqliteTable("cron_log", {
     .$defaultFn(() => new Date()),
 });
 
+// ── Analisi salvate ──
+export const savedAnalyses = sqliteTable("saved_analyses", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => randomUUID()),
+  name: text("name").notNull(),
+  companyId: text("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  filters: text("filters", { mode: "json" }).notNull(),
+  clientIds: text("client_ids", { mode: "json" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 // ── Tipi ──
 export type Company = typeof companies.$inferSelect;
 export type NewCompany = typeof companies.$inferInsert;
@@ -307,3 +328,5 @@ export type CompanyRule = typeof companyRules.$inferSelect;
 export type NewCompanyRule = typeof companyRules.$inferInsert;
 export type CronLog = typeof cronLog.$inferSelect;
 export type NewCronLog = typeof cronLog.$inferInsert;
+export type SavedAnalysis = typeof savedAnalyses.$inferSelect;
+export type NewSavedAnalysis = typeof savedAnalyses.$inferInsert;

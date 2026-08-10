@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import HtmlEditor from "@/components/html-editor";
+import { EmailConfigWarning } from "@/components/email-config-warning";
 import {
   Select,
   SelectContent,
@@ -48,6 +49,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { PriorityBadge } from "@/components/priority-badge";
 import { useToast } from "@/components/ui/use-toast";
 import {
+  clientCategories,
   clientSchema,
   clientStatuses,
   noteSchema,
@@ -113,6 +115,8 @@ interface EmailLog {
   author: string;
   sentAt: number;
   status: EmailStatus;
+  deliveredAt: number | null;
+  openedAt: number | null;
   createdAt: number;
 }
 
@@ -142,6 +146,8 @@ interface Task {
 export default function ClientDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const from = searchParams.get("from");
   const { toast } = useToast();
   const [client, setClient] = useState<Client | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -163,12 +169,18 @@ export default function ClientDetailPage() {
   const [emails, setEmails] = useState<EmailLog[]>([]);
   const [defaultSender, setDefaultSender] = useState("");
   const [emailModalOpen, setEmailModalOpen] = useState(false);
-  const [emailForm, setEmailForm] = useState({ subject: "", body: "", sender: "" });
+  const [emailForm, setEmailForm] = useState({
+    subject: "",
+    body: "",
+    sender: "",
+    templateId: "",
+  });
   const [emailErrors, setEmailErrors] = useState<Record<string, string>>({});
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailTemplates, setEmailTemplates] = useState<{ id: string; name: string; subject: string; bodyHtml: string }[]>([]);
   const [previewEmail, setPreviewEmail] = useState<EmailLog | null>(null);
   const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
+  const [smtpConfigured, setSmtpConfigured] = useState<boolean | null>(null);
 
   const fetchEmailTemplates = async () => {
     try {
@@ -267,15 +279,17 @@ export default function ClientDetailPage() {
       })
       .catch(() => {});
 
-    // Carica mittente predefinito dalle impostazioni SMTP
+    // Carica mittente predefinito e verifica configurazione SMTP
     fetch("/api/imap-settings")
       .then((r) => r.json())
       .then((data) => {
-        if (data.settings?.user) {
-          setDefaultSender(data.settings.user);
+        const s = data.settings;
+        if (s?.user) {
+          setDefaultSender(s.user);
         }
+        setSmtpConfigured(!!(s && s.smtpHost && s.smtpPort && s.user && s.password));
       })
-      .catch(() => {});
+      .catch(() => setSmtpConfigured(false));
 
     Promise.all([fetchClient(), fetchNotes(), fetchTasks(), fetchEmails()]).finally(() =>
       setLoading(false)
@@ -475,7 +489,11 @@ export default function ClientDetailPage() {
       const res = await fetch("/api/email/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...result.data, clientId: params.id }),
+        body: JSON.stringify({
+          ...result.data,
+          clientId: params.id,
+          templateId: emailForm.templateId,
+        }),
       });
 
       const data = await res.json();
@@ -574,7 +592,7 @@ export default function ClientDetailPage() {
     return items;
   })();
 
-  const tabs: { key: Tab; label: string; icon?: React.ReactNode }[] = [
+  const allTabs: { key: Tab; label: string; icon?: React.ReactNode }[] = [
     { key: "dettagli", label: "Dettagli", icon: <Info className="h-4 w-4" /> },
     { key: "azioni", label: `Azioni (${mergedTimeline.length})`, icon: <ListChecks className="h-4 w-4" /> },
     { key: "task", label: `Task (${tasks.length})`, icon: <CheckSquare className="h-4 w-4" /> },
@@ -582,13 +600,25 @@ export default function ClientDetailPage() {
     { key: "email", label: `Email (${emails.length})`, icon: <Mail className="h-4 w-4" /> },
   ];
 
+  // La tab Email è visibile a tutti (la visibilità dipende dalla configurazione SMTP)
+  const tabs = allTabs;
+
   return (
     <TooltipProvider delayDuration={300}>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Button variant="default" size="icon" onClick={() => router.push("/clienti")}>
-          <ArrowLeft className="h-5 w-5" />
+        <Button
+          variant="outline"
+          onClick={() =>
+            router.push(from === "task-calendar" ? "/task-calendar" : "/clienti")
+          }
+          className="gap-2"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          {from === "task-calendar"
+            ? "Torna al Calendario Task"
+            : "Torna ai Clienti"}
         </Button>
         <div className="flex-1">
           <div className="flex items-center gap-3">
@@ -600,6 +630,9 @@ export default function ClientDetailPage() {
           </p>
         </div>
       </div>
+
+      {/* Banner: SMTP non configurato */}
+      {smtpConfigured === false && <EmailConfigWarning />}
 
       {/* Tabs */}
       <div className="flex gap-1 border-b">
@@ -668,23 +701,30 @@ export default function ClientDetailPage() {
                   <TooltipContent>Nuovo task</TooltipContent>
                 </Tooltip>
 
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="default"
-                      size="icon"
-                      onClick={() => {
-                        setEmailForm({ subject: "", body: "", sender: defaultSender });
-                        fetchEmailTemplates();
-                        setEmailModalOpen(true);
-                        setActiveTab("email");
-                      }}
-                    >
-                      <Mail className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Nuova email</TooltipContent>
-                </Tooltip>
+                {smtpConfigured && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="default"
+                        size="icon"
+                        onClick={() => {
+                          setEmailForm({
+                            subject: "",
+                            body: "",
+                            sender: defaultSender,
+                            templateId: "",
+                          });
+                          fetchEmailTemplates();
+                          setEmailModalOpen(true);
+                          setActiveTab("email");
+                        }}
+                      >
+                        <Mail className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Nuova email</TooltipContent>
+                  </Tooltip>
+                )}
               </div>
             </div>
 
@@ -961,13 +1001,23 @@ export default function ClientDetailPage() {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label>Categoria cliente</Label>
-                <Input
-                  value={editForm.categoria}
-                  onChange={(e) =>
-                    setEditForm({ ...editForm, categoria: e.target.value })
+                <Select
+                  value={editForm.categoria || undefined}
+                  onValueChange={(v) =>
+                    setEditForm({ ...editForm, categoria: v })
                   }
-                  placeholder="es. Cliente, Prospect, Partner..."
-                />
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleziona categoria" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clientCategories.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="flex justify-end">
                 <Tooltip>
@@ -1294,26 +1344,29 @@ export default function ClientDetailPage() {
       {activeTab === "email" && (
         <div className="space-y-4">
           <div className="flex justify-end">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="default"
-                  size="icon"
-                  onClick={() => {
-                    setEmailForm({
-                      subject: "",
-                      body: "",
-                      sender: defaultSender,
-                    });
-                    fetchEmailTemplates();
-                    setEmailModalOpen(true);
-                  }}
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Nuova email</TooltipContent>
-            </Tooltip>
+            {smtpConfigured && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="default"
+                    size="icon"
+                    onClick={() => {
+                      setEmailForm({
+                        subject: "",
+                        body: "",
+                        sender: defaultSender,
+                        templateId: "",
+                      });
+                      fetchEmailTemplates();
+                      setEmailModalOpen(true);
+                    }}
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Nuova email</TooltipContent>
+              </Tooltip>
+            )}
             <Dialog open={emailModalOpen} onOpenChange={setEmailModalOpen}>
               <DialogContent className="sm:max-w-lg">
                 <DialogHeader>
@@ -1344,6 +1397,7 @@ export default function ClientDetailPage() {
                               ...emailForm,
                               subject: tmpl.subject,
                               body: tmpl.bodyHtml,
+                              templateId: tmpl.id,
                             });
                           }
                         }}
@@ -1443,6 +1497,26 @@ export default function ClientDetailPage() {
                         <p className="text-xs text-muted-foreground">
                           {formatDateTime(email.sentAt)}
                         </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                              email.deliveredAt
+                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                                : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                            }`}
+                          >
+                            {email.deliveredAt ? "✅ Consegnata" : "⏳ Inviata"}
+                          </span>
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                              email.openedAt
+                                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                                : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                            }`}
+                          >
+                            {email.openedAt ? "👁 Letta" : "📬 Non letta"}
+                          </span>
+                        </div>
                       </div>
                       <Tooltip>
                         <TooltipTrigger asChild>

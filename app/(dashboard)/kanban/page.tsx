@@ -6,6 +6,13 @@ import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-p
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
@@ -43,13 +50,19 @@ export default function KanbanPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [usersMap, setUsersMap] = useState<Record<string, string>>({});
+  const [usersList, setUsersList] = useState<{ id: string; name: string }[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [assignedToFilter, setAssignedToFilter] = useState("all");
 
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => r.json())
       .then((json) => {
-        if (json.user) setCurrentUserId(json.user.id);
+        if (json.user) {
+          setCurrentUserId(json.user.id);
+          setIsAdmin(json.user.role === "admin");
+        }
       })
       .catch(() => {});
 
@@ -58,8 +71,13 @@ export default function KanbanPage() {
       .then((json) => {
         if (json.data) {
           const map: Record<string, string> = {};
-          json.data.forEach((u: any) => { map[u.id] = u.name; });
+          const list: { id: string; name: string }[] = [];
+          json.data.forEach((u: any) => {
+            map[u.id] = u.name;
+            list.push({ id: u.id, name: u.name });
+          });
           setUsersMap(map);
+          setUsersList(list);
         }
       })
       .catch(() => {});
@@ -198,19 +216,53 @@ export default function KanbanPage() {
     );
   }
 
+  // Filtro "Assegnato a" (solo admin) applicato lato client
+  const visibleClients =
+    assignedToFilter === "all"
+      ? clients
+      : clients.filter((c) => c.userId === assignedToFilter);
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Trattative</h2>
-        <p className="text-muted-foreground">
-          Trascina i clienti tra le colonne per aggiornare lo status
-        </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Trattative</h2>
+          <p className="text-muted-foreground">
+            Trascina i clienti tra le colonne per aggiornare lo status
+          </p>
+        </div>
+        {isAdmin && (
+          <div className="flex items-center gap-2">
+            <Label
+              htmlFor="assigned-to-filter"
+              className="whitespace-nowrap text-sm text-muted-foreground"
+            >
+              Assegnato a
+            </Label>
+            <Select
+              value={assignedToFilter}
+              onValueChange={setAssignedToFilter}
+            >
+              <SelectTrigger id="assigned-to-filter" className="w-full sm:w-48">
+                <SelectValue placeholder="Tutti" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tutti</SelectItem>
+                {usersList.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
 
       <DragDropContext onDragEnd={handleDragEnd}>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {columns.map((column) => {
-            const columnClients = clients.filter(
+            const columnClients = visibleClients.filter(
               (c) => c.status === column.id
             );
 

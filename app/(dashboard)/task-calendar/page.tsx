@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import {
   DragDropContext,
   Droppable,
@@ -21,6 +22,9 @@ import {
   List,
   Mail,
   FileText,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
 } from "lucide-react";
 import {
   Tooltip,
@@ -45,7 +49,9 @@ interface TaskItem {
   clientCompany?: string | null;
 }
 
-const DAY_OPTIONS = [7, 15, 30, 60, 90] as const;
+// Helper: data in formato YYYY-MM-DD usando ora locale (evita problemi fuso orario di toISOString)
+const toLocalDateStr = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 const STATUS_LABELS: Record<string, string> = {
   todo: "Da fare",
@@ -57,63 +63,95 @@ const STATUS_LABELS: Record<string, string> = {
 const DAYS_OF_WEEK = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
 
 export default function TaskCalendarPage() {
+  const router = useRouter();
   const { toast } = useToast();
-  const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedDays, setSelectedDays] = useState<number>(30);
+  const [tasksByMonth, setTasksByMonth] = useState<Map<string, TaskItem[]>>(
+    new Map()
+  );
+  const [loadingMonth, setLoadingMonth] = useState<string | null>(null);
+  const [viewDate, setViewDate] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
   const [viewMode, setViewMode] = useState<"calendar" | "list">("calendar");
   const [listFilter, setListFilter] = useState<"today" | "all">("all");
 
-  const fetchTasks = useCallback(async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams();
-      params.set("upcomingDays", "365");
+  // Chiave "YYYY-MM" del mese visualizzato
+  const monthKey = useMemo(
+    () =>
+      `${viewDate.getFullYear()}-${String(viewDate.getMonth() + 1).padStart(2, "0")}`,
+    [viewDate]
+  );
 
-      const res = await fetch(`/api/tasks?${params.toString()}`);
-      const data = await res.json();
-      setTasks(data);
-    } catch {
-      toast({
-        title: "Errore",
-        description: "Impossibile caricare i task",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [toast]);
+  // Task del mese visualizzato (se già caricato in memoria)
+  const monthTasks = tasksByMonth.get(monthKey);
 
+  // Carica (e salva nella mappa) i task di un mese specifico
+  const loadMonth = useCallback(
+    async (key: string) => {
+      setLoadingMonth(key);
+      try {
+        const res = await fetch(`/api/tasks?month=${key}`);
+        const data = await res.json();
+        setTasksByMonth((prev) => {
+          const next = new Map(prev);
+          next.set(key, Array.isArray(data) ? data : []);
+          return next;
+        });
+      } catch {
+        toast({
+          title: "Errore",
+          description: "Impossibile caricare i task",
+          variant: "destructive",
+        });
+      } finally {
+        setLoadingMonth((cur) => (cur === key ? null : cur));
+      }
+    },
+    [toast]
+  );
+
+  // All'avvio e alla navigazione: carica il mese solo se non è già in memoria
   useEffect(() => {
-    fetchTasks();
-  }, [fetchTasks]);
+    if (!tasksByMonth.has(monthKey)) {
+      loadMonth(monthKey);
+    }
+  }, [monthKey, tasksByMonth, loadMonth]);
 
-  // Filtra i task localmente in base ai giorni selezionati (senza ricaricare)
-  const filteredTasks = useMemo(() => {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() + selectedDays);
-    cutoff.setHours(23, 59, 59, 999);
-    return tasks.filter((t) => !t.dueDate || new Date(t.dueDate) <= cutoff);
-  }, [tasks, selectedDays]);
+  // Navigazione mensile
+  const goPrevMonth = () =>
+    setViewDate((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1));
+  const goNextMonth = () =>
+    setViewDate((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1));
+  const goToday = () => {
+    const now = new Date();
+    setViewDate(new Date(now.getFullYear(), now.getMonth(), 1));
+  };
+
+  // Titolo "Mese Anno" (es. "Agosto 2026")
+  const monthLabel = useMemo(
+    () =>
+      viewDate
+        .toLocaleDateString("it-IT", { month: "long", year: "numeric" })
+        .replace(/^\w/, (c) => c.toUpperCase()),
+    [viewDate]
+  );
 
   // Per la vista lista: filtra ulteriormente per oggi se listFilter === "today"
-  // Helper: data in formato YYYY-MM-DD usando ora locale (evita problemi fuso orario di toISOString)
-  const toLocalDateStr = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
   const listTasks = useMemo(() => {
-    if (listFilter === "all") return filteredTasks;
+    const base = monthTasks ?? [];
+    if (listFilter === "all") return base;
     const todayStr = toLocalDateStr(new Date());
-    return filteredTasks.filter((t) => {
+    return base.filter((t) => {
       if (!t.dueDate) return false;
       return toLocalDateStr(new Date(t.dueDate)) === todayStr;
     });
-  }, [filteredTasks, listFilter]);
+  }, [monthTasks, listFilter]);
 
   // Build a map: dateString -> tasks[], sorted with active first, completed/cancelled last
   const tasksByDate = useMemo(() => {
     const map: Record<string, TaskItem[]> = {};
-    filteredTasks.forEach((task) => {
+    (monthTasks ?? []).forEach((task) => {
       if (!task.dueDate) return;
       const dateStr = toLocalDateStr(new Date(task.dueDate));
       if (!map[dateStr]) map[dateStr] = [];
@@ -125,47 +163,51 @@ export default function TaskCalendarPage() {
       map[dateStr].sort((a, b) => (order[a.status as keyof typeof order] ?? 0) - (order[b.status as keyof typeof order] ?? 0));
     }
     return map;
-  }, [filteredTasks]);
+  }, [monthTasks]);
 
-  // Genera griglia di N giorni da oggi, organizzati in settimane (7 colonne)
+  // Genera la griglia del mese visualizzato, con settimane complete (padding con giorni del mese precedente/successivo)
   const calendarGrid = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStr = toLocalDateStr(today);
+    const year = viewDate.getFullYear();
+    const month = viewDate.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const todayStr = toLocalDateStr(new Date());
 
     const weeks: {
       day: number;
       month: number;
       isToday: boolean;
+      isCurrentMonth: boolean;
       dateStr: string;
       tasks: TaskItem[];
     }[][] = [];
     let week: (typeof weeks)[number] = [];
 
-    // Padding iniziale per allineare al giorno della settimana
-    const startPad = today.getDay();
-    for (let i = 0; i < startPad; i++) {
+    // Padding iniziale: giorni del mese precedente per allineare alla settimana
+    const startPad = firstDay.getDay();
+    for (let i = startPad; i > 0; i--) {
+      const padDate = new Date(year, month, 1 - i);
       week.push({
-        day: 0,
-        month: 0,
+        day: padDate.getDate(),
+        month: padDate.getMonth(),
         isToday: false,
-        dateStr: "",
+        isCurrentMonth: false,
+        dateStr: toLocalDateStr(padDate),
         tasks: [],
       });
     }
 
-    for (let d = 0; d < selectedDays; d++) {
-      const cellDate = new Date(today);
-      cellDate.setDate(today.getDate() + d);
+    for (let d = 1; d <= daysInMonth; d++) {
+      const cellDate = new Date(year, month, d);
       const dateStr = toLocalDateStr(cellDate);
       const isToday = dateStr === todayStr;
-      const tasksForDay = tasksByDate[dateStr] || [];
       week.push({
-        day: cellDate.getDate(),
-        month: cellDate.getMonth(),
+        day: d,
+        month,
         isToday,
+        isCurrentMonth: true,
         dateStr,
-        tasks: tasksForDay,
+        tasks: tasksByDate[dateStr] || [],
       });
 
       if (week.length === 7) {
@@ -174,34 +216,52 @@ export default function TaskCalendarPage() {
       }
     }
 
-    // Padding finale per completare l'ultima settimana
+    // Padding finale: giorni del mese successivo per completare l'ultima settimana
     if (week.length > 0) {
+      let nextDay = 1;
       while (week.length < 7) {
+        const padDate = new Date(year, month + 1, nextDay);
         week.push({
-          day: 0,
-          month: 0,
+          day: padDate.getDate(),
+          month: padDate.getMonth(),
           isToday: false,
-          dateStr: "",
+          isCurrentMonth: false,
+          dateStr: toLocalDateStr(padDate),
           tasks: [],
         });
+        nextDay++;
       }
       weeks.push(week);
     }
 
     return weeks;
-  }, [selectedDays, filteredTasks]);
+  }, [viewDate, tasksByDate]);
+
+  // Aggiorna un task nella mappa dei mesi (dove si trova)
+  const patchTask = useCallback(
+    (taskId: string, updater: (t: TaskItem) => TaskItem) => {
+      setTasksByMonth((prev) => {
+        const next = new Map(prev);
+        for (const [key, arr] of next) {
+          const idx = arr.findIndex((t) => t.id === taskId);
+          if (idx !== -1) {
+            const newArr = arr.slice();
+            newArr[idx] = updater(arr[idx]);
+            next.set(key, newArr);
+            break;
+          }
+        }
+        return next;
+      });
+    },
+    []
+  );
 
   const handleToggle = async (id: string, currentStatus: string) => {
     const newStatus = currentStatus === "completed" ? "todo" : "completed";
     const now = newStatus === "completed" ? Date.now() : null;
     // Optimistic update locale
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === id
-          ? { ...t, status: newStatus, completedAt: now }
-          : t
-      )
-    );
+    patchTask(id, (t) => ({ ...t, status: newStatus, completedAt: now }));
     try {
       const res = await fetch(`/api/tasks/${id}`, {
         method: "PATCH",
@@ -210,13 +270,11 @@ export default function TaskCalendarPage() {
       });
       if (!res.ok) {
         // Revert on error
-        setTasks((prev) =>
-          prev.map((t) =>
-            t.id === id
-              ? { ...t, status: currentStatus, completedAt: currentStatus === "completed" ? Date.now() : null }
-              : t
-          )
-        );
+        patchTask(id, (t) => ({
+          ...t,
+          status: currentStatus,
+          completedAt: currentStatus === "completed" ? Date.now() : null,
+        }));
         toast({
           title: "Errore",
           description: "Aggiornamento fallito",
@@ -225,13 +283,11 @@ export default function TaskCalendarPage() {
       }
     } catch {
       // Revert on network error
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === id
-            ? { ...t, status: currentStatus, completedAt: currentStatus === "completed" ? Date.now() : null }
-            : t
-        )
-      );
+      patchTask(id, (t) => ({
+        ...t,
+        status: currentStatus,
+        completedAt: currentStatus === "completed" ? Date.now() : null,
+      }));
       toast({
         title: "Errore",
         description: "Aggiornamento fallito",
@@ -251,13 +307,10 @@ export default function TaskCalendarPage() {
     if (sourceDateStr === destDateStr) return;
 
     // Optimistic update
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === draggableId
-          ? { ...t, dueDate: new Date(destDateStr + "T12:00:00").getTime() }
-          : t
-      )
-    );
+    patchTask(draggableId, (t) => ({
+      ...t,
+      dueDate: new Date(destDateStr + "T12:00:00").getTime(),
+    }));
 
     try {
       const res = await fetch(`/api/tasks/${draggableId}`, {
@@ -267,7 +320,7 @@ export default function TaskCalendarPage() {
       });
 
       if (!res.ok) {
-        fetchTasks();
+        loadMonth(monthKey);
         toast({
           title: "Errore",
           description: "Spostamento task fallito",
@@ -275,7 +328,7 @@ export default function TaskCalendarPage() {
         });
       }
     } catch {
-      fetchTasks();
+      loadMonth(monthKey);
       toast({
         title: "Errore",
         description: "Spostamento task fallito",
@@ -292,14 +345,6 @@ export default function TaskCalendarPage() {
     return "border-l-amber-500";
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">Caricamento...</p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -309,7 +354,7 @@ export default function TaskCalendarPage() {
           <p className="text-muted-foreground">
             {viewMode === "calendar"
               ? "Trascina i task tra i giorni per modificarne la scadenza"
-              : "Elenco dei task nei prossimi giorni"}
+              : "Elenco dei task del mese visualizzato"}
           </p>
         </div>
         <div className="flex items-center gap-1 rounded-lg border p-0.5">
@@ -334,23 +379,32 @@ export default function TaskCalendarPage() {
         </div>
       </div>
 
-      {/* Filters bar */}
+      {/* Navigazione mensile */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1">
-          <span className="text-sm text-muted-foreground mr-1">Giorni:</span>
-          {DAY_OPTIONS.map((d) => (
-            <Button
-              key={d}
-              variant={selectedDays === d ? "default" : "outline"}
-              size="sm"
-              onClick={() => setSelectedDays(d)}
-              className="min-w-[2.5rem]"
-            >
-              {d}
-            </Button>
-          ))}
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={goPrevMonth}
+            title="Mese precedente"
+            className="h-8 w-8"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={goNextMonth}
+            title="Mese successivo"
+            className="h-8 w-8"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={goToday} className="h-8">
+            Oggi
+          </Button>
         </div>
-
+        <h3 className="text-lg font-semibold capitalize">{monthLabel}</h3>
       </div>
 
       {viewMode === "calendar" ? (
@@ -360,12 +414,30 @@ export default function TaskCalendarPage() {
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">
-                  Prossimi {selectedDays} giorni
-                </CardTitle>
+                <CardTitle className="text-lg">Calendario mensile</CardTitle>
               </div>
             </CardHeader>
             <CardContent>
+              {!monthTasks ? (
+                <div className="flex h-48 items-center justify-center">
+                  {loadingMonth === monthKey ? (
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  ) : (
+                    <div className="text-center text-sm text-muted-foreground">
+                      <p>Impossibile caricare i task di questo mese.</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2"
+                        onClick={() => loadMonth(monthKey)}
+                      >
+                        Riprova
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
               {/* Day headers */}
               <div className="grid grid-cols-7 mb-2">
                 {DAYS_OF_WEEK.map((d) => (
@@ -383,11 +455,15 @@ export default function TaskCalendarPage() {
                 {calendarGrid.map((week, wi) => (
                   <div key={wi} className="grid grid-cols-7 gap-1">
                     {week.map((cell, ci) =>
-                      cell.day === 0 ? (
+                      !cell.isCurrentMonth ? (
                         <div
                           key={ci}
-                          className="rounded-lg min-h-[7rem] bg-muted/20"
-                        />
+                          className="rounded-lg min-h-[7rem] bg-muted/10 p-1"
+                        >
+                          <span className="text-xs font-medium text-muted-foreground/60">
+                            {cell.day}
+                          </span>
+                        </div>
                       ) : (
                         <Droppable
                           key={ci}
@@ -400,11 +476,12 @@ export default function TaskCalendarPage() {
                               {...provided.droppableProps}
                               className={`
                                 rounded-lg p-1 min-h-[7rem] text-sm transition-colors
-                                ${cell.isToday ? "ring-2 ring-primary ring-offset-1" : ""}
                                 ${
                                   snapshot.isDraggingOver
                                     ? "bg-accent"
-                                    : "hover:bg-accent/30"
+                                    : cell.isToday
+                                      ? "bg-yellow-200/70"
+                                      : "hover:bg-accent/30"
                                 }
                               `}
                             >
@@ -443,6 +520,11 @@ export default function TaskCalendarPage() {
                                             {...restDraggable}
                                             {...handleProps}
                                             style={dragStyle}
+                                            onClick={() =>
+                                              router.push(
+                                                `/clienti/${task.clientId}?from=task-calendar`
+                                              )
+                                            }
                                             className={`
                                               group relative rounded-md border border-l-4 p-1.5 text-xs
                                               bg-card hover:shadow-sm transition-shadow cursor-grab active:cursor-grabbing
@@ -539,6 +621,8 @@ export default function TaskCalendarPage() {
                   </div>
                 ))}
               </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </DragDropContext>
@@ -548,9 +632,7 @@ export default function TaskCalendarPage() {
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-lg">
-                Lista task — Prossimi {selectedDays} giorni
-              </CardTitle>
+              <CardTitle className="text-lg">Lista task — {monthLabel}</CardTitle>
               <div className="flex items-center gap-1 rounded-lg border p-0.5">
                 <Button
                   variant={listFilter === "today" ? "secondary" : "ghost"}
@@ -572,6 +654,25 @@ export default function TaskCalendarPage() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
+            {!monthTasks ? (
+              <div className="flex items-center justify-center py-12">
+                {loadingMonth === monthKey ? (
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                ) : (
+                  <div className="text-center text-sm text-muted-foreground">
+                    <p>Impossibile caricare i task di questo mese.</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => loadMonth(monthKey)}
+                    >
+                      Riprova
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -657,6 +758,7 @@ export default function TaskCalendarPage() {
                 </p>
               )}
             </div>
+            )}
           </CardContent>
         </Card>
       )}

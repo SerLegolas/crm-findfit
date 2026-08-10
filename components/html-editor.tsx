@@ -118,7 +118,7 @@ const actions: ToolbarAction[] = [
   { label: "UL", tooltip: "Lista non ordinata", handler: wrapHandler("<ul>\n  <li>", "</li>\n</ul>") },
   { label: "OL", tooltip: "Lista ordinata", handler: wrapHandler("<ol>\n  <li>", "</li>\n</ol>") },
   { label: "🖼", tooltip: "Immagine", handler: wrapHandler('<img src="', '" alt="" />') },
-  { label: "↵", tooltip: "A capo (br)", handler: insertTagHandler("<br />") },
+  { label: "br", tooltip: "A capo", handler: insertTagHandler("<br />") },
   { label: "✕", tooltip: "Rimuovi formattazione", handler: unwrapHandler },
 ];
 

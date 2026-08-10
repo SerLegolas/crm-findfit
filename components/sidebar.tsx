@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { APP_VERSION_LABEL } from "@/lib/app-version";
 import { Button } from "@/components/ui/button";
 import {
   LayoutDashboard,
@@ -20,6 +21,11 @@ import {
   Download,
   ChevronDown,
   ChevronRight,
+  BarChart3,
+  History,
+  MailIcon,
+  User,
+  Building2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -35,7 +41,6 @@ const navItems = [
   { href: "/task-calendar", label: "Calendario Task", icon: CalendarDays },
   { href: "/task", label: "Task Scaduti", icon: CalendarCheck },
   { href: "/note", label: "Note Recenti", icon: FileText },
-  { href: "/impostazioni", label: "Impostazioni", icon: Settings },
 ];
 
 // Mappa: href del navItem → feature key
@@ -46,15 +51,17 @@ const navFeatureMap: Record<string, string> = {
   "/task": "task",
   "/task-calendar": "task",
   "/note": "note",
-  "/impostazioni": "impostazioni",
 };
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
   const [user, setUser] = useState<{ name: string; role: string } | null>(null);
   const [companyName, setCompanyName] = useState("");
-  const [appVersion, setAppVersion] = useState("");
   const [adminOpen, setAdminOpen] = useState(false);
+  const [strumentiOpen, setStrumentiOpen] = useState(false);
+  const [impostazioniOpen, setImpostazioniOpen] = useState(() =>
+    pathname.startsWith("/impostazioni")
+  );
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
   const [featuresAdmin, setFeaturesAdmin] = useState<Record<string, boolean> | null>(null);
 
@@ -73,13 +80,6 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       })
       .catch(() => {});
 
-    fetch("/version.json")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.version) setAppVersion(data.version);
-      })
-      .catch(() => {});
-
     // Carica le regole azienda per filtrare le voci di menu
     fetch("/api/company-rules")
       .then((r) => r.json())
@@ -90,6 +90,11 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         }
       })
       .catch(() => {});
+  }, [pathname]);
+
+  // Mantieni aperto il menu Impostazioni quando si è in una sottopagina
+  useEffect(() => {
+    if (pathname.startsWith("/impostazioni")) setImpostazioniOpen(true);
   }, [pathname]);
 
   // Mappa: href admin → featureAdmin key (opt-in)
@@ -145,44 +150,42 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r bg-background transition-transform duration-300 lg:static lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#eef2ff] transition-transform duration-300 lg:static lg:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <div className="flex flex-col items-center justify-center h-14 border-b px-4 lg:hidden">
-          <span className="font-semibold text-sm">CRM FindFit</span>
+        <div className="flex flex-col items-center justify-center h-14 border-b border-[#e2e8f0] px-4 lg:hidden">
+          <span className="font-semibold text-sm text-[#2563eb]">CRM FindFit</span>
           {companyName?.trim() && (
-            <span className="text-[10px] text-muted-foreground leading-tight">{companyName.trim()}</span>
+            <span className="text-[10px] text-[#475569] leading-tight">{companyName.trim()}</span>
           )}
-          <Button variant="ghost" size="icon" className="absolute right-2 top-3" onClick={onClose}>
+          <Button variant="ghost" size="icon" className="absolute right-2 top-3 text-[#475569] hover:text-[#1e293b]" onClick={onClose}>
             <X className="h-5 w-5" />
           </Button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-3 py-4">
           {/* Titolo desktop */}
-          <div className="hidden lg:flex flex-col items-center px-3 pb-4 border-b mb-4">
-            <p className="font-semibold text-sm text-center">CRM FindFit</p>
+          <div className="hidden lg:flex flex-col items-center px-3 pb-4 border-b border-[#e2e8f0] mb-4">
+            <p className="font-semibold text-sm text-center text-[#2563eb]">CRM FindFit</p>
             {companyName?.trim() && (
-              <p className="text-[10px] text-muted-foreground text-center leading-tight mt-0.5">{companyName.trim()}</p>
+              <p className="text-[10px] text-[#475569] text-center leading-tight mt-0.5">{companyName.trim()}</p>
             )}
           </div>
           <nav className="flex flex-col gap-1">
             {filteredNavItems.map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
               const Icon = item.icon;
-              const isImpostazioni = item.href === "/impostazioni";
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   onClick={onClose}
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[#dbeafe] hover:text-[#1e293b]",
                     isActive
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground",
-                    isImpostazioni && "hidden lg:flex"
+                      ? "bg-[#dbeafe] text-[#1e293b]"
+                      : "text-[#475569]"
                   )}
                 >
                   <Icon className="h-5 w-5 shrink-0" />
@@ -190,6 +193,156 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 </Link>
               );
             })}
+
+            {/* Strumenti dropdown — visibile a tutti */}
+            <div className="mt-1">
+              <button
+                onClick={() => setStrumentiOpen(!strumentiOpen)}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium text-[#475569] transition-colors hover:bg-[#dbeafe] hover:text-[#1e293b]"
+              >
+                <span className="flex items-center gap-3">
+                  <BarChart3 className="h-5 w-5 shrink-0" />
+                  <span>Strumenti</span>
+                </span>
+                {strumentiOpen ? (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5" />
+                )}
+              </button>
+              {strumentiOpen && (
+                <div className="mt-1 space-y-1">
+                  <Link
+                    href="/analisi"
+                    onClick={onClose}
+                    className={cn(
+                      "ml-2 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[#dbeafe] hover:text-[#1e293b]",
+                      pathname === "/analisi" || pathname.startsWith("/analisi/")
+                        ? "bg-[#dbeafe] text-[#1e293b]"
+                        : "text-[#475569]"
+                    )}
+                  >
+                    <BarChart3 className="h-5 w-5 shrink-0" />
+                    <span>Nuova Analisi</span>
+                  </Link>
+                  <Link
+                    href="/analisi-salvate"
+                    onClick={onClose}
+                    className={cn(
+                      "ml-2 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[#dbeafe] hover:text-[#1e293b]",
+                      pathname === "/analisi-salvate" || pathname.startsWith("/analisi-salvate/")
+                        ? "bg-[#dbeafe] text-[#1e293b]"
+                        : "text-[#475569]"
+                    )}
+                  >
+                    <History className="h-5 w-5 shrink-0" />
+                    <span>Analisi Salvate</span>
+                  </Link>
+                  <Link
+                    href="/template-nuovo"
+                    onClick={onClose}
+                    className={cn(
+                      "ml-2 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[#dbeafe] hover:text-[#1e293b]",
+                      pathname === "/template-nuovo" || pathname.startsWith("/template-nuovo/")
+                        ? "bg-[#dbeafe] text-[#1e293b]"
+                        : "text-[#475569]"
+                    )}
+                  >
+                    <FileText className="h-5 w-5 shrink-0" />
+                    <span>Nuovo Template</span>
+                  </Link>
+                  <Link
+                    href="/template-salvati"
+                    onClick={onClose}
+                    className={cn(
+                      "ml-2 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[#dbeafe] hover:text-[#1e293b]",
+                      pathname === "/template-salvati" || pathname.startsWith("/template-salvati/")
+                        ? "bg-[#dbeafe] text-[#1e293b]"
+                        : "text-[#475569]"
+                    )}
+                  >
+                    <FileText className="h-5 w-5 shrink-0" />
+                    <span>Template Salvati</span>
+                  </Link>
+                  <Link
+                    href="/comunicazioni"
+                    onClick={onClose}
+                    className={cn(
+                      "ml-2 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[#dbeafe] hover:text-[#1e293b]",
+                      pathname === "/comunicazioni" || pathname.startsWith("/comunicazioni/")
+                        ? "bg-[#dbeafe] text-[#1e293b]"
+                        : "text-[#475569]"
+                    )}
+                  >
+                    <MailIcon className="h-5 w-5 shrink-0" />
+                    <span>Comunicazioni</span>
+                  </Link>
+                </div>
+              )}
+            </div>
+
+            {/* Impostazioni dropdown — visibile se feature "impostazioni" attiva */}
+            {(!enabledFeatures || enabledFeatures.impostazioni === true) && (
+              <div className="mt-1">
+                <button
+                  onClick={() => setImpostazioniOpen(!impostazioniOpen)}
+                  className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium text-[#475569] transition-colors hover:bg-[#dbeafe] hover:text-[#1e293b]"
+                >
+                  <span className="flex items-center gap-3">
+                    <Settings className="h-5 w-5 shrink-0" />
+                    <span>Impostazioni</span>
+                  </span>
+                  {impostazioniOpen ? (
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  )}
+                </button>
+                {impostazioniOpen && (
+                  <div className="mt-1 space-y-1">
+                    <Link
+                      href="/impostazioni/generali"
+                      onClick={onClose}
+                      className={cn(
+                        "ml-2 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[#dbeafe] hover:text-[#1e293b]",
+                        pathname === "/impostazioni/generali" || pathname.startsWith("/impostazioni/generali/")
+                          ? "bg-[#dbeafe] text-[#1e293b]"
+                          : "text-[#475569]"
+                      )}
+                    >
+                      <Settings className="h-5 w-5 shrink-0" />
+                      <span>Generali</span>
+                    </Link>
+                    <Link
+                      href="/impostazioni/utente"
+                      onClick={onClose}
+                      className={cn(
+                        "ml-2 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[#dbeafe] hover:text-[#1e293b]",
+                        pathname === "/impostazioni/utente" || pathname.startsWith("/impostazioni/utente/")
+                          ? "bg-[#dbeafe] text-[#1e293b]"
+                          : "text-[#475569]"
+                      )}
+                    >
+                      <User className="h-5 w-5 shrink-0" />
+                      <span>Utente</span>
+                    </Link>
+                    <Link
+                      href="/impostazioni/azienda"
+                      onClick={onClose}
+                      className={cn(
+                        "ml-2 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[#dbeafe] hover:text-[#1e293b]",
+                        pathname === "/impostazioni/azienda" || pathname.startsWith("/impostazioni/azienda/")
+                          ? "bg-[#dbeafe] text-[#1e293b]"
+                          : "text-[#475569]"
+                      )}
+                    >
+                      <Building2 className="h-5 w-5 shrink-0" />
+                      <span>Azienda</span>
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Admin section — visibile se impostazioni è true oppure qualche admin feature è true */}
             {user?.role === "admin" && (
@@ -200,7 +353,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               <div className="hidden lg:block">
                 <button
                   onClick={() => setAdminOpen(!adminOpen)}
-                  className="mt-4 mb-1 px-3 flex items-center justify-between w-full text-xs font-semibold uppercase text-muted-foreground hover:text-foreground transition-colors"
+                  className="mt-4 mb-1 px-3 flex items-center justify-between w-full text-xs font-semibold uppercase text-[#475569] hover:text-[#1e293b] transition-colors"
                 >
                   <span>Admin</span>
                   {adminOpen ? (
@@ -216,10 +369,10 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   href="/admin/users"
                   onClick={onClose}
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                    "ml-2 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[#dbeafe] hover:text-[#1e293b]",
                     pathname === "/admin/users"
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground"
+                      ? "bg-[#dbeafe] text-[#1e293b]"
+                      : "text-[#475569]"
                   )}
                 >
                   <Shield className="h-5 w-5 shrink-0" />
@@ -231,10 +384,10 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   href="/admin/imap"
                   onClick={onClose}
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                    "ml-2 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[#dbeafe] hover:text-[#1e293b]",
                     pathname === "/admin/imap"
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground"
+                      ? "bg-[#dbeafe] text-[#1e293b]"
+                      : "text-[#475569]"
                   )}
                 >
                   <Server className="h-5 w-5 shrink-0" />
@@ -246,10 +399,10 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   href="/test-email"
                   onClick={onClose}
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                    "ml-2 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[#dbeafe] hover:text-[#1e293b]",
                     pathname === "/test-email"
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground"
+                      ? "bg-[#dbeafe] text-[#1e293b]"
+                      : "text-[#475569]"
                   )}
                 >
                   <Download className="h-5 w-5 shrink-0" />
@@ -261,10 +414,10 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   href="/admin/facebook-post"
                   onClick={onClose}
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                    "ml-2 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[#dbeafe] hover:text-[#1e293b]",
                     pathname === "/admin/facebook-post"
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground"
+                      ? "bg-[#dbeafe] text-[#1e293b]"
+                      : "text-[#475569]"
                   )}
                 >
                   <Facebook className="h-5 w-5 shrink-0" />
@@ -278,17 +431,17 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           </nav>
         </div>
 
-        <div className="border-t p-4 space-y-2">
+        <div className="border-t border-[#e2e8f0] p-4 space-y-2">
           {user && (
             <div className="flex items-center justify-between">
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium truncate">{user.name}</p>
-                <p className="text-xs text-muted-foreground capitalize">{user.role}</p>
-                {appVersion && (
-                  <p className="text-[10px] text-muted-foreground italic mt-0.5">v{appVersion}</p>
+                <p className="text-sm font-medium text-[#1e293b] truncate">{user.name}</p>
+                <p className="text-xs text-[#475569] capitalize">{user.role}</p>
+                {APP_VERSION_LABEL && (
+                  <p className="text-[10px] text-[#475569] italic mt-0.5">{APP_VERSION_LABEL}</p>
                 )}
               </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout} title="Esci">
+              <Button variant="ghost" size="icon" className="text-[#475569] hover:text-[#1e293b]" onClick={handleLogout} title="Esci">
                 <LogOut className="h-4 w-4" />
               </Button>
             </div>

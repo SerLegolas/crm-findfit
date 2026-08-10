@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { clients, tasks } from "@/lib/schema";
 import { clientSchema } from "@/types";
-import { eq, desc, like, or, and, sql, type SQL } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import { getAuthUser, requireCompany } from "@/lib/auth";
+import { buildClientWhere } from "@/lib/client-filters";
 import {
   checkMaxClients,
   MaxLimitError,
@@ -28,42 +29,15 @@ export async function GET(request: NextRequest) {
       throw e;
     }
 
-    const companyId = authUser.companyId;
-
     const { searchParams } = new URL(request.url);
-    const search = searchParams.get("search") || "";
-    const status = searchParams.get("status") || "";
-    const categoria = searchParams.get("categoria") || "";
     const sort = searchParams.get("sort") || "createdAt";
     const order = searchParams.get("order") || "desc";
     const page = parseInt(searchParams.get("page") || "1");
     const limit = parseInt(searchParams.get("limit") || "10");
     const offset = (page - 1) * limit;
 
-    const conditions: (SQL | undefined)[] = [eq(clients.companyId, companyId)];
-    if (search) {
-      conditions.push(
-        or(
-          like(clients.name, `%${search}%`),
-          like(clients.email, `%${search}%`),
-          like(clients.company, `%${search}%`)
-        )
-      );
-    }
-    if (status && status !== "all") {
-      conditions.push(eq(clients.status, status as any));
-    }
-    if (categoria && categoria !== "all") {
-      conditions.push(like(clients.categoria, `%${categoria}%`));
-    }
-    // Filtra per user_id se l'utente non è admin: vede i non assegnati + i propri
-    if (authUser.role !== "admin") {
-      conditions.push(
-        or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`)
-      );
-    }
-
-    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    // Filtri anagrafici + task + note (EXISTS), con scoping per ruolo utente
+    const where = buildClientWhere(authUser, searchParams);
 
     const orderBy =
       order === "asc"

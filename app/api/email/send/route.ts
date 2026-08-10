@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { emailLog, imapSettings, clients, companySettings } from "@/lib/schema";
+import {
+  emailLog,
+  imapSettings,
+  clients,
+  companySettings,
+  emailTemplates,
+} from "@/lib/schema";
 import { emailSchema } from "@/types";
 import { eq, and, desc } from "drizzle-orm";
+import { randomUUID } from "crypto";
+import { trackingPixelUrl } from "@/lib/tracking";
 import { decrypt } from "@/lib/crypto";
 import nodemailer from "nodemailer";
 import { checkFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
@@ -64,7 +72,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { clientId, subject, body: emailBody, sender } = body;
+    const { clientId, subject, body: emailBody, sender, templateId } = body;
 
     if (!clientId) {
       return NextResponse.json(
@@ -111,6 +119,30 @@ export async function POST(request: NextRequest) {
     const resolvedSubject = replaceTags(parsed.subject);
     let resolvedBody = replaceTags(parsed.body);
 
+    // Recupera il template (se indicato) per l'immagine footer
+    let templateFooterImageUrl: string | null = null;
+    if (templateId) {
+      const [tmpl] = await db
+        .select()
+        .from(emailTemplates)
+        .where(
+          and(
+            eq(emailTemplates.id, templateId),
+            eq(emailTemplates.companyId, authUser.companyId)
+          )
+        )
+        .limit(1);
+      if (tmpl) templateFooterImageUrl = tmpl.footerImageUrl ?? null;
+    }
+
+    // Immagine footer del template (se configurata) — prima del footer azienda
+    if (templateFooterImageUrl) {
+      resolvedBody += `
+<div style="margin-top:32px;text-align:center">
+  <img src="${templateFooterImageUrl}" alt="" style="max-width:100%;height:auto" />
+</div>`;
+    }
+
     // Footer dati azienda
     const [companyRow] = await db
       .select()
@@ -136,6 +168,10 @@ ${parts.join("<br />")}
         resolvedBody += footer;
       }
     }
+
+    // Tracking: UUID univoco + pixel invisibile in coda all'email
+    const trackingId = randomUUID();
+    resolvedBody += `<img src="${trackingPixelUrl(trackingId)}" alt="" width="1" height="1" style="display:none" />`;
 
     // Leggi configurazione SMTP da imap_settings (della company corrente)
     const rows = await db
@@ -193,9 +229,18 @@ ${parts.join("<br />")}
         author: authUser.name,
         status,
         sentAt,
+        trackingId,
         companyId: authUser.companyId,
       })
       .returning();
+
+    // Segna come consegnata se l'invio è riuscito
+    if (status === "sent" && saved) {
+      await db
+        .update(emailLog)
+        .set({ deliveredAt: new Date() })
+        .where(eq(emailLog.id, saved.id));
+    }
 
     return NextResponse.json(saved, { status: 201 });
   } catch (error: any) {

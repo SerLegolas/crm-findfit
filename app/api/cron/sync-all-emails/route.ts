@@ -153,6 +153,17 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // h) Pulizia log più vecchi di 5 giorni dopo ogni esecuzione (non bloccante)
+    try {
+      const base = new URL(request.url).origin;
+      await fetch(`${base}/api/cron/cleanup`, {
+        cache: "no-store",
+        headers: { "x-cron-secret": process.env.CRON_SECRET_TOKEN || "" },
+      });
+    } catch {
+      // La pulizia non deve interrompere la risposta del cron
+    }
+
     return NextResponse.json({ success: true, ...summary });
   } catch (error: any) {
     console.error("Errore cron sync-all-emails:", error);

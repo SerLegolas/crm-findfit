@@ -47,7 +47,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { clientSchema, clientStatuses, type ClientStatus } from "@/types";
+import {
+  clientCategories,
+  clientSchema,
+  clientStatuses,
+  type ClientStatus,
+} from "@/types";
 import { formatDate } from "@/lib/utils";
 import {
   Plus,
@@ -82,7 +87,7 @@ export default function ClientiPage() {
   const [limit] = useState(10);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [categoriaFilter, setCategoriaFilter] = useState("");
+  const [categoriaFilter, setCategoriaFilter] = useState("all");
   const [sort, setSort] = useState("createdAt");
   const [order, setOrder] = useState("desc");
   const [loading, setLoading] = useState(true);
@@ -114,7 +119,8 @@ export default function ClientiPage() {
       });
       if (search) params.set("search", search);
       if (statusFilter) params.set("status", statusFilter);
-      if (categoriaFilter) params.set("categoria", categoriaFilter);
+      if (categoriaFilter && categoriaFilter !== "all")
+        params.set("categoria", categoriaFilter);
 
       const res = await fetch(`/api/clients?${params}`);
       const data = await res.json();
@@ -316,18 +322,25 @@ export default function ClientiPage() {
             ))}
           </SelectContent>
         </Select>
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Cerca per categoria..."
-            value={categoriaFilter}
-            onChange={(e) => {
-              setCategoriaFilter(e.target.value);
-              setPage(1);
-            }}
-            className="pl-9 w-full sm:w-44"
-          />
-        </div>
+        <Select
+          value={categoriaFilter}
+          onValueChange={(v) => {
+            setCategoriaFilter(v);
+            setPage(1);
+          }}
+        >
+          <SelectTrigger className="w-full sm:w-44">
+            <SelectValue placeholder="Tutte le categorie" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tutte</SelectItem>
+            {clientCategories.map((c) => (
+              <SelectItem key={c} value={c}>
+                {c}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Table */}
@@ -534,14 +547,23 @@ export default function ClientiPage() {
 
             <div className="space-y-2">
               <Label htmlFor="categoria">Categoria</Label>
-              <Input
-                id="categoria"
-                value={formData.categoria}
-                onChange={(e) =>
-                  setFormData({ ...formData, categoria: e.target.value })
+              <Select
+                value={formData.categoria || undefined}
+                onValueChange={(v) =>
+                  setFormData({ ...formData, categoria: v })
                 }
-                placeholder="es. Cliente, Prospect, Partner..."
-              />
+              >
+                <SelectTrigger id="categoria">
+                  <SelectValue placeholder="Seleziona una categoria" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clientCategories.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">

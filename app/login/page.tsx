@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
+import { APP_VERSION_LABEL } from "@/lib/app-version";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -81,17 +82,6 @@ export default function LoginPage() {
     }
   };
 
-  const [appVersion, setAppVersion] = useState("");
-
-  useEffect(() => {
-    fetch("/version.json")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.version) setAppVersion(data.version);
-      })
-      .catch(() => {});
-  }, []);
-
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-muted/50 p-4">
       <Card className="w-full max-w-sm">
@@ -106,7 +96,6 @@ export default function LoginPage() {
               <Input
                 id="email"
                 type="text"
-                placeholder="mario@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -118,7 +107,6 @@ export default function LoginPage() {
               <Input
                 id="password"
                 type="password"
-                placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -147,9 +135,9 @@ export default function LoginPage() {
               </Link>
             </div>
           )}
-          {appVersion && (
+          {APP_VERSION_LABEL && (
             <div className="mt-6 pt-4 border-t text-center text-xs text-muted-foreground italic">
-              Ver: {appVersion}
+              Ver: {APP_VERSION_LABEL}
             </div>
           )}
         </CardContent>

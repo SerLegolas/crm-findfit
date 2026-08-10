@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -8,21 +8,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
+import { APP_VERSION_LABEL } from "@/lib/app-version";
 
 export default function RegisterPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [appVersion, setAppVersion] = useState("");
-
-  useEffect(() => {
-    fetch("/version.json")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.version) setAppVersion(data.version);
-      })
-      .catch(() => {});
-  }, []);
 
   const [formData, setFormData] = useState({
     companyName: "",
@@ -175,9 +166,9 @@ export default function RegisterPage() {
               Accedi
             </Link>
           </div>
-          {appVersion && (
+          {APP_VERSION_LABEL && (
             <div className="mt-6 pt-4 border-t text-center text-xs text-muted-foreground italic">
-              Ver: {appVersion}
+              Ver: {APP_VERSION_LABEL}
             </div>
           )}
         </CardContent>

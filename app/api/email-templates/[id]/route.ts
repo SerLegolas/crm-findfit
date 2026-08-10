@@ -5,6 +5,7 @@ import { emailTemplateSchema } from "@/types";
 import { eq, and } from "drizzle-orm";
 import { ZodError } from "zod";
 import { getAuthUser } from "@/lib/auth";
+import { checkFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,7 +39,7 @@ function handleZodError(error: ZodError) {
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "PATCH, DELETE, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, PATCH, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
   };
 }
@@ -46,6 +47,74 @@ function corsHeaders() {
 /** OPTIONS: gestione preflight CORS */
 export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders() });
+}
+
+/** GET: recupera un singolo template (company-scoped) */
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json(
+        { error: "Non autenticato" },
+        { status: 401, headers: corsHeaders() }
+      );
+    }
+
+    // Verifica feature abilitata
+    try {
+      await checkFeatureEnabled(authUser.companyId, "email");
+    } catch (e) {
+      if (e instanceof FeatureDisabledError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
+
+    const { id } = await params;
+
+    logError("GET - inizio caricamento template", null, {
+      templateId: id,
+      userId: authUser.id,
+    });
+
+    const [template] = await db
+      .select()
+      .from(emailTemplates)
+      .where(
+        and(eq(emailTemplates.id, id), eq(emailTemplates.companyId, authUser.companyId))
+      );
+
+    if (!template) {
+      logError("GET - template non trovato", null, { templateId: id });
+      return NextResponse.json(
+        { error: "Template non trovato" },
+        { status: 404, headers: corsHeaders() }
+      );
+    }
+
+    return NextResponse.json(template, { headers: corsHeaders() });
+  } catch (error) {
+    logError("GET - errore nel caricamento del template", error);
+
+    if (error instanceof Error && error.message?.includes("fetch")) {
+      return NextResponse.json(
+        {
+          error: "Errore di connessione al database",
+          message:
+            "Impossibile contattare il database. Verifica che Turso sia raggiungibile.",
+        },
+        { status: 503, headers: corsHeaders() }
+      );
+    }
+
+    return NextResponse.json(
+      { error: "Errore nel caricamento del template" },
+      { status: 500, headers: corsHeaders() }
+    );
+  }
 }
 
 /** PATCH: aggiorna un template */
@@ -110,6 +179,7 @@ export async function PATCH(
         name: parsed.name,
         subject: parsed.subject,
         bodyHtml: parsed.bodyHtml,
+        footerImageUrl: parsed.footerImageUrl ?? null,
         updatedAt: new Date(),
       })
       .where(and(eq(emailTemplates.id, id), eq(emailTemplates.companyId, authUser.companyId)))

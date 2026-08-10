@@ -118,6 +118,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Verifica feature abilitata (nessun controllo admin)
+    try {
+      await checkFeatureEnabled(authUser.companyId, "email");
+    } catch (e) {
+      if (e instanceof FeatureDisabledError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
+
     logError("POST - inizio creazione template", null, {
       userId: authUser.id,
       userRole: authUser.role,
@@ -162,6 +172,7 @@ export async function POST(request: NextRequest) {
         name: parsed.name,
         subject: parsed.subject,
         bodyHtml: parsed.bodyHtml,
+        footerImageUrl: parsed.footerImageUrl ?? null,
         author: authUser.name,
         companyId: authUser.companyId,
       })
