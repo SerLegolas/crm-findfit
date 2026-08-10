@@ -516,7 +516,7 @@ export default function ClientDetailPage() {
         variant: data.status === "sent" ? ("success" as any) : "destructive",
       });
       setEmailModalOpen(false);
-      setEmailForm({ subject: "", body: "", sender: "" });
+      setEmailForm({ subject: "", body: "", sender: "", templateId: "" });
       fetchEmails();
     } catch {
       toast({ title: "Errore", description: "Invio email fallito", variant: "destructive" });

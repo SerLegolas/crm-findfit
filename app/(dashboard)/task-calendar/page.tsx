@@ -242,15 +242,15 @@ export default function TaskCalendarPage() {
     (taskId: string, updater: (t: TaskItem) => TaskItem) => {
       setTasksByMonth((prev) => {
         const next = new Map(prev);
-        for (const [key, arr] of next) {
+        // Ogni task appartiene a un solo mese: forEach è sufficiente
+        next.forEach((arr, key) => {
           const idx = arr.findIndex((t) => t.id === taskId);
           if (idx !== -1) {
             const newArr = arr.slice();
             newArr[idx] = updater(arr[idx]);
             next.set(key, newArr);
-            break;
           }
-        }
+        });
         return next;
       });
     },
