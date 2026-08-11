@@ -8,6 +8,7 @@ import {
 } from "@/lib/schema";
 import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import { getAuthUser } from "@/lib/auth";
+import { resolveDataInvio, isDateOccupied } from "@/lib/comunicazioni";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,10 +43,26 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const dataInvioDate = dataInvio ? new Date(dataInvio) : null;
-    if (!dataInvioDate || Number.isNaN(dataInvioDate.getTime())) {
+    // dataInvio è una sola data (YYYY-MM-DD); l'ora viene decisa in base all'ambiente
+    if (typeof dataInvio !== "string") {
       return NextResponse.json(
-        { error: "Data di invio non valida" },
+        { error: "Data di invio non valida (formato YYYY-MM-DD)" },
+        { status: 400 }
+      );
+    }
+    const dataInvioDate = resolveDataInvio(dataInvio);
+    if (!dataInvioDate) {
+      return NextResponse.json(
+        { error: "Data di invio non valida (formato YYYY-MM-DD)" },
+        { status: 400 }
+      );
+    }
+
+    // Una comunicazione attiva al giorno: la data non deve essere già occupata
+    const occupied = await isDateOccupied(authUser.companyId, dataInvio);
+    if (occupied) {
+      return NextResponse.json(
+        { error: "Per questa data è già presente una comunicazione" },
         { status: 400 }
       );
     }

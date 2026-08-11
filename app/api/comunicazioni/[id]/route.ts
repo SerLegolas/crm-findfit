@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { comunicazioni } from "@/lib/schema";
 import { eq, and } from "drizzle-orm";
 import { getAuthUser } from "@/lib/auth";
+import { resolveDataInvio, isDateOccupied } from "@/lib/comunicazioni";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,10 +72,28 @@ export async function PATCH(
       if (body.templateId !== undefined) updates.templateId = body.templateId || null;
       if (body.analisiId !== undefined) updates.analisiId = body.analisiId || null;
       if (body.dataInvio !== undefined) {
-        const d = new Date(body.dataInvio);
-        if (Number.isNaN(d.getTime())) {
+        if (typeof body.dataInvio !== "string") {
           return NextResponse.json(
-            { error: "Data di invio non valida" },
+            { error: "Data di invio non valida (formato YYYY-MM-DD)" },
+            { status: 400 }
+          );
+        }
+        const d = resolveDataInvio(body.dataInvio);
+        if (!d) {
+          return NextResponse.json(
+            { error: "Data di invio non valida (formato YYYY-MM-DD)" },
+            { status: 400 }
+          );
+        }
+        // Una comunicazione attiva al giorno: esclude la comunicazione corrente
+        const occupied = await isDateOccupied(
+          authUser.companyId,
+          body.dataInvio,
+          params.id
+        );
+        if (occupied) {
+          return NextResponse.json(
+            { error: "Per questa data è già presente un'altra comunicazione" },
             { status: 400 }
           );
         }

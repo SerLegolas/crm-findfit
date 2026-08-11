@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -53,6 +53,8 @@ import {
   RefreshCw,
   Trash2,
 } from "lucide-react";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
 
 type Stato =
   | "programmata"
@@ -152,11 +154,17 @@ const formatDateTime = (value: number | string) => {
   });
 };
 
-const toDatetimeLocal = (value: number | string | Date) => {
+const toDateKey = (value: number | string | Date) => {
   const d = parseTs(value);
   if (!d) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+const parseDateKey = (key: string): Date | null => {
+  const m = key.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
 };
 
 export default function ComunicazioniPage() {
@@ -211,6 +219,24 @@ export default function ComunicazioniPage() {
       .catch(() => {});
   }, [fetchComunicazioni]);
 
+  // Date occupate (una comunicazione attiva al giorno): le date delle
+  // comunicazioni non completate/annullate sono disabilitate nel picker.
+  // La comunicazione in modifica esclude la propria data dal controllo.
+  const occupiedDates = useMemo(() => {
+    const map = new Map<string, Date>();
+    for (const c of comunicazioni) {
+      if (editing && c.id === editing.id) continue;
+      if (c.stato === "inviata" || c.stato === "annullata") continue;
+      const key = toDateKey(c.dataInvio);
+      if (!key) continue;
+      if (!map.has(key)) {
+        const [y, m, d] = key.split("-").map(Number);
+        map.set(key, new Date(y, m - 1, d));
+      }
+    }
+    return Array.from(map.values());
+  }, [comunicazioni, editing]);
+
   const openCreate = () => {
     setEditing(null);
     setTitolo("");
@@ -225,7 +251,7 @@ export default function ComunicazioniPage() {
     setTitolo(c.titolo);
     setTemplateId(c.templateId || "");
     setAnalisiId(c.analisiId || "");
-    setDataInvio(toDatetimeLocal(c.dataInvio));
+    setDataInvio(toDateKey(c.dataInvio));
     setDialogOpen(true);
   };
 
@@ -253,7 +279,8 @@ export default function ComunicazioniPage() {
         titolo: titolo.trim(),
         templateId,
         analisiId,
-        dataInvio: new Date(dataInvio).toISOString(),
+        // Solo la data (YYYY-MM-DD); l'ora viene decisa dal server in base all'ambiente
+        dataInvio,
       };
 
       const res = editing
@@ -557,13 +584,41 @@ export default function ComunicazioniPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="dataInvio">Data e ora di invio</Label>
-              <Input
-                id="dataInvio"
-                type="datetime-local"
-                value={dataInvio}
-                onChange={(e) => setDataInvio(e.target.value)}
+              <Label>Data di invio</Label>
+              <DatePicker
+                selected={dataInvio ? parseDateKey(dataInvio) : null}
+                onChange={(d: Date | null) => setDataInvio(d ? toDateKey(d) : "")}
+                dateFormat="dd/MM/yyyy"
+                placeholderText="Seleziona una data"
+                excludeDates={occupiedDates}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                showYearDropdown
+                dropdownMode="select"
               />
+              {process.env.NODE_ENV === "production" ? (
+                <p className="text-sm text-muted-foreground mt-1">
+                  Le email verranno spedite automaticamente alle 08:00 del giorno selezionato.
+                </p>
+              ) : (
+                <>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    In sviluppo, le email verranno spedite all'ora impostata manualmente.
+                  </p>
+                  <a
+                    href="http://localhost:3000/api/cron/send-communications?secret=65bd6189f2797d3d37229f3cf58a8f2c5e15d9cceba4f306"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block text-xs text-blue-600 underline mt-1"
+                  >
+                    Esegui invio manuale (cron)
+                  </a>
+                </>
+              )}
+              {occupiedDates.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Le date con una comunicazione già attiva sono disabilitate.
+                </p>
+              )}
             </div>
           </div>
 
