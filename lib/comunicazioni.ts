@@ -18,26 +18,17 @@ export function resolveDataInvio(dateStr: string): Date | null {
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return null;
 
-  if (process.env.NODE_ENV === "production") {
-    console.log("[COMUNICAZIONI] data_invio (prima):", d.toISOString(), "| locale:", d.toString());
-    d.setHours(8, 0, 0, 0);
-    console.log(
-      "[COMUNICAZIONI] data_invio (dopo setHours 08:00 locali):",
-      d.toISOString(),
-      "| locale:",
-      d.toString()
-    );
-  } else {
-    // Sviluppo: mantiene l'ora corrente (o default) per test manuali
-    const now = new Date();
-    d.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
-    console.log(
-      "[COMUNICAZIONI] data_invio (dev, ora corrente):",
-      d.toISOString(),
-      "| locale:",
-      d.toString()
-    );
-  }
+  console.log("[COMUNICAZIONI] data_invio (prima):", d.toISOString(), "| locale:", d.toString());
+  // Sempre 08:00 locali (produzione e sviluppo): comportamento uniforme e prevedibile.
+  // In sviluppo, per test manuali, programmare per oggi fa partire l'invio subito
+  // (le 08:00 di oggi sono già passate) o comunque al primo cron successivo.
+  d.setHours(8, 0, 0, 0);
+  console.log(
+    "[COMUNICAZIONI] data_invio (dopo setHours 08:00 locali):",
+    d.toISOString(),
+    "| locale:",
+    d.toString()
+  );
   return d;
 }
 

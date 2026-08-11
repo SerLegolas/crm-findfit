@@ -595,24 +595,18 @@ export default function ComunicazioniPage() {
                 showYearDropdown
                 dropdownMode="select"
               />
-              {process.env.NODE_ENV === "production" ? (
-                <p className="text-sm text-muted-foreground mt-1">
-                  Le email verranno spedite automaticamente alle 08:00 del giorno selezionato.
-                </p>
-              ) : (
-                <>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    In sviluppo, le email verranno spedite all'ora impostata manualmente.
-                  </p>
-                  <a
-                    href="http://localhost:3000/api/cron/send-communications?secret=65bd6189f2797d3d37229f3cf58a8f2c5e15d9cceba4f306"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-block text-xs text-blue-600 underline mt-1"
-                  >
-                    Esegui invio manuale (cron)
-                  </a>
-                </>
+              <p className="text-sm text-muted-foreground mt-1">
+                Le email verranno spedite automaticamente alle 08:00 del giorno selezionato.
+              </p>
+              {process.env.NODE_ENV !== "production" && (
+                <a
+                  href="http://localhost:3000/api/cron/send-communications?secret=65bd6189f2797d3d37229f3cf58a8f2c5e15d9cceba4f306"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block text-xs text-blue-600 underline mt-1"
+                >
+                  Esegui invio manuale (cron)
+                </a>
               )}
               {occupiedDates.length > 0 && (
                 <p className="text-xs text-muted-foreground">
