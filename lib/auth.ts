@@ -28,14 +28,23 @@ export async function createSession(user: AuthUser): Promise<string> {
     .setExpirationTime("7d")
     .sign(JWT_SECRET);
 
+  const isProduction = process.env.NODE_ENV === "production";
+
   const cookieStore = await cookies();
   cookieStore.set(COOKIE_NAME, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    // In sviluppo (NODE_ENV !== 'production') il cookie non è "secure" e usa
+    // sameSite "lax" per permettere il login su HTTP locale.
+    // In produzione il cookie è forzato secure: true (solo HTTPS).
+    secure: isProduction,
     sameSite: "lax",
     path: "/",
     maxAge: 60 * 60 * 24 * 7, // 7 giorni
   });
+
+  console.log(
+    `[AUTH] Cookie di sessione creato per ${user.email} (role=${user.role}, companyId=${user.companyId}) - secure=${isProduction ? "true" : "false"}`
+  );
 
   return token;
 }
