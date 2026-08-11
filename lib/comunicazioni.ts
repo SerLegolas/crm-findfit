@@ -11,14 +11,32 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
  */
 export function resolveDataInvio(dateStr: string): Date | null {
   if (!DATE_RE.test(dateStr)) return null;
-  const d = new Date(`${dateStr}T00:00:00`);
+
+  // dataInvio è "YYYY-MM-DD": new Date(dataInvio) viene interpretato come mezzanotte UTC
+  // (ISO 8601 date-only). Con setHours impostiamo l'ora 08:00 nel FUSO ORARIO LOCALE,
+  // quindi il timestamp salvato rappresenta le 08:00 locali del giorno scelto (non UTC).
+  const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return null;
 
   if (process.env.NODE_ENV === "production") {
+    console.log("[COMUNICAZIONI] data_invio (prima):", d.toISOString(), "| locale:", d.toString());
     d.setHours(8, 0, 0, 0);
+    console.log(
+      "[COMUNICAZIONI] data_invio (dopo setHours 08:00 locali):",
+      d.toISOString(),
+      "| locale:",
+      d.toString()
+    );
   } else {
+    // Sviluppo: mantiene l'ora corrente (o default) per test manuali
     const now = new Date();
     d.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+    console.log(
+      "[COMUNICAZIONI] data_invio (dev, ora corrente):",
+      d.toISOString(),
+      "| locale:",
+      d.toString()
+    );
   }
   return d;
 }
