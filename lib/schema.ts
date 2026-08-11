@@ -303,6 +303,69 @@ export const savedAnalyses = sqliteTable("saved_analyses", {
     .$defaultFn(() => new Date()),
 });
 
+// ── Comunicazioni (invii programmati a un'analisi con un template) ──
+export const comunicazioni = sqliteTable("comunicazioni", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => randomUUID()),
+  titolo: text("titolo").notNull(),
+  templateId: text("template_id").references(() => emailTemplates.id, {
+    onDelete: "set null",
+  }),
+  analisiId: text("analisi_id").references(() => savedAnalyses.id, {
+    onDelete: "set null",
+  }),
+  dataInvio: integer("data_invio", { mode: "timestamp" }).notNull(),
+  stato: text("stato", {
+    enum: [
+      "programmata",
+      "in_elaborazione",
+      "inviata",
+      "inviata_parziale",
+      "fallita",
+      "annullata",
+    ],
+  })
+    .notNull()
+    .default("programmata"),
+  lock: integer("lock", { mode: "boolean" }).notNull().default(false),
+  companyId: text("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
+// ── Batch di invio di una comunicazione (una riga per cliente) ──
+export const comunicazioniBatch = sqliteTable("comunicazioni_batch", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => randomUUID()),
+  comunicazioneId: text("comunicazione_id")
+    .notNull()
+    .references(() => comunicazioni.id, { onDelete: "cascade" }),
+  clientId: text("client_id")
+    .notNull()
+    .references(() => clients.id, { onDelete: "cascade" }),
+  stato: text("stato", { enum: ["pending", "sent", "failed"] })
+    .notNull()
+    .default("pending"),
+  tentativi: integer("tentativi").notNull().default(0),
+  errore: text("errore"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
 // ── Tipi ──
 export type Company = typeof companies.$inferSelect;
 export type NewCompany = typeof companies.$inferInsert;
@@ -330,3 +393,7 @@ export type CronLog = typeof cronLog.$inferSelect;
 export type NewCronLog = typeof cronLog.$inferInsert;
 export type SavedAnalysis = typeof savedAnalyses.$inferSelect;
 export type NewSavedAnalysis = typeof savedAnalyses.$inferInsert;
+export type Comunicazione = typeof comunicazioni.$inferSelect;
+export type NewComunicazione = typeof comunicazioni.$inferInsert;
+export type ComunicazioneBatch = typeof comunicazioniBatch.$inferSelect;
+export type NewComunicazioneBatch = typeof comunicazioniBatch.$inferInsert;

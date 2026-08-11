@@ -15,10 +15,10 @@ const COOKIE_NAME = "session";
 const SUPER_COOKIE_NAME = "super_session";
 
 // Rotte protette che richiedono autenticazione
-const protectedPaths = ["/dashboard", "/clienti", "/kanban", "/task", "/note", "/impostazioni", "/admin"];
+const protectedPaths = ["/dashboard", "/clienti", "/kanban", "/task", "/note", "/impostazioni", "/admin", "/comunicazioni"];
 
 // Rotte API protette (esclusa auth)
-const protectedApiPaths = ["/api/clients", "/api/dashboard", "/api/tasks", "/api/note", "/api/users", "/api/email-templates", "/api/imap-settings", "/api/company-settings", "/api/email", "/api/facebook", "/api/company-rules"];
+const protectedApiPaths = ["/api/clients", "/api/dashboard", "/api/tasks", "/api/note", "/api/users", "/api/email-templates", "/api/imap-settings", "/api/company-settings", "/api/email", "/api/facebook", "/api/company-rules", "/api/comunicazioni"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -179,6 +179,7 @@ export const config = {
     "/note/:path*",
     "/impostazioni/:path*",
     "/admin/:path*",
+    "/comunicazioni/:path*",
     "/login",
     "/register",
     // Rotte API
@@ -194,6 +195,7 @@ export const config = {
     "/api/email/:path*",
     "/api/facebook/:path*",
     "/api/company-rules",
+    "/api/comunicazioni/:path*",
     "/api/superuser/:path*",
     "/api/global-settings",
   ],
