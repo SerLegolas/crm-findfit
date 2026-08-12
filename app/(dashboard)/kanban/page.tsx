@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { StatusBadge } from "@/components/status-badge";
 import { useToast } from "@/components/ui/use-toast";
+import { Badge } from "@/components/ui/badge";
 import { clientStatuses, allowedTransitions, requiresNoteForTransition, type ClientStatus } from "@/types";
 
 interface Client {
@@ -47,13 +48,22 @@ const columns: { id: ClientStatus; title: string; bgClass: string }[] = [
 export default function KanbanPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [usersMap, setUsersMap] = useState<Record<string, string>>({});
   const [usersList, setUsersList] = useState<{ id: string; name: string }[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [assignedToFilter, setAssignedToFilter] = useState("all");
+
+  // Dati per colonna (paginazione): pagina corrente, clienti mostrati, totale e loading.
+  // Ogni colonna ha il proprio stato di pagina (default 1).
+  type ColumnData = { page: number; items: Client[]; total: number; loading: boolean };
+  const [columnsData, setColumnsData] = useState<Record<ClientStatus, ColumnData>>({
+    lead: { page: 1, items: [], total: 0, loading: true },
+    suspect: { page: 1, items: [], total: 0, loading: true },
+    won: { page: 1, items: [], total: 0, loading: true },
+    closed_lost: { page: 1, items: [], total: 0, loading: true },
+  });
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -90,25 +100,61 @@ export default function KanbanPage() {
   } | null>(null);
   const [closeNote, setCloseNote] = useState("");
 
-  const fetchClients = useCallback(async () => {
+  // Carica una singola colonna (status) alla pagina indicata.
+  // Se il filtro "Assegnato a" è attivo, il filtro è applicato dal server (userId).
+  const fetchColumn = useCallback(
+    async (status: ClientStatus, page: number) => {
+      setColumnsData((prev) => ({
+        ...prev,
+        [status]: { ...prev[status], loading: true },
+      }));
+      try {
+        const params = new URLSearchParams({
+          status,
+          page: String(page),
+          limit: "20",
+        });
+        if (assignedToFilter !== "all") params.set("userId", assignedToFilter);
+        const res = await fetch(`/api/clients?${params}`);
+        const data = await res.json();
+        setColumnsData((prev) => ({
+          ...prev,
+          [status]: {
+            page,
+            items: Array.isArray(data?.data) ? data.data : [],
+            total: data?.total ?? 0,
+            loading: false,
+          },
+        }));
+      } catch {
+        toast({
+          title: "Errore",
+          description: "Impossibile caricare i clienti",
+          variant: "destructive",
+        });
+        setColumnsData((prev) => ({
+          ...prev,
+          [status]: { ...prev[status], loading: false },
+        }));
+      }
+    },
+    [assignedToFilter, toast]
+  );
+
+  // Carica tutte le colonne (pagina 1) in parallelo
+  const loadAllColumns = useCallback(async () => {
+    setLoading(true);
     try {
-      const res = await fetch("/api/clients?limit=100");
-      const data = await res.json();
-      setClients(data.data);
-    } catch {
-      toast({
-        title: "Errore",
-        description: "Impossibile caricare i clienti",
-        variant: "destructive",
-      });
+      await Promise.all(columns.map((col) => fetchColumn(col.id, 1)));
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [fetchColumn]);
 
+  // Mount + cambio filtro "Assegnato a": ricarica tutte le colonne alla pagina 1
   useEffect(() => {
-    fetchClients();
-  }, [fetchClients]);
+    loadAllColumns();
+  }, [loadAllColumns]);
 
   const performCloseTransition = async () => {
     if (!closeModal) return;
@@ -122,13 +168,17 @@ export default function KanbanPage() {
     }
 
     const { clientId, currentStatus } = closeModal;
+    const sourcePage = columnsData[currentStatus].page;
+    const closedPage = columnsData.closed_lost.page;
 
-    // Optimistic update
-    setClients((prev) =>
-      prev.map((c) =>
-        c.id === clientId ? { ...c, status: "closed_lost" } : c
-      )
-    );
+    // Optimistic: rimuovi il cliente dalla colonna di partenza
+    setColumnsData((prev) => ({
+      ...prev,
+      [currentStatus]: {
+        ...prev[currentStatus],
+        items: prev[currentStatus].items.filter((c) => c.id !== clientId),
+      },
+    }));
     setCloseModal(null);
     setCloseNote("");
 
@@ -142,7 +192,6 @@ export default function KanbanPage() {
       if (!res.ok) {
         const err = await res.json();
         toast({ title: "Errore", description: err.error, variant: "destructive" });
-        fetchClients();
       }
     } catch {
       toast({
@@ -150,7 +199,10 @@ export default function KanbanPage() {
         description: "Transizione fallita",
         variant: "destructive",
       });
-      fetchClients();
+    } finally {
+      // Ricarica la colonna di partenza e la colonna closed_lost
+      fetchColumn(currentStatus, sourcePage);
+      fetchColumn("closed_lost", closedPage);
     }
   };
 
@@ -179,12 +231,17 @@ export default function KanbanPage() {
       return;
     }
 
-    // Optimistic update for normal transitions
-    setClients((prev) =>
-      prev.map((c) =>
-        c.id === draggableId ? { ...c, status: newStatus } : c
-      )
-    );
+    const sourcePage = columnsData[currentStatus].page;
+    const destPage = columnsData[newStatus].page;
+
+    // Optimistic: rimuovi il cliente dalla colonna di partenza
+    setColumnsData((prev) => ({
+      ...prev,
+      [currentStatus]: {
+        ...prev[currentStatus],
+        items: prev[currentStatus].items.filter((c) => c.id !== draggableId),
+      },
+    }));
 
     try {
       const res = await fetch(`/api/clients/${draggableId}`, {
@@ -196,7 +253,6 @@ export default function KanbanPage() {
       if (!res.ok) {
         const err = await res.json();
         toast({ title: "Errore", description: err.error, variant: "destructive" });
-        fetchClients();
       }
     } catch {
       toast({
@@ -204,7 +260,10 @@ export default function KanbanPage() {
         description: "Transizione fallita",
         variant: "destructive",
       });
-      fetchClients();
+    } finally {
+      // Ricarica la colonna di partenza e di destinazione (paginazione corretta)
+      fetchColumn(currentStatus, sourcePage);
+      fetchColumn(newStatus, destPage);
     }
   };
 
@@ -216,11 +275,8 @@ export default function KanbanPage() {
     );
   }
 
-  // Filtro "Assegnato a" (solo admin) applicato lato client
-  const visibleClients =
-    assignedToFilter === "all"
-      ? clients
-      : clients.filter((c) => c.userId === assignedToFilter);
+  // Filtro "Assegnato a" (solo admin): applicato dal server nelle richieste per colonna.
+  // Al cambio del filtro le pagine tornano a 1 e tutte le colonne si ricaricano.
 
   return (
     <div className="space-y-6">
@@ -262,16 +318,15 @@ export default function KanbanPage() {
       <DragDropContext onDragEnd={handleDragEnd}>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {columns.map((column) => {
-            const columnClients = visibleClients.filter(
-              (c) => c.status === column.id
-            );
+            const colData = columnsData[column.id];
+            const totalPages = Math.max(1, Math.ceil(colData.total / 20));
 
             return (
               <div key={column.id} className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="font-semibold text-sm">{column.title}</h3>
                   <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                    {columnClients.length}
+                    {colData.total}
                   </span>
                 </div>
 
@@ -286,13 +341,18 @@ export default function KanbanPage() {
                           : "border-muted"
                       }`}
                     >
-                      {columnClients.length === 0 && !snapshot.isDraggingOver && (
+                      {colData.items.length === 0 && !colData.loading && !snapshot.isDraggingOver && (
                         <p className="text-xs text-muted-foreground text-center py-8">
                           Nessun cliente
                         </p>
                       )}
+                      {colData.loading && (
+                        <p className="text-xs text-muted-foreground text-center py-8">
+                          Caricamento...
+                        </p>
+                      )}
 
-                      {columnClients.map((client, index) => (
+                      {colData.items.map((client, index) => (
                         <Draggable
                           key={client.id}
                           draggableId={client.id}
@@ -343,6 +403,36 @@ export default function KanbanPage() {
                     </div>
                   )}
                 </Droppable>
+
+                {/* Paginazione colonna */}
+                <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/30 px-2 py-1.5">
+                  <Badge variant="outline" className="text-[11px] font-normal">
+                    Mostrati {colData.items.length} su {colData.total} clienti
+                  </Badge>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={colData.page <= 1}
+                      onClick={() => fetchColumn(column.id, colData.page - 1)}
+                    >
+                      Precedente
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      {colData.page}/{totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={colData.page >= totalPages}
+                      onClick={() => fetchColumn(column.id, colData.page + 1)}
+                    >
+                      Successiva
+                    </Button>
+                  </div>
+                </div>
               </div>
             );
           })}
