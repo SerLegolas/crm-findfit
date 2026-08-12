@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { savedAnalyses, clients } from "@/lib/schema";
-import { eq, or, desc, and, sql, type SQL } from "drizzle-orm";
+import { savedAnalyses, clients, users } from "@/lib/schema";
+import { eq, or, desc, and, sql, leftJoin, type SQL } from "drizzle-orm";
 import { getAuthUser } from "@/lib/auth";
 import { buildClientWhere } from "@/lib/client-filters";
 import { checkFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
@@ -96,17 +96,41 @@ export async function GET() {
       eq(savedAnalyses.companyId, authUser.companyId),
     ];
     if (authUser.role !== "admin") {
-      conditions.push(
-        or(
-          eq(savedAnalyses.userId, authUser.id),
-          sql`${savedAnalyses.userId} IS NULL`
+      // L'utente "user" vede le proprie analisi + quelle create dall'admin della sua azienda
+      const [admin] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(
+          and(
+            eq(users.role, "admin"),
+            eq(users.companyId, authUser.companyId)
+          )
         )
-      );
+        .limit(1);
+
+      const ownOrAdmin = admin
+        ? or(
+            eq(savedAnalyses.userId, authUser.id),
+            eq(savedAnalyses.userId, admin.id)
+          )
+        : eq(savedAnalyses.userId, authUser.id);
+
+      conditions.push(ownOrAdmin);
     }
 
     const rows = await db
-      .select()
+      .select({
+        id: savedAnalyses.id,
+        name: savedAnalyses.name,
+        companyId: savedAnalyses.companyId,
+        userId: savedAnalyses.userId,
+        filters: savedAnalyses.filters,
+        clientIds: savedAnalyses.clientIds,
+        createdAt: savedAnalyses.createdAt,
+        creatorName: users.name,
+      })
       .from(savedAnalyses)
+      .leftJoin(users, eq(savedAnalyses.userId, users.id))
       .where(and(...conditions))
       .orderBy(desc(savedAnalyses.createdAt));
 

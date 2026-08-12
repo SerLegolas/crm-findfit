@@ -40,6 +40,12 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/use-toast";
 import {
   Ban,
@@ -129,6 +135,25 @@ const statoConfig: Record<Stato, { label: string; variant: "info" | "warning" | 
   inviata_parziale: { label: "Inviata parziale", variant: "warning" },
   fallita: { label: "Fallita", variant: "destructive" },
   annullata: { label: "Annullata", variant: "muted" },
+};
+
+// ── Configurazione azioni visibili per stato ──
+// Ogni stato della comunicazione determina quali pulsanti mostrare nella
+// colonna "Azioni". Approccio dichiarativo: per cambiare le regole basta
+// modificare questo oggetto.
+type Azione = "dettaglio" | "modifica" | "annulla" | "elimina";
+
+const azioniPerStato: Record<Stato, Azione[]> = {
+  // Programmata: tutte le azioni disponibili
+  programmata: ["dettaglio", "modifica", "annulla", "elimina"],
+  // In elaborazione: solo dettaglio (il cron sta inviando, niente modifiche)
+  in_elaborazione: ["dettaglio"],
+  inviata: ["dettaglio"],
+  inviata_parziale: ["dettaglio"],
+  // Fallita: dettaglio + elimina (nessuna modifica/annullo)
+  fallita: ["dettaglio", "elimina"],
+  // Annullata: solo elimina (nessun dettaglio)
+  annullata: ["elimina"],
 };
 
 const parseTs = (value: number | string | Date): Date | null => {
@@ -342,9 +367,6 @@ export default function ComunicazioniPage() {
     }
   };
 
-  const canEdit = (c: Comunicazione) =>
-    !c.lock && c.stato !== "inviata" && c.stato !== "inviata_parziale";
-
   const openInvii = async (c: Comunicazione) => {
     setInviiComunicazione(c);
     setInviiOpen(true);
@@ -367,6 +389,119 @@ export default function ComunicazioniPage() {
     const s = c.batchStats;
     if (!s || s.total === 0) return null;
     return s;
+  };
+
+  // Rende i pulsanti della colonna "Azioni" in base alla configurazione
+  // azioniPerStato. La logica di apertura dei dialog (dettaglio, modifica,
+  // annulla, elimina) resta invariata: qui cambia solo la visibilità.
+  const renderAzione = (azione: Azione, c: Comunicazione) => {
+    const tooltipLabel = {
+      dettaglio: "Dettaglio invii",
+      modifica: "Modifica",
+      annulla: "Annulla comunicazione",
+      elimina: "Elimina comunicazione",
+    }[azione];
+
+    switch (azione) {
+      case "dettaglio":
+        return (
+          <Tooltip key={azione}>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => openInvii(c)}
+                aria-label={tooltipLabel}
+              >
+                <Eye className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{tooltipLabel}</TooltipContent>
+          </Tooltip>
+        );
+      case "modifica":
+        return (
+          <Tooltip key={azione}>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => openEdit(c)}
+                aria-label={tooltipLabel}
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{tooltipLabel}</TooltipContent>
+          </Tooltip>
+        );
+      case "annulla":
+        return (
+          // Conferma prima di annullare: l'operazione è irreversibile
+          <AlertDialog key={azione}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <AlertDialogTrigger asChild>
+                  <Button variant="ghost" size="icon" aria-label={tooltipLabel}>
+                    <Ban className="h-4 w-4" />
+                  </Button>
+                </AlertDialogTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{tooltipLabel}</TooltipContent>
+            </Tooltip>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Annullare la comunicazione?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Sei sicuro di voler annullare questa comunicazione? L'azione è
+                  irreversibile e la comunicazione non verrà più inviata.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Annulla</AlertDialogCancel>
+                <AlertDialogAction onClick={() => handleCancel(c.id)}>
+                  Conferma annullamento
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        );
+      case "elimina":
+        return (
+          <AlertDialog key={azione}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    // Disabilitato (non cliccabile) solo durante l'elaborazione
+                    disabled={c.stato === "in_elaborazione"}
+                    aria-label={tooltipLabel}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </AlertDialogTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{tooltipLabel}</TooltipContent>
+            </Tooltip>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Eliminare la comunicazione?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Verranno eliminate anche le relative righe di invio. L'azione non è reversibile.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Annulla</AlertDialogCancel>
+                <AlertDialogAction onClick={() => handleDelete(c.id)}>
+                  Elimina
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        );
+    }
   };
 
   return (
@@ -425,7 +560,6 @@ export default function ComunicazioniPage() {
               ) : (
                 comunicazioni.map((c) => {
                   const cfg = statoConfig[c.stato];
-                  const editable = canEdit(c);
                   return (
                     <TableRow key={c.id}>
                       <TableCell className="font-medium">{c.titolo}</TableCell>
@@ -466,57 +600,13 @@ export default function ComunicazioniPage() {
                         })()}
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => openInvii(c)}
-                            title="Dettaglio invii"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          {editable && (
-                            <>
-                              <Button variant="ghost" size="icon" onClick={() => openEdit(c)}>
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                              {c.stato === "programmata" && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleCancel(c.id)}
-                                  title="Annulla comunicazione"
-                                >
-                                  <Ban className="h-4 w-4" />
-                                </Button>
-                              )}
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button variant="ghost" size="icon">
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>Eliminare la comunicazione?</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      Verranno eliminate anche le relative righe di invio. L'azione non è reversibile.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                    <AlertDialogAction onClick={() => handleDelete(c.id)}>
-                                      Elimina
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            </>
-                          )}
-                          {!editable && c.stato !== "annullata" && (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </div>
+                        <TooltipProvider delayDuration={200}>
+                          <div className="flex items-center justify-end gap-1">
+                            {azioniPerStato[c.stato].map((azione) =>
+                              renderAzione(azione, c)
+                            )}
+                          </div>
+                        </TooltipProvider>
                       </TableCell>
                     </TableRow>
                   );

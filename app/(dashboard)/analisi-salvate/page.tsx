@@ -34,11 +34,13 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import {
   BarChart3,
+  CalendarDays,
   Download,
   Filter,
   Loader2,
   RefreshCw,
   Trash2,
+  User,
 } from "lucide-react";
 
 interface SavedAnalysis {
@@ -53,6 +55,7 @@ interface SavedAnalysis {
   clientIds: string[];
   clientCount?: number;
   isDynamic?: boolean;
+  creatorName: string | null;
   createdAt: number;
 }
 
@@ -63,6 +66,22 @@ export default function AnalisiSalvatePage() {
   const [loading, setLoading] = useState(true);
   const [usersMap, setUsersMap] = useState<Record<string, string>>({});
   const [tipoFiltro, setTipoFiltro] = useState<"tutte" | "dinamiche" | "fisse">("tutte");
+
+  const formatDate = (value: number | string) => {
+    if (!value) return "—";
+    let d: Date;
+    if (typeof value === "number") {
+      d = new Date(value > 1e12 ? value : value * 1000);
+    } else {
+      d = new Date(value);
+    }
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleDateString("it-IT", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  };
 
   const fetchAnalyses = useCallback(async () => {
     setLoading(true);
@@ -279,6 +298,20 @@ export default function AnalisiSalvatePage() {
                         </span>
                       )}
                     </p>
+
+                    {/* Meta */}
+                    <div className="mt-3 space-y-1.5 text-xs text-muted-foreground">
+                      <p className="flex items-center gap-1.5">
+                        <User className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate" title={a.creatorName || undefined}>
+                          {a.creatorName || "—"}
+                        </span>
+                      </p>
+                      <p className="flex items-center gap-1.5">
+                        <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                        Creato il {formatDate(a.createdAt)}
+                      </p>
+                    </div>
                   </div>
                   <div className="mt-4 flex items-center gap-1 border-t pt-4">
                     <Tooltip>

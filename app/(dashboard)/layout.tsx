@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
+import { PageGuide } from "@/components/PageGuide";
 
 export default function DashboardLayout({
   children,
@@ -18,6 +19,7 @@ export default function DashboardLayout({
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">{children}</main>
       </div>
+      <PageGuide />
     </div>
   );
 }

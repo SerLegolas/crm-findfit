@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { emailTemplates } from "@/lib/schema";
+import { emailTemplates, users } from "@/lib/schema";
 import { emailTemplateSchema } from "@/types";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, or, type SQL } from "drizzle-orm";
 import { ZodError } from "zod";
 import { getAuthUser } from "@/lib/auth";
 import { checkFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
@@ -75,10 +75,36 @@ export async function GET() {
       userRole: authUser.role,
     });
 
+    const conditions: (SQL | undefined)[] = [
+      eq(emailTemplates.companyId, authUser.companyId),
+    ];
+    if (authUser.role !== "admin") {
+      // L'utente "user" vede i propri template + quelli creati dall'admin della sua azienda
+      const [admin] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(
+          and(
+            eq(users.role, "admin"),
+            eq(users.companyId, authUser.companyId)
+          )
+        )
+        .limit(1);
+
+      const ownOrAdmin = admin
+        ? or(
+            eq(emailTemplates.userId, authUser.id),
+            eq(emailTemplates.userId, admin.id)
+          )
+        : eq(emailTemplates.userId, authUser.id);
+
+      conditions.push(ownOrAdmin);
+    }
+
     const templates = await db
       .select()
       .from(emailTemplates)
-      .where(eq(emailTemplates.companyId, authUser.companyId))
+      .where(and(...conditions))
       .orderBy(desc(emailTemplates.createdAt));
 
     logError("GET - template caricati con successo", null, {
@@ -175,6 +201,7 @@ export async function POST(request: NextRequest) {
         footerImageUrl: parsed.footerImageUrl ?? null,
         author: authUser.name,
         companyId: authUser.companyId,
+        userId: authUser.id,
       })
       .returning();
 

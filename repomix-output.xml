@@ -65,6 +65,8 @@ app/
       [id]/
         page.tsx
       page.tsx
+    comunicazioni/
+      page.tsx
     dashboard/
       page.tsx
     impostazioni/
@@ -123,12 +125,22 @@ app/
       logo/
         route.ts
       route.ts
+    comunicazioni/
+      [id]/
+        invii/
+          route.ts
+        route.ts
+      check-date/
+        route.ts
+      route.ts
     cron/
       cleanup/
         route.ts
       last-run/
         route.ts
       logs/
+        route.ts
+      send-communications/
         route.ts
       sync-all-emails/
         route.ts
@@ -237,6 +249,7 @@ lib/
   client-filters.ts
   company-rules-edge.ts
   company-rules.ts
+  comunicazioni.ts
   crypto.ts
   db.ts
   email-parser.ts
@@ -253,6 +266,7 @@ public/
   manifest.json
 scripts/
   add-author-column.mjs
+  add-email-templates-user-id.mjs
   check-all.mjs
   check-companies.mjs
   check-company-settings-schema.mjs
@@ -261,6 +275,7 @@ scripts/
   check-pragma.mjs
   check-schema.mjs
   cleanup-tmp.mjs
+  create-comunicazioni.mjs
   create-cron-log.mjs
   create-saved-analyses.mjs
   debug-sql.mjs
@@ -268,6 +283,7 @@ scripts/
   delete-companies.mjs
   fix-company-settings-data.mjs
   fix-company-settings.mjs
+  fix-comunicazioni-ora.mjs
   fix-cs-default-id.mjs
   fix-cs-final.mjs
   fix-cs-id-match.mjs
@@ -309,10 +325,74 @@ postcss.config.js
 README.md
 tailwind.config.ts
 tsconfig.json
+version.json
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="scripts/add-email-templates-user-id.mjs">
+import { config } from "dotenv";
+import { createClient } from "@libsql/client";
+
+config({ path: ".env.local" });
+
+const c = createClient({
+  url: process.env.TURSO_DB_URL,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
+
+console.log("== Aggiunta user_id a email_templates ==");
+
+// 1) Verifica se la colonna esiste già
+const info = await c.execute('PRAGMA table_info("email_templates")');
+const hasUserId = info.rows.some((r) => r.name === "user_id");
+console.log("Colonna user_id già presente:", hasUserId);
+
+if (!hasUserId) {
+  console.log("Aggiungo colonna user_id...");
+  await c.execute(
+    "ALTER TABLE `email_templates` ADD COLUMN `user_id` text REFERENCES `users`(`id`) ON UPDATE no action ON DELETE set null"
+  );
+  console.log("Colonna aggiunta.");
+} else {
+  console.log("Colonna già presente, salto ALTER.");
+}
+
+// 2) Backfill: associa user_id tramite il nome autore (snapshot all'epoca della creazione),
+//    ma SOLO all'interno della stessa company (evita match con omonimi di altre aziende).
+console.log("Backfill user_id da author (company-scoped)...");
+const upd = await c.execute(`
+  UPDATE email_templates
+  SET user_id = (
+    SELECT u.id FROM users u
+    WHERE u.name = email_templates.author
+      AND u.company_id = email_templates.company_id
+    LIMIT 1
+  )
+  WHERE user_id IS NULL
+     OR NOT EXISTS (
+       SELECT 1 FROM users u2
+       WHERE u2.id = email_templates.user_id
+         AND u2.company_id = email_templates.company_id
+     )
+`);
+console.log("Righe aggiornate:", upd.rowsAffected);
+
+// 3) Verifica finale
+console.log("\nTemplate e utente associato:");
+const rows = await c.execute(`
+  SELECT t.name, t.author, t.user_id, u.name AS user_name
+  FROM email_templates t
+  LEFT JOIN users u ON u.id = t.user_id
+  ORDER BY t.created_at
+`);
+for (const r of rows.rows) {
+  console.log("  ", r.name, "| autore:", r.author, "| user_id:", r.user_id ?? "NULL", "| utente:", r.user_name ?? "—");
+}
+
+console.log("\nFatto.");
+</file>
 
 <file path=".github/agents/change-tracker.agent.md">
 ---
@@ -1873,11 +1953,13 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import {
   BarChart3,
+  CalendarDays,
   Download,
   Filter,
   Loader2,
   RefreshCw,
   Trash2,
+  User,
 } from "lucide-react";
 
 interface SavedAnalysis {
@@ -1892,6 +1974,7 @@ interface SavedAnalysis {
   clientIds: string[];
   clientCount?: number;
   isDynamic?: boolean;
+  creatorName: string | null;
   createdAt: number;
 }
 
@@ -1902,6 +1985,22 @@ export default function AnalisiSalvatePage() {
   const [loading, setLoading] = useState(true);
   const [usersMap, setUsersMap] = useState<Record<string, string>>({});
   const [tipoFiltro, setTipoFiltro] = useState<"tutte" | "dinamiche" | "fisse">("tutte");
+
+  const formatDate = (value: number | string) => {
+    if (!value) return "—";
+    let d: Date;
+    if (typeof value === "number") {
+      d = new Date(value > 1e12 ? value : value * 1000);
+    } else {
+      d = new Date(value);
+    }
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleDateString("it-IT", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  };
 
   const fetchAnalyses = useCallback(async () => {
     setLoading(true);
@@ -2118,6 +2217,20 @@ export default function AnalisiSalvatePage() {
                         </span>
                       )}
                     </p>
+
+                    {/* Meta */}
+                    <div className="mt-3 space-y-1.5 text-xs text-muted-foreground">
+                      <p className="flex items-center gap-1.5">
+                        <User className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate" title={a.creatorName || undefined}>
+                          {a.creatorName || "—"}
+                        </span>
+                      </p>
+                      <p className="flex items-center gap-1.5">
+                        <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                        Creato il {formatDate(a.createdAt)}
+                      </p>
+                    </div>
                   </div>
                   <div className="mt-4 flex items-center gap-1 border-t pt-4">
                     <Tooltip>
@@ -4782,8 +4895,8 @@ export async function DELETE(
 <file path="app/api/analyses/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { savedAnalyses, clients } from "@/lib/schema";
-import { eq, or, desc, and, sql, type SQL } from "drizzle-orm";
+import { savedAnalyses, clients, users } from "@/lib/schema";
+import { eq, or, desc, and, sql, leftJoin, type SQL } from "drizzle-orm";
 import { getAuthUser } from "@/lib/auth";
 import { buildClientWhere } from "@/lib/client-filters";
 import { checkFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
@@ -4878,17 +4991,41 @@ export async function GET() {
       eq(savedAnalyses.companyId, authUser.companyId),
     ];
     if (authUser.role !== "admin") {
-      conditions.push(
-        or(
-          eq(savedAnalyses.userId, authUser.id),
-          sql`${savedAnalyses.userId} IS NULL`
+      // L'utente "user" vede le proprie analisi + quelle create dall'admin della sua azienda
+      const [admin] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(
+          and(
+            eq(users.role, "admin"),
+            eq(users.companyId, authUser.companyId)
+          )
         )
-      );
+        .limit(1);
+
+      const ownOrAdmin = admin
+        ? or(
+            eq(savedAnalyses.userId, authUser.id),
+            eq(savedAnalyses.userId, admin.id)
+          )
+        : eq(savedAnalyses.userId, authUser.id);
+
+      conditions.push(ownOrAdmin);
     }
 
     const rows = await db
-      .select()
+      .select({
+        id: savedAnalyses.id,
+        name: savedAnalyses.name,
+        companyId: savedAnalyses.companyId,
+        userId: savedAnalyses.userId,
+        filters: savedAnalyses.filters,
+        clientIds: savedAnalyses.clientIds,
+        createdAt: savedAnalyses.createdAt,
+        creatorName: users.name,
+      })
       .from(savedAnalyses)
+      .leftJoin(users, eq(savedAnalyses.userId, users.id))
       .where(and(...conditions))
       .orderBy(desc(savedAnalyses.createdAt));
 
@@ -5668,6 +5805,189 @@ export async function PATCH() {
 }
 </file>
 
+<file path="app/api/comunicazioni/[id]/invii/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import {
+  comunicazioni,
+  comunicazioniBatch,
+  clients,
+  emailLog,
+} from "@/lib/schema";
+import { eq, and, inArray, desc } from "drizzle-orm";
+import { getAuthUser } from "@/lib/auth";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/** GET: dettaglio invii di una comunicazione.
+ *  Restituisce le righe di comunicazioni_batch con join su clients (nome, email)
+ *  e i dati di tracking dal relativo record di email_log (consegnata/aperta).
+ */
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    // Verifica che la comunicazione appartenga alla company corrente
+    const [com] = await db
+      .select({ id: comunicazioni.id, titolo: comunicazioni.titolo })
+      .from(comunicazioni)
+      .where(
+        and(
+          eq(comunicazioni.id, params.id),
+          eq(comunicazioni.companyId, authUser.companyId)
+        )
+      )
+      .limit(1);
+    if (!com) {
+      return NextResponse.json({ error: "Comunicazione non trovata" }, { status: 404 });
+    }
+
+    // Riga batch + cliente
+    const rows = await db
+      .select({
+        id: comunicazioniBatch.id,
+        clientId: comunicazioniBatch.clientId,
+        stato: comunicazioniBatch.stato,
+        tentativi: comunicazioniBatch.tentativi,
+        errore: comunicazioniBatch.errore,
+        updatedAt: comunicazioniBatch.updatedAt,
+        createdAt: comunicazioniBatch.createdAt,
+        clienteNome: clients.name,
+        clienteEmail: clients.email,
+      })
+      .from(comunicazioniBatch)
+      .leftJoin(clients, eq(comunicazioniBatch.clientId, clients.id))
+      .where(eq(comunicazioniBatch.comunicazioneId, params.id))
+      .orderBy(desc(comunicazioniBatch.createdAt));
+
+    const clientIds = rows.map((r) => r.clientId);
+
+    // Tracking: ultimo email_log per cliente (match sul sentAt più vicino
+    // all'aggiornamento della riga batch) → consegnata/aperta.
+    const trackingByClient = new Map<
+      string,
+      { trackingId: string; openedAt: Date | null; deliveredAt: Date | null }
+    >();
+    if (clientIds.length > 0) {
+      const logs = await db
+        .select({
+          clientId: emailLog.clientId,
+          trackingId: emailLog.trackingId,
+          openedAt: emailLog.openedAt,
+          deliveredAt: emailLog.deliveredAt,
+          sentAt: emailLog.sentAt,
+        })
+        .from(emailLog)
+        .where(
+          and(
+            eq(emailLog.companyId, authUser.companyId),
+            inArray(emailLog.clientId, clientIds)
+          )
+        )
+        .orderBy(desc(emailLog.sentAt));
+
+      // Per ogni cliente sceglie il log con sentAt più vicino alla data di invio del batch
+      for (const r of rows) {
+        const batchTime = r.updatedAt?.getTime() ?? 0;
+        const candidates = logs.filter((l) => l.clientId === r.clientId);
+        if (candidates.length === 0) continue;
+        const best = candidates.reduce((a, b) => {
+          const da = Math.abs((a.sentAt?.getTime() ?? 0) - batchTime);
+          const db = Math.abs((b.sentAt?.getTime() ?? 0) - batchTime);
+          return da <= db ? a : b;
+        });
+        trackingByClient.set(r.clientId, {
+          trackingId: best.trackingId || "",
+          openedAt: best.openedAt,
+          deliveredAt: best.deliveredAt,
+        });
+      }
+    }
+
+    const result = rows.map((r) => {
+      const tracking = trackingByClient.get(r.clientId);
+      return {
+        id: r.id,
+        clientId: r.clientId,
+        clienteNome: r.clienteNome,
+        clienteEmail: r.clienteEmail,
+        stato: r.stato,
+        tentativi: r.tentativi,
+        errore: r.errore,
+        inviatoIl: r.updatedAt,
+        createdAt: r.createdAt,
+        trackingId: tracking?.trackingId ?? null,
+        consegnata: tracking?.deliveredAt ?? null,
+        aperta: tracking?.openedAt ?? null,
+      };
+    });
+
+    return NextResponse.json({ comunicazione: com, invii: result });
+  } catch (error: any) {
+    console.error("[COMUNICAZIONI] GET invii errore:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento degli invii" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/comunicazioni/check-date/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { getAuthUser } from "@/lib/auth";
+import { isDateOccupied } from "@/lib/comunicazioni";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/** GET /api/comunicazioni/check-date?date=YYYY-MM-DD&excludeId=...
+ *  Verifica se esiste già una comunicazione attiva (stato diverso da
+ *  "inviata"/"annullata") per la data indicata.
+ *  - excludeId (opzionale): esclude la comunicazione in modifica dal controllo.
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const date = searchParams.get("date") || "";
+    const excludeId = searchParams.get("excludeId") || "";
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return NextResponse.json(
+        { error: "Data non valida (formato YYYY-MM-DD)" },
+        { status: 400 }
+      );
+    }
+
+    const occupied = await isDateOccupied(
+      authUser.companyId,
+      date,
+      excludeId || undefined
+    );
+
+    return NextResponse.json({ date, occupied });
+  } catch (error: any) {
+    console.error("[COMUNICAZIONI] check-date errore:", error);
+    return NextResponse.json(
+      { error: "Errore nel controllo della data" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
 <file path="app/api/cron/cleanup/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -5749,6 +6069,422 @@ export async function GET() {
     console.error("Errore lettura ultimo cron_log:", error);
     return NextResponse.json(
       { error: "Errore nel caricamento dell'ultima esecuzione" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/cron/send-communications/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import {
+  comunicazioni,
+  comunicazioniBatch,
+  emailTemplates,
+  savedAnalyses,
+  clients,
+  imapSettings,
+  companySettings,
+  emailLog,
+  notes,
+} from "@/lib/schema";
+import { eq, and, inArray, lte, sql } from "drizzle-orm";
+import { decrypt } from "@/lib/crypto";
+import { randomUUID } from "crypto";
+import { trackingPixelUrl } from "@/lib/tracking";
+import nodemailer from "nodemailer";
+import { buildClientWhere } from "@/lib/client-filters";
+import type { AuthUser } from "@/lib/auth";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const BATCH_SIZE = 20; // clienti per lotto
+const PAUSE_MS = 1000; // pausa tra un lotto e l'altro
+const LOCK_STALE_MS = 2 * 60 * 60 * 1000; // 2 ore: lock "incastrati" dopo un crash
+
+/** Converte i filtri salvati dell'analisi (oggetto) in URLSearchParams
+ *  per buildClientWhere (stessa conversione usata in /api/analyses). */
+function filtersToParams(filters: any): URLSearchParams {
+  const params = new URLSearchParams();
+  const f = filters || {};
+  if (f.search) params.set("search", String(f.search));
+  if (f.status && f.status !== "all") params.set("status", String(f.status));
+  const cat = Array.isArray(f.categoria) ? f.categoria : f.categoria ? [f.categoria] : [];
+  for (const c of cat) params.append("categoria", c);
+  const uids = Array.isArray(f.userId) ? f.userId : f.userId ? [f.userId] : [];
+  for (const u of uids) params.append("userId", u);
+  return params;
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Cron esterno di invio comunicazioni programmate (es. ogni 4 ore).
+ * Invocato via GET con ?secret=CRON_SECRET_TOKEN.
+ *
+ * Per ogni comunicazione con data_invio <= adesso (stato programmata, o in_elaborazione
+ * rimasta "incastrata" dopo un crash), in sequenza:
+ *  1. Acquisisce il lock (UPDATE atomico lock=false → true) per evitare sovrapposizioni.
+ *  2. Risolve l'analisi → lista clienti (fissa o dinamica via filtri salvati).
+ *  3. Genera le righe batch "pending" (una per cliente, idempotente).
+ *  4. Elabora lotti da 20 clienti con pausa di 1s, logica identica a send-bulk:
+ *     sostituzione tag, footer azienda, pixel di tracking, invio SMTP, email_log.
+ *  5. Aggiorna gli stati batch (sent/failed) e della comunicazione, poi rilascia il lock.
+ */
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const secret = searchParams.get("secret");
+
+  if (!process.env.CRON_SECRET_TOKEN || secret !== process.env.CRON_SECRET_TOKEN) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const summary = {
+    comunicazioni: 0,
+    lotti: 0,
+    inviate: 0,
+    fallite: 0,
+    errors: 0,
+  };
+
+  try {
+    const now = new Date();
+
+    // ── Reset lock "stale": un processo morto lascerebbe lock=true per sempre ──
+    await db
+      .update(comunicazioni)
+      .set({ lock: false })
+      .where(
+        and(
+          eq(comunicazioni.lock, true),
+          sql`${comunicazioni.updatedAt} < ${new Date(now.getTime() - LOCK_STALE_MS)}`
+        )
+      );
+
+    // ── Comunicazioni in scadenza, non lockate ──
+    const due = await db
+      .select()
+      .from(comunicazioni)
+      .where(
+        and(
+          lte(comunicazioni.dataInvio, now),
+          inArray(comunicazioni.stato, ["programmata", "in_elaborazione"]),
+          eq(comunicazioni.lock, false)
+        )
+      );
+
+    for (const com of due) {
+      // ── Acquisisci il lock (atomico: solo se ancora libero) ──
+      const [acquired] = await db
+        .update(comunicazioni)
+        .set({ lock: true, stato: "in_elaborazione" })
+        .where(
+          and(eq(comunicazioni.id, com.id), eq(comunicazioni.lock, false))
+        )
+        .returning({ id: comunicazioni.id });
+
+      if (!acquired) {
+        // Un altro processo lo sta già elaborando
+        continue;
+      }
+
+      summary.comunicazioni++;
+
+      // Stato finale: fallita se tutto fallisce
+      const fail = async (message: string) => {
+        await db
+          .update(comunicazioni)
+          .set({ stato: "fallita", lock: false })
+          .where(eq(comunicazioni.id, com.id));
+        console.error(
+          `[SEND-COMMUNICATIONS] Comunicazione ${com.id} fallita: ${message}`
+        );
+        summary.errors++;
+      };
+
+      try {
+        // ── Template e analisi della comunicazione ──
+        const [template] = com.templateId
+          ? await db
+              .select()
+              .from(emailTemplates)
+              .where(eq(emailTemplates.id, com.templateId))
+              .limit(1)
+          : [];
+        if (!template) {
+          await fail("Template non trovato");
+          continue;
+        }
+
+        const [analisi] = com.analisiId
+          ? await db
+              .select()
+              .from(savedAnalyses)
+              .where(eq(savedAnalyses.id, com.analisiId))
+              .limit(1)
+          : [];
+        if (!analisi) {
+          await fail("Analisi non trovata");
+          continue;
+        }
+
+        // ── Risolvi i clienti target dall'analisi ──
+        const authUser: AuthUser = {
+          id: "cron",
+          email: "cron",
+          name: "Cron",
+          role: "admin",
+          companyId: com.companyId,
+        };
+
+        const fixedIds = Array.isArray(analisi.clientIds) ? analisi.clientIds : [];
+        let targetClients = [];
+        if (fixedIds.length > 0) {
+          targetClients = await db
+            .select()
+            .from(clients)
+            .where(
+              and(
+                inArray(clients.id, fixedIds),
+                eq(clients.companyId, com.companyId)
+              )
+            );
+        } else {
+          const where = buildClientWhere(authUser, filtersToParams(analisi.filters));
+          targetClients = await db.select().from(clients).where(where);
+        }
+
+        if (targetClients.length === 0) {
+          await fail("Nessun cliente nell'analisi selezionata");
+          continue;
+        }
+
+        // ── Genera le righe batch "pending" (idempotente: solo clienti mancanti) ──
+        const existing = await db
+          .select({ clientId: comunicazioniBatch.clientId })
+          .from(comunicazioniBatch)
+          .where(eq(comunicazioniBatch.comunicazioneId, com.id));
+        const existingIds = new Set(existing.map((e) => e.clientId));
+        const toInsert = targetClients
+          .filter((c) => !existingIds.has(c.id))
+          .map((c) => ({
+            comunicazioneId: com.id,
+            clientId: c.id,
+            stato: "pending" as const,
+            tentativi: 0,
+          }));
+        if (toInsert.length > 0) {
+          await db.insert(comunicazioniBatch).values(toInsert);
+        }
+
+        // ── Configurazione SMTP della company ──
+        const [imapRow] = await db
+          .select()
+          .from(imapSettings)
+          .where(eq(imapSettings.companyId, com.companyId))
+          .limit(1);
+
+        if (
+          !imapRow ||
+          !imapRow.imapHost ||
+          !imapRow.imapPort ||
+          !imapRow.user ||
+          !imapRow.password
+        ) {
+          await fail("Configurazione SMTP mancante per l'azienda");
+          continue;
+        }
+
+        const sender = decrypt(imapRow.user);
+        const smtpHost = imapRow.smtpHost ? decrypt(imapRow.smtpHost) : decrypt(imapRow.imapHost);
+        const smtpPortStr = imapRow.smtpPort ? decrypt(imapRow.smtpPort) : decrypt(imapRow.imapPort);
+        const smtpPort = parseInt(smtpPortStr, 10);
+        const smtpSecure = imapRow.smtpSecure ?? smtpPort === 465;
+
+        const transporter = nodemailer.createTransport({
+          host: smtpHost,
+          port: smtpPort,
+          secure: smtpSecure,
+          auth: {
+            user: sender,
+            pass: decrypt(imapRow.password),
+          },
+        });
+
+        const [companyRow] = await db
+          .select()
+          .from(companySettings)
+          .where(eq(companySettings.companyId, com.companyId))
+          .limit(1);
+
+        const senderName = companyRow?.denominazione?.trim() || "CRM FindFit";
+
+        // ── Righe batch da elaborare ──
+        const pending = await db
+          .select()
+          .from(comunicazioniBatch)
+          .where(
+            and(
+              eq(comunicazioniBatch.comunicazioneId, com.id),
+              eq(comunicazioniBatch.stato, "pending")
+            )
+          );
+
+        if (pending.length === 0) {
+          // Tutto già elaborato in un giro precedente
+          await db
+            .update(comunicazioni)
+            .set({ stato: "inviata", lock: false })
+            .where(eq(comunicazioni.id, com.id));
+          continue;
+        }
+
+        const clientById = new Map(targetClients.map((c) => [c.id, c]));
+        let sent = 0;
+        let failed = 0;
+
+        for (let i = 0; i < pending.length; i += BATCH_SIZE) {
+          const batch = pending.slice(i, i + BATCH_SIZE);
+
+          await Promise.all(
+            batch.map(async (row) => {
+              const client = clientById.get(row.clientId);
+              const today = new Date().toLocaleDateString("it-IT", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              });
+              const replaceTags = (text: string) =>
+                text
+                  .replace(/@name/g, client?.name || "")
+                  .replace(/@company/g, client?.company || "")
+                  .replace(/@data/g, today);
+
+              const subject = replaceTags(template.subject);
+              let bodyHtml = replaceTags(template.bodyHtml);
+
+              // Immagine footer del template (se configurata) — prima del footer azienda
+              if (template.footerImageUrl) {
+                bodyHtml += `
+<div style="margin-top:32px;text-align:center">
+  <img src="${template.footerImageUrl}" alt="" style="max-width:100%;height:auto" />
+</div>`;
+              }
+
+              if (companyRow?.footerAttivo && companyRow.denominazione) {
+                const parts = [
+                  companyRow.denominazione,
+                  [companyRow.indirizzo, companyRow.città, companyRow.provincia].filter(Boolean).join(", ") +
+                    (companyRow.cap ? ` ${companyRow.cap}` : ""),
+                  `Tel: ${companyRow.telefono} - Email: ${companyRow.email}`,
+                  `P.IVA: ${companyRow.piva} - C.F.: ${companyRow.cf}`,
+                ].filter(Boolean);
+                if (parts.length > 0) {
+                  const footer = `
+<hr />
+<div style="text-align:center;font-size:12px;color:#888;">
+${parts.join("<br />")}
+</div>`;
+                  bodyHtml += footer;
+                }
+              }
+
+              // Tracking: UUID univoco + pixel invisibile in coda all'email
+              const trackingId = randomUUID();
+              bodyHtml += `<img src="${trackingPixelUrl(trackingId)}" alt="" width="1" height="1" style="display:none" />`;
+
+              let rowStato: "sent" | "failed" = "sent";
+              let errore: string | null = null;
+              try {
+                if (!client?.email) {
+                  throw new Error("Cliente senza email");
+                }
+                await transporter.sendMail({
+                  from: `"${senderName}" <${sender}>`,
+                  to: client.email,
+                  subject,
+                  html: bodyHtml,
+                });
+
+                // Nota automatica al cliente dopo invio riuscito
+                await db.insert(notes).values({
+                  clientId: client.id,
+                  content: `Inviata email da comunicazioni automatiche: ${template.name}`,
+                  type: "promemoria",
+                  author: "Sistema",
+                  companyId: com.companyId,
+                });
+              } catch (err: any) {
+                console.error(
+                  "[SEND-COMMUNICATIONS] Errore invio a",
+                  client?.email,
+                  err
+                );
+                rowStato = "failed";
+                errore = err?.message || "Errore invio";
+              }
+
+              const tentativi = (row.tentativi ?? 0) + 1;
+              await db
+                .update(comunicazioniBatch)
+                .set({ stato: rowStato, tentativi, errore })
+                .where(eq(comunicazioniBatch.id, row.id));
+
+              await db.insert(emailLog).values({
+                clientId: client?.id || row.clientId,
+                subject,
+                body: bodyHtml,
+                sender,
+                author: "Cron",
+                status: rowStato,
+                sentAt: new Date(),
+                trackingId,
+                companyId: com.companyId,
+              });
+
+              // Segna come consegnata se l'invio è riuscito
+              if (rowStato === "sent") {
+                await db
+                  .update(emailLog)
+                  .set({ deliveredAt: new Date() })
+                  .where(eq(emailLog.trackingId, trackingId));
+              }
+
+              if (rowStato === "sent") sent++;
+              else failed++;
+            })
+          );
+
+          summary.lotti++;
+
+          // Pausa tra un lotto e l'altro
+          if (i + BATCH_SIZE < pending.length) {
+            await sleep(PAUSE_MS);
+          }
+        }
+
+        summary.inviate += sent;
+        summary.fallite += failed;
+
+        // ── Stato finale della comunicazione ──
+        const finalStato =
+          sent === 0 ? "fallita" : failed === 0 ? "inviata" : "inviata_parziale";
+        await db
+          .update(comunicazioni)
+          .set({ stato: finalStato, lock: false })
+          .where(eq(comunicazioni.id, com.id));
+      } catch (error: any) {
+        await fail(error?.message || "Errore durante l'invio");
+      }
+    }
+
+    return NextResponse.json({ success: true, ...summary });
+  } catch (error: any) {
+    console.error("[SEND-COMMUNICATIONS] Errore:", error);
+    return NextResponse.json(
+      { success: false, error: "Errore nell'elaborazione delle comunicazioni" },
       { status: 500 }
     );
   }
@@ -9986,6 +10722,62 @@ for (const row of r.rows) {
 console.log("Done");
 </file>
 
+<file path="scripts/create-comunicazioni.mjs">
+// Crea le tabelle comunicazioni e comunicazioni_batch su Turso (SQL diretto,
+// il drizzle-kit push non funziona su Turso).
+import { readFileSync } from "node:fs";
+import { createClient } from "@libsql/client";
+
+const env = readFileSync(".env.local", "utf8");
+for (const line of env.split(/\r?\n/)) {
+  const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+  if (m) process.env[m[1]] = m[2];
+}
+
+const c = createClient({
+  url: process.env.TURSO_DB_URL,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
+
+const sql = `
+CREATE TABLE IF NOT EXISTS comunicazioni (
+  id TEXT PRIMARY KEY,
+  titolo TEXT NOT NULL,
+  template_id TEXT REFERENCES email_templates(id) ON DELETE SET NULL,
+  analisi_id TEXT REFERENCES saved_analyses(id) ON DELETE SET NULL,
+  data_invio INTEGER NOT NULL,
+  stato TEXT NOT NULL DEFAULT 'programmata',
+  lock INTEGER NOT NULL DEFAULT 0,
+  company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS comunicazioni_batch (
+  id TEXT PRIMARY KEY,
+  comunicazione_id TEXT NOT NULL REFERENCES comunicazioni(id) ON DELETE CASCADE,
+  client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  stato TEXT NOT NULL DEFAULT 'pending',
+  tentativi INTEGER NOT NULL DEFAULT 0,
+  errore TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_comunicazioni_company ON comunicazioni(company_id);
+CREATE INDEX IF NOT EXISTS idx_comunicazioni_data_invio ON comunicazioni(data_invio);
+CREATE INDEX IF NOT EXISTS idx_comunicazioni_batch_comm ON comunicazioni_batch(comunicazione_id);
+`;
+
+await c.executeMultiple(sql);
+console.log("Tabelle comunicazioni / comunicazioni_batch create/verificate OK");
+
+const tables = await c.execute(
+  "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('comunicazioni','comunicazioni_batch') ORDER BY name"
+);
+console.log("Tabelle esistenti:", tables.rows.map((r) => r.name));
+</file>
+
 <file path="scripts/create-cron-log.mjs">
 // Crea la tabella cron_log su Turso (SQL diretto, il drizzle-kit push non funziona su Turso)
 import { readFileSync } from "node:fs";
@@ -10154,6 +10946,107 @@ console.log("\nTotale righe company_settings:", all.rows.length);
 for (const row of all.rows) {
   console.log("  company_id=" + row.company_id + " denominazione='" + row.denominazione + "'");
 }
+</file>
+
+<file path="scripts/fix-comunicazioni-ora.mjs">
+// Corregge l'ora di data_invio delle comunicazioni PROGRAMMATE salvate prima del fix
+// del fuso orario: portale alle 08:00 del fuso Europe/Rome (non 08:00 UTC).
+// Tocco SOLO le righe con stato 'programmata'/'in_elaborazione' (non quelle già inviate).
+import { readFileSync } from "node:fs";
+import { createClient } from "@libsql/client";
+
+const env = readFileSync(".env.local", "utf8");
+for (const line of env.split(/\r?\n/)) {
+  const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+  if (m) process.env[m[1]] = m[2];
+}
+
+const TZ = process.env.COMUNICAZIONI_TIME_ZONE || "Europe/Rome";
+const c = createClient({
+  url: process.env.TURSO_DB_URL,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
+
+// Data (ms) -> "YYYY-MM-DD" nel fuso TZ
+function toTzDateKey(ms, tz) {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = dtf.formatToParts(new Date(ms));
+  const get = (t) => parts.find((p) => p.type === t)?.value;
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+// Timestamp UTC (ms) corrispondente a dateStr alle ore h nel fuso TZ
+function dateAtInTimeZone(dateStr, tz, hour, minute = 0, second = 0, ms = 0) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+  const T0 = Date.UTC(y, m - 1, d, hour, minute, second, ms);
+  const parts = dtf.formatToParts(new Date(T0));
+  const get = (t) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  const wallAsUTC = Date.UTC(
+    get("year"),
+    get("month") - 1,
+    get("day"),
+    get("hour"),
+    get("minute"),
+    get("second")
+  );
+  return T0 - (wallAsUTC - T0); // ms
+}
+
+(async () => {
+  const rows = (
+    await c.execute(
+      "SELECT id, titolo, data_invio FROM comunicazioni WHERE stato IN ('programmata','in_elaborazione')"
+    )
+  ).rows;
+
+  let fixed = 0;
+  for (const row of rows) {
+    const storedSec = Number(row.data_invio);
+    const storedMs = storedSec > 1e12 ? storedSec : storedSec * 1000;
+    const dateKey = toTzDateKey(storedMs, TZ);
+    const expectedMs = dateAtInTimeZone(dateKey, TZ, 8);
+    const expectedSec = Math.floor(expectedMs / 1000);
+
+    if (storedSec !== expectedSec) {
+      await c.execute(
+        "UPDATE comunicazioni SET data_invio = ?, updated_at = ? WHERE id = ?",
+        [expectedSec, Math.floor(Date.now() / 1000), row.id]
+      );
+      console.log(
+        `[FIX] ${row.titolo}: ${new Date(storedMs).toISOString()} (Roma ${new Date(
+          storedMs
+        ).toLocaleString("it-IT", { timeZone: TZ })}) -> ${new Date(expectedMs).toISOString()} (Roma ${new Date(
+          expectedMs
+        ).toLocaleString("it-IT", { timeZone: TZ })})`
+      );
+      fixed++;
+    } else {
+      console.log(
+        `[OK ] ${row.titolo}: già corretto ${new Date(storedMs).toISOString()}`
+      );
+    }
+  }
+
+  console.log(`\nRighe corrette: ${fixed}`);
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
 </file>
 
 <file path="scripts/fix-cs-default-id.mjs">
@@ -13022,6 +13915,394 @@ export async function POST(request: NextRequest) {
 }
 </file>
 
+<file path="app/api/comunicazioni/[id]/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { comunicazioni } from "@/lib/schema";
+import { eq, and } from "drizzle-orm";
+import { getAuthUser } from "@/lib/auth";
+import { resolveDataInvio, isDateOccupied } from "@/lib/comunicazioni";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/** PATCH: aggiorna una comunicazione programmata (titolo, template, analisi, data)
+ *  oppure la annulla (stato → "annullata"). Bloccata se è in elaborazione (lock). */
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    const [row] = await db
+      .select()
+      .from(comunicazioni)
+      .where(
+        and(
+          eq(comunicazioni.id, params.id),
+          eq(comunicazioni.companyId, authUser.companyId)
+        )
+      )
+      .limit(1);
+    if (!row) {
+      return NextResponse.json({ error: "Comunicazione non trovata" }, { status: 404 });
+    }
+
+    // Lock attivo (cron in corso) → non modificabile/annullabile
+    if (row.lock) {
+      return NextResponse.json(
+        { error: "Comunicazione in elaborazione: non modificabile" },
+        { status: 409 }
+      );
+    }
+
+    // Solo le comunicazioni non ancora inviate sono modificabili
+    if (row.stato === "inviata" || row.stato === "inviata_parziale") {
+      return NextResponse.json(
+        { error: "Comunicazione già inviata: non modificabile" },
+        { status: 409 }
+      );
+    }
+
+    const body = await request.json();
+    const updates: Record<string, unknown> = {};
+
+    // Annullamento
+    if (body.stato === "annullata") {
+      updates.stato = "annullata";
+    }
+
+    // Modifica dei campi (solo se non già inviata/annullata)
+    if (row.stato !== "annullata") {
+      if (body.titolo !== undefined) {
+        if (typeof body.titolo !== "string" || !body.titolo.trim()) {
+          return NextResponse.json(
+            { error: "Il titolo è obbligatorio" },
+            { status: 400 }
+          );
+        }
+        updates.titolo = body.titolo.trim();
+      }
+      if (body.templateId !== undefined) updates.templateId = body.templateId || null;
+      if (body.analisiId !== undefined) updates.analisiId = body.analisiId || null;
+      if (body.dataInvio !== undefined) {
+        if (typeof body.dataInvio !== "string") {
+          return NextResponse.json(
+            { error: "Data di invio non valida (formato YYYY-MM-DD)" },
+            { status: 400 }
+          );
+        }
+        const d = resolveDataInvio(body.dataInvio);
+        if (!d) {
+          return NextResponse.json(
+            { error: "Data di invio non valida (formato YYYY-MM-DD)" },
+            { status: 400 }
+          );
+        }
+        // Una comunicazione attiva al giorno: esclude la comunicazione corrente
+        const occupied = await isDateOccupied(
+          authUser.companyId,
+          body.dataInvio,
+          params.id
+        );
+        if (occupied) {
+          return NextResponse.json(
+            { error: "Per questa data è già presente un'altra comunicazione" },
+            { status: 400 }
+          );
+        }
+        updates.dataInvio = d;
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ error: "Nessun campo da aggiornare" }, { status: 400 });
+    }
+
+    const [updated] = await db
+      .update(comunicazioni)
+      .set(updates)
+      .where(eq(comunicazioni.id, params.id))
+      .returning();
+
+    return NextResponse.json(updated);
+  } catch (error: any) {
+    console.error("[COMUNICAZIONI] PATCH errore:", error);
+    return NextResponse.json(
+      { error: "Errore nell'aggiornamento della comunicazione" },
+      { status: 500 }
+    );
+  }
+}
+
+/** DELETE: elimina una comunicazione (e il suo batch, per cascade).
+ *  Bloccata se in elaborazione (lock). */
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    const [row] = await db
+      .select()
+      .from(comunicazioni)
+      .where(
+        and(
+          eq(comunicazioni.id, params.id),
+          eq(comunicazioni.companyId, authUser.companyId)
+        )
+      )
+      .limit(1);
+    if (!row) {
+      return NextResponse.json({ error: "Comunicazione non trovata" }, { status: 404 });
+    }
+    if (row.lock) {
+      return NextResponse.json(
+        { error: "Comunicazione in elaborazione: non eliminabile" },
+        { status: 409 }
+      );
+    }
+
+    await db
+      .delete(comunicazioni)
+      .where(
+        and(
+          eq(comunicazioni.id, params.id),
+          eq(comunicazioni.companyId, authUser.companyId)
+        )
+      );
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error("[COMUNICAZIONI] DELETE errore:", error);
+    return NextResponse.json(
+      { error: "Errore nell'eliminazione della comunicazione" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/comunicazioni/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import {
+  comunicazioni,
+  comunicazioniBatch,
+  emailTemplates,
+  savedAnalyses,
+} from "@/lib/schema";
+import { eq, and, desc, inArray, sql } from "drizzle-orm";
+import { getAuthUser } from "@/lib/auth";
+import { resolveDataInvio, isDateOccupied } from "@/lib/comunicazioni";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/** POST: crea una comunicazione programmata per la company corrente.
+ *  La generazione del batch e l'invio avvengono nel cron /api/cron/send-communications. */
+export async function POST(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { titolo, templateId, analisiId, dataInvio } = body;
+
+    if (!titolo || typeof titolo !== "string" || !titolo.trim()) {
+      return NextResponse.json(
+        { error: "Il titolo è obbligatorio" },
+        { status: 400 }
+      );
+    }
+    if (!templateId) {
+      return NextResponse.json(
+        { error: "Seleziona un template email" },
+        { status: 400 }
+      );
+    }
+    if (!analisiId) {
+      return NextResponse.json(
+        { error: "Seleziona un'analisi" },
+        { status: 400 }
+      );
+    }
+    // dataInvio è una sola data (YYYY-MM-DD); l'ora viene decisa in base all'ambiente
+    if (typeof dataInvio !== "string") {
+      return NextResponse.json(
+        { error: "Data di invio non valida (formato YYYY-MM-DD)" },
+        { status: 400 }
+      );
+    }
+    const dataInvioDate = resolveDataInvio(dataInvio);
+    if (!dataInvioDate) {
+      return NextResponse.json(
+        { error: "Data di invio non valida (formato YYYY-MM-DD)" },
+        { status: 400 }
+      );
+    }
+
+    // Una comunicazione attiva al giorno: la data non deve essere già occupata
+    const occupied = await isDateOccupied(authUser.companyId, dataInvio);
+    if (occupied) {
+      return NextResponse.json(
+        { error: "Per questa data è già presente una comunicazione" },
+        { status: 400 }
+      );
+    }
+
+    // Verifica che template e analisi appartengano alla company corrente
+    const [template] = await db
+      .select({ id: emailTemplates.id })
+      .from(emailTemplates)
+      .where(
+        and(
+          eq(emailTemplates.id, templateId),
+          eq(emailTemplates.companyId, authUser.companyId)
+        )
+      )
+      .limit(1);
+    if (!template) {
+      return NextResponse.json({ error: "Template non trovato" }, { status: 404 });
+    }
+
+    const [analisi] = await db
+      .select({ id: savedAnalyses.id })
+      .from(savedAnalyses)
+      .where(
+        and(
+          eq(savedAnalyses.id, analisiId),
+          eq(savedAnalyses.companyId, authUser.companyId)
+        )
+      )
+      .limit(1);
+    if (!analisi) {
+      return NextResponse.json({ error: "Analisi non trovata" }, { status: 404 });
+    }
+
+    const [row] = await db
+      .insert(comunicazioni)
+      .values({
+        titolo: titolo.trim(),
+        templateId,
+        analisiId,
+        dataInvio: dataInvioDate,
+        stato: "programmata",
+        lock: false,
+        companyId: authUser.companyId,
+      })
+      .returning();
+
+    return NextResponse.json({ ...row, batchStats: null }, { status: 201 });
+  } catch (error: any) {
+    console.error("[COMUNICAZIONI] POST errore:", error);
+    return NextResponse.json(
+      { error: "Errore nella creazione della comunicazione" },
+      { status: 500 }
+    );
+  }
+}
+
+/** GET: elenco comunicazioni della company con nome template/analisi e statistiche batch */
+export async function GET() {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    const rows = await db
+      .select({
+        id: comunicazioni.id,
+        titolo: comunicazioni.titolo,
+        templateId: comunicazioni.templateId,
+        analisiId: comunicazioni.analisiId,
+        dataInvio: comunicazioni.dataInvio,
+        stato: comunicazioni.stato,
+        lock: comunicazioni.lock,
+        companyId: comunicazioni.companyId,
+        createdAt: comunicazioni.createdAt,
+        updatedAt: comunicazioni.updatedAt,
+        templateName: emailTemplates.name,
+        analisiName: savedAnalyses.name,
+      })
+      .from(comunicazioni)
+      .leftJoin(
+        emailTemplates,
+        eq(comunicazioni.templateId, emailTemplates.id)
+      )
+      .leftJoin(savedAnalyses, eq(comunicazioni.analisiId, savedAnalyses.id))
+      .where(eq(comunicazioni.companyId, authUser.companyId))
+      .orderBy(desc(comunicazioni.dataInvio));
+
+    const ids = rows.map((r) => r.id);
+
+    // Statistiche batch aggregate (una riga per comunicazione)
+    const stats: Record<
+      string,
+      { total: number; sent: number; failed: number; pending: number }
+    > = {};
+    if (ids.length > 0) {
+      const agg = await db
+        .select({
+          comunicazioneId: comunicazioniBatch.comunicazioneId,
+          stato: comunicazioniBatch.stato,
+          count: sql<number>`count(*)`,
+        })
+        .from(comunicazioniBatch)
+        .where(inArray(comunicazioniBatch.comunicazioneId, ids))
+        .groupBy(
+          comunicazioniBatch.comunicazioneId,
+          comunicazioniBatch.stato
+        );
+
+      for (const row of agg) {
+        const s = stats[row.comunicazioneId] || {
+          total: 0,
+          sent: 0,
+          failed: 0,
+          pending: 0,
+        };
+        const n = Number(row.count ?? 0);
+        s.total += n;
+        if (row.stato === "sent") s.sent += n;
+        else if (row.stato === "failed") s.failed += n;
+        else s.pending += n;
+        stats[row.comunicazioneId] = s;
+      }
+    }
+
+    const result = rows.map((r) => {
+      const { templateName, analisiName, ...rest } = r;
+      return {
+        ...rest,
+        templateName,
+        analisiName,
+        batchStats: stats[r.id] || { total: 0, sent: 0, failed: 0, pending: 0 },
+      };
+    });
+
+    return NextResponse.json(result);
+  } catch (error: any) {
+    console.error("[COMUNICAZIONI] GET errore:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento delle comunicazioni" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
 <file path="app/api/cron/logs/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -14126,223 +15407,6 @@ export function StatusBadge({ status }: { status: ClientStatus }) {
 }
 </file>
 
-<file path="lib/app-version.ts">
-// Versione statica, iniettata a build time da next.config.js (NEXT_PUBLIC_APP_VERSION).
-const version = process.env.NEXT_PUBLIC_APP_VERSION || "1.0.0";
-
-// Build number di Vercel, iniettato a build time (NEXT_PUBLIC_).
-const buildNumber = (process.env.NEXT_PUBLIC_VERCEL_BUILD_NUMBER ?? "").trim();
-
-export const APP_VERSION = version;
-export const APP_BUILD_NUMBER = buildNumber;
-
-// Formato: v{major.minor.patch}-{buildNumber} (o v{version} se manca il build number)
-export const APP_VERSION_LABEL = buildNumber
-  ? `v${version}-${buildNumber}`
-  : `v${version}`;
-</file>
-
-<file path="lib/auth.ts">
-import { SignJWT, jwtVerify } from "jose";
-import { cookies } from "next/headers";
-import { db } from "@/lib/db";
-import { users } from "@/lib/schema";
-import { eq } from "drizzle-orm";
-import bcrypt from "bcryptjs";
-import dayjs from "dayjs";
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "fallback-secret-change-in-production"
-);
-
-const COOKIE_NAME = "session";
-
-export type AuthUser = {
-  id: string;
-  email: string;
-  name: string;
-  role: "admin" | "user";
-  companyId: string;
-};
-
-/** Crea un JWT e lo salva nei cookie */
-export async function createSession(user: AuthUser): Promise<string> {
-  const token = await new SignJWT({ ...user })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime("7d")
-    .sign(JWT_SECRET);
-
-  const cookieStore = await cookies();
-  cookieStore.set(COOKIE_NAME, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 7, // 7 giorni
-  });
-
-  return token;
-}
-
-/** Distrugge la sessione cancellando il cookie */
-export async function destroySession() {
-  const cookieStore = await cookies();
-  cookieStore.set(COOKIE_NAME, "", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 0,
-  });
-}
-
-/** Legge e verifica il JWT dal cookie. Verifica l'utente sul DB e restituisce i dati aggiornati. */
-export async function getAuthUser(): Promise<AuthUser | null> {
-  try {
-    const cookieStore = await cookies();
-    const token = cookieStore.get(COOKIE_NAME)?.value;
-    if (!token) return null;
-
-    const { payload } = await jwtVerify(token, JWT_SECRET);
-    const tokenUser = payload as { id?: string };
-    if (!tokenUser?.id) return null;
-
-    // Usa sempre i dati aggiornati dal DB (companyId, ruolo, nome, ecc.)
-    // invece di fidarsi del token: evita che una sessione obsoleta
-    // (es. azienda riassegnata o ruolo cambiato) usi dati errati.
-    const [user] = await db
-      .select({
-        id: users.id,
-        email: users.email,
-        name: users.name,
-        role: users.role,
-        companyId: users.companyId,
-      })
-      .from(users)
-      .where(eq(users.id, tokenUser.id))
-      .limit(1);
-
-    if (!user) return null;
-
-    return {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      companyId: user.companyId,
-    };
-  } catch {
-    return null;
-  }
-}
-
-/** Verifica la password in chiaro contro l'hash */
-export async function verifyPassword(
-  plain: string,
-  hash: string
-): Promise<boolean> {
-  return bcrypt.compare(plain, hash);
-}
-
-/** Genera l'hash di una password */
-export async function hashPassword(plain: string): Promise<string> {
-  return bcrypt.hash(plain, 12);
-}
-
-/** Helper per API routes: estrae l'utente corrente o restituisce 401 */
-export async function requireAuth(): Promise<AuthUser> {
-  const user = await getAuthUser();
-  if (!user) {
-    throw new Error("Unauthorized");
-  }
-  return user;
-}
-
-/** Helper per API routes: richiede ruolo admin */
-export async function requireAdmin(): Promise<AuthUser> {
-  const user = await requireAuth();
-  if (user.role !== "admin") {
-    throw new Error("Forbidden");
-  }
-  return user;
-}
-
-/** Helper per API routes: restituisce il companyId dell'utente autenticato */
-export async function requireCompany(): Promise<string> {
-  const user = await requireAuth();
-  return user.companyId;
-}
-
-/** Genera un ID company predefinito (usato per migrazione) */
-export const DEFAULT_COMPANY_ID = "default-company-id";
-
-// ── Superuser ──
-
-const SUPER_JWT_SECRET = new TextEncoder().encode(
-  process.env.SUPER_JWT_SECRET || "super-secret-change-in-production"
-);
-
-const SUPER_COOKIE_NAME = "super_session";
-
-export const SUPERUSER_USERNAME = "ADMIN";
-
-export function generateSuperPassword(): string {
-  return `%${dayjs().format("DDMMYYYY")}%`;
-}
-
-export async function createSuperSession(): Promise<string> {
-  const token = await new SignJWT({ role: "superadmin" })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime("24h")
-    .sign(SUPER_JWT_SECRET);
-
-  const cookieStore = await cookies();
-  cookieStore.set(SUPER_COOKIE_NAME, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24, // 24 ore
-  });
-
-  return token;
-}
-
-export async function destroySuperSession() {
-  const cookieStore = await cookies();
-  cookieStore.set(SUPER_COOKIE_NAME, "", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 0,
-  });
-}
-
-export async function getSuperUser(): Promise<{ role: string } | null> {
-  try {
-    const cookieStore = await cookies();
-    const token = cookieStore.get(SUPER_COOKIE_NAME)?.value;
-    if (!token) return null;
-
-    const { payload } = await jwtVerify(token, SUPER_JWT_SECRET);
-    return payload as unknown as { role: string };
-  } catch {
-    return null;
-  }
-}
-
-export async function requireSuperUser(): Promise<{ role: string }> {
-  const su = await getSuperUser();
-  if (!su || su.role !== "superadmin") {
-    throw new Error("Unauthorized");
-  }
-  return su;
-}
-</file>
-
 <file path="lib/utils.ts">
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -14504,6 +15568,748 @@ drizzle/
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
   "exclude": ["node_modules", "drizzle.config.ts"]
+}
+</file>
+
+<file path="version.json">
+{
+  "version": "1.1.237"
+}
+</file>
+
+<file path="app/(dashboard)/comunicazioni/page.tsx">
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/components/ui/use-toast";
+import {
+  Ban,
+  CalendarClock,
+  Eye,
+  Loader2,
+  MailOpen,
+  MailPlus,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+
+type Stato =
+  | "programmata"
+  | "in_elaborazione"
+  | "inviata"
+  | "inviata_parziale"
+  | "fallita"
+  | "annullata";
+
+interface BatchStats {
+  total: number;
+  sent: number;
+  failed: number;
+  pending: number;
+}
+
+interface Comunicazione {
+  id: string;
+  titolo: string;
+  templateId: string | null;
+  analisiId: string | null;
+  templateName?: string | null;
+  analisiName?: string | null;
+  dataInvio: number | string;
+  stato: Stato;
+  lock: boolean;
+  batchStats?: BatchStats;
+  createdAt: number | string;
+  updatedAt: number | string;
+}
+
+interface Template {
+  id: string;
+  name: string;
+}
+
+interface Analisi {
+  id: string;
+  name: string;
+  clientCount?: number;
+  isDynamic?: boolean;
+}
+
+interface Invio {
+  id: string;
+  clientId: string;
+  clienteNome: string | null;
+  clienteEmail: string | null;
+  stato: "pending" | "sent" | "failed";
+  tentativi: number;
+  errore: string | null;
+  inviatoIl: number | string | null;
+  createdAt: number | string;
+  trackingId: string | null;
+  consegnata: number | string | null;
+  aperta: number | string | null;
+}
+
+const invioStatoConfig: Record<
+  Invio["stato"],
+  { label: string; variant: "success" | "destructive" | "muted" }
+> = {
+  sent: { label: "Inviata", variant: "success" },
+  failed: { label: "Fallita", variant: "destructive" },
+  pending: { label: "In attesa", variant: "muted" },
+};
+
+const statoConfig: Record<Stato, { label: string; variant: "info" | "warning" | "success" | "destructive" | "muted" | "secondary" }> = {
+  programmata: { label: "Programmata", variant: "info" },
+  in_elaborazione: { label: "In elaborazione", variant: "warning" },
+  inviata: { label: "Inviata", variant: "success" },
+  inviata_parziale: { label: "Inviata parziale", variant: "warning" },
+  fallita: { label: "Fallita", variant: "destructive" },
+  annullata: { label: "Annullata", variant: "muted" },
+};
+
+const parseTs = (value: number | string | Date): Date | null => {
+  if (!value) return null;
+  let d: Date;
+  if (typeof value === "number") {
+    d = new Date(value > 1e12 ? value : value * 1000);
+  } else {
+    d = new Date(value);
+  }
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+const formatDateTime = (value: number | string) => {
+  const d = parseTs(value);
+  if (!d) return "—";
+  return d.toLocaleString("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const toDateKey = (value: number | string | Date) => {
+  const d = parseTs(value);
+  if (!d) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+const parseDateKey = (key: string): Date | null => {
+  const m = key.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+};
+
+export default function ComunicazioniPage() {
+  const { toast } = useToast();
+
+  const [comunicazioni, setComunicazioni] = useState<Comunicazione[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [analisiList, setAnalisiList] = useState<Analisi[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Form
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<Comunicazione | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [titolo, setTitolo] = useState("");
+  const [templateId, setTemplateId] = useState("");
+  const [analisiId, setAnalisiId] = useState("");
+  const [dataInvio, setDataInvio] = useState("");
+
+  // Dettaglio invii
+  const [inviiOpen, setInviiOpen] = useState(false);
+  const [inviiComunicazione, setInviiComunicazione] = useState<Comunicazione | null>(null);
+  const [invii, setInvii] = useState<Invio[]>([]);
+  const [inviiLoading, setInviiLoading] = useState(false);
+  const [inviiError, setInviiError] = useState<string | null>(null);
+
+  const fetchComunicazioni = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/comunicazioni");
+      const data = await res.json();
+      setComunicazioni(Array.isArray(data) ? data : []);
+    } catch {
+      setComunicazioni([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchComunicazioni();
+
+    // Template e analisi per i selettori del form
+    fetch("/api/email-templates")
+      .then((r) => r.json())
+      .then((data) => setTemplates(Array.isArray(data) ? data : []))
+      .catch(() => {});
+
+    fetch("/api/analyses")
+      .then((r) => r.json())
+      .then((data) => setAnalisiList(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, [fetchComunicazioni]);
+
+  // Date occupate (una comunicazione attiva al giorno): le date delle
+  // comunicazioni non completate/annullate sono disabilitate nel picker.
+  // La comunicazione in modifica esclude la propria data dal controllo.
+  const occupiedDates = useMemo(() => {
+    const map = new Map<string, Date>();
+    for (const c of comunicazioni) {
+      if (editing && c.id === editing.id) continue;
+      if (c.stato === "inviata" || c.stato === "annullata") continue;
+      const key = toDateKey(c.dataInvio);
+      if (!key) continue;
+      if (!map.has(key)) {
+        const [y, m, d] = key.split("-").map(Number);
+        map.set(key, new Date(y, m - 1, d));
+      }
+    }
+    return Array.from(map.values());
+  }, [comunicazioni, editing]);
+
+  const openCreate = () => {
+    setEditing(null);
+    setTitolo("");
+    setTemplateId("");
+    setAnalisiId("");
+    setDataInvio("");
+    setDialogOpen(true);
+  };
+
+  const openEdit = (c: Comunicazione) => {
+    setEditing(c);
+    setTitolo(c.titolo);
+    setTemplateId(c.templateId || "");
+    setAnalisiId(c.analisiId || "");
+    setDataInvio(toDateKey(c.dataInvio));
+    setDialogOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!titolo.trim()) {
+      toast({ title: "Errore", description: "Il titolo è obbligatorio", variant: "destructive" });
+      return;
+    }
+    if (!templateId) {
+      toast({ title: "Errore", description: "Seleziona un template", variant: "destructive" });
+      return;
+    }
+    if (!analisiId) {
+      toast({ title: "Errore", description: "Seleziona un'analisi", variant: "destructive" });
+      return;
+    }
+    if (!dataInvio) {
+      toast({ title: "Errore", description: "Imposta la data di invio", variant: "destructive" });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const payload = {
+        titolo: titolo.trim(),
+        templateId,
+        analisiId,
+        // Solo la data (YYYY-MM-DD); l'ora viene decisa dal server in base all'ambiente
+        dataInvio,
+      };
+
+      const res = editing
+        ? await fetch(`/api/comunicazioni/${editing.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          })
+        : await fetch("/api/comunicazioni", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+      const json = await res.json();
+      if (!res.ok) {
+        toast({ title: "Errore", description: json.error || "Salvataggio fallito", variant: "destructive" });
+        return;
+      }
+
+      toast({
+        title: editing ? "Comunicazione aggiornata" : "Comunicazione programmata",
+        variant: "success" as any,
+      });
+      setDialogOpen(false);
+      fetchComunicazioni();
+    } catch {
+      toast({ title: "Errore", description: "Salvataggio fallito", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      const res = await fetch(`/api/comunicazioni/${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Eliminazione fallita");
+      toast({ title: "Comunicazione eliminata", variant: "success" as any });
+      fetchComunicazioni();
+    } catch (e: any) {
+      toast({ title: "Errore", description: e.message || "Eliminazione fallita", variant: "destructive" });
+    }
+  };
+
+  const handleCancel = async (id: string) => {
+    try {
+      const res = await fetch(`/api/comunicazioni/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stato: "annullata" }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Annullamento fallito");
+      toast({ title: "Comunicazione annullata", variant: "success" as any });
+      fetchComunicazioni();
+    } catch (e: any) {
+      toast({ title: "Errore", description: e.message || "Annullamento fallito", variant: "destructive" });
+    }
+  };
+
+  const canEdit = (c: Comunicazione) =>
+    !c.lock && c.stato !== "inviata" && c.stato !== "inviata_parziale";
+
+  const openInvii = async (c: Comunicazione) => {
+    setInviiComunicazione(c);
+    setInviiOpen(true);
+    setInvii([]);
+    setInviiError(null);
+    setInviiLoading(true);
+    try {
+      const res = await fetch(`/api/comunicazioni/${c.id}/invii`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Errore nel caricamento");
+      setInvii(Array.isArray(json.invii) ? json.invii : []);
+    } catch (e: any) {
+      setInviiError(e.message || "Errore nel caricamento degli invii");
+    } finally {
+      setInviiLoading(false);
+    }
+  };
+
+  const riepilogo = (c: Comunicazione) => {
+    const s = c.batchStats;
+    if (!s || s.total === 0) return null;
+    return s;
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Intestazione */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Comunicazioni</h2>
+          <p className="text-muted-foreground">
+            Programa l'invio di un template a un'analisi: il cron esterno le invierà in automatico
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={fetchComunicazioni} disabled={loading}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Aggiorna
+          </Button>
+          <Button onClick={openCreate}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nuova Comunicazione
+          </Button>
+        </div>
+      </div>
+
+      {/* Lista */}
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Titolo</TableHead>
+                <TableHead>Template</TableHead>
+                <TableHead>Analisi</TableHead>
+                <TableHead>Data invio</TableHead>
+                <TableHead>Stato</TableHead>
+                <TableHead>Riepilogo</TableHead>
+                <TableHead className="text-right">Azioni</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="h-24 text-center">
+                    <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
+                  </TableCell>
+                </TableRow>
+              ) : comunicazioni.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                    <div className="flex flex-col items-center gap-2">
+                      <MailPlus className="h-8 w-8 text-muted-foreground/50" />
+                      <p>Nessuna comunicazione programmata.</p>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                comunicazioni.map((c) => {
+                  const cfg = statoConfig[c.stato];
+                  const editable = canEdit(c);
+                  return (
+                    <TableRow key={c.id}>
+                      <TableCell className="font-medium">{c.titolo}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {c.templateName || "—"}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {c.analisiName || "—"}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                        <span className="inline-flex items-center gap-1.5">
+                          <CalendarClock className="h-3.5 w-3.5" />
+                          {formatDateTime(c.dataInvio)}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={cfg.variant} className="font-medium">
+                          {cfg.label}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {(() => {
+                          const s = riepilogo(c);
+                          if (!s) return <span className="text-sm text-muted-foreground">—</span>;
+                          return (
+                            <div className="text-sm">
+                              <div className="font-medium text-foreground">
+                                Inviati: {s.sent}/{s.total}
+                              </div>
+                              {s.failed > 0 && (
+                                <div className="text-destructive">Falliti: {s.failed}</div>
+                              )}
+                              {s.pending > 0 && (
+                                <div className="text-muted-foreground">In attesa: {s.pending}</div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openInvii(c)}
+                            title="Dettaglio invii"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          {editable && (
+                            <>
+                              <Button variant="ghost" size="icon" onClick={() => openEdit(c)}>
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              {c.stato === "programmata" && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleCancel(c.id)}
+                                  title="Annulla comunicazione"
+                                >
+                                  <Ban className="h-4 w-4" />
+                                </Button>
+                              )}
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="ghost" size="icon">
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Eliminare la comunicazione?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Verranno eliminate anche le relative righe di invio. L'azione non è reversibile.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                    <AlertDialogAction onClick={() => handleDelete(c.id)}>
+                                      Elimina
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </>
+                          )}
+                          {!editable && c.stato !== "annullata" && (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Dialog crea/modifica */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editing ? "Modifica Comunicazione" : "Nuova Comunicazione"}
+            </DialogTitle>
+            <DialogDescription>
+              Seleziona template e analisi. L'invio avverrà automaticamente alla data scelta.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="titolo">Titolo</Label>
+              <Input
+                id="titolo"
+                value={titolo}
+                onChange={(e) => setTitolo(e.target.value)}
+                placeholder="Es. Promozione estiva"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Template email</Label>
+              <Select value={templateId} onValueChange={setTemplateId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleziona un template" />
+                </SelectTrigger>
+                <SelectContent>
+                  {templates.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Analisi</Label>
+              <Select value={analisiId} onValueChange={setAnalisiId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleziona un'analisi" />
+                </SelectTrigger>
+                <SelectContent>
+                  {analisiList.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.name}
+                      {typeof a.clientCount === "number" ? ` (${a.clientCount} clienti)` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Data di invio</Label>
+              <DatePicker
+                selected={dataInvio ? parseDateKey(dataInvio) : null}
+                onChange={(d: Date | null) => setDataInvio(d ? toDateKey(d) : "")}
+                dateFormat="dd/MM/yyyy"
+                placeholderText="Seleziona una data"
+                excludeDates={occupiedDates}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                showYearDropdown
+                dropdownMode="select"
+              />
+              <p className="text-sm text-muted-foreground mt-1">
+                Le email verranno spedite automaticamente alle 08:00 del giorno selezionato.
+              </p>
+              {process.env.NODE_ENV !== "production" && (
+                <a
+                  href="http://localhost:3000/api/cron/send-communications?secret=65bd6189f2797d3d37229f3cf58a8f2c5e15d9cceba4f306"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block text-xs text-blue-600 underline mt-1"
+                >
+                  Esegui invio manuale (cron)
+                </a>
+              )}
+              {occupiedDates.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Le date con una comunicazione già attiva sono disabilitate.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              Annulla
+            </Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {editing ? "Salva modifiche" : "Programma"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog dettaglio invii */}
+      <Dialog open={inviiOpen} onOpenChange={setInviiOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MailOpen className="h-5 w-5 text-primary" />
+              Dettaglio invii
+            </DialogTitle>
+            <DialogDescription>
+              {inviiComunicazione?.titolo || ""} — invii effettuati e stato di lettura
+            </DialogDescription>
+          </DialogHeader>
+
+          {inviiLoading ? (
+            <div className="flex h-40 items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : inviiError ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-400">
+              {inviiError}
+            </div>
+          ) : invii.length === 0 ? (
+            <div className="flex h-40 flex-col items-center justify-center gap-2 text-center text-muted-foreground">
+              <MailPlus className="h-8 w-8 text-muted-foreground/50" />
+              <p>Nessun invio registrato per questa comunicazione.</p>
+              <p className="text-xs">Gli invii vengono generati dal cron alla data programmata.</p>
+            </div>
+          ) : (
+            <div className="max-h-[60vh] overflow-auto rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Stato</TableHead>
+                    <TableHead>Data/ora invio</TableHead>
+                    <TableHead>Consegnata</TableHead>
+                    <TableHead>Aperta</TableHead>
+                    <TableHead>Errore</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {invii.map((inv) => {
+                    const cfg = invioStatoConfig[inv.stato];
+                    return (
+                      <TableRow key={inv.id}>
+                        <TableCell className="font-medium">
+                          {inv.clienteNome || "—"}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {inv.clienteEmail || "—"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={cfg.variant} className="font-medium">
+                            {cfg.label}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                          {inv.inviatoIl ? formatDateTime(inv.inviatoIl) : "—"}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                          {inv.consegnata ? formatDateTime(inv.consegnata) : "—"}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-sm">
+                          {inv.aperta ? (
+                            <span className="inline-flex items-center gap-1 font-medium text-green-700 dark:text-green-400">
+                              <MailOpen className="h-3.5 w-3.5" />
+                              {formatDateTime(inv.aperta)}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="max-w-[220px]">
+                          {inv.errore ? (
+                            <span
+                              className="block truncate text-xs text-destructive"
+                              title={inv.errore}
+                            >
+                              {inv.errore}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInviiOpen(false)}>
+              Chiudi
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
 }
 </file>
 
@@ -15136,9 +16942,9 @@ export async function DELETE(
 <file path="app/api/email-templates/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { emailTemplates } from "@/lib/schema";
+import { emailTemplates, users } from "@/lib/schema";
 import { emailTemplateSchema } from "@/types";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, or, type SQL } from "drizzle-orm";
 import { ZodError } from "zod";
 import { getAuthUser } from "@/lib/auth";
 import { checkFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
@@ -15211,10 +17017,36 @@ export async function GET() {
       userRole: authUser.role,
     });
 
+    const conditions: (SQL | undefined)[] = [
+      eq(emailTemplates.companyId, authUser.companyId),
+    ];
+    if (authUser.role !== "admin") {
+      // L'utente "user" vede i propri template + quelli creati dall'admin della sua azienda
+      const [admin] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(
+          and(
+            eq(users.role, "admin"),
+            eq(users.companyId, authUser.companyId)
+          )
+        )
+        .limit(1);
+
+      const ownOrAdmin = admin
+        ? or(
+            eq(emailTemplates.userId, authUser.id),
+            eq(emailTemplates.userId, admin.id)
+          )
+        : eq(emailTemplates.userId, authUser.id);
+
+      conditions.push(ownOrAdmin);
+    }
+
     const templates = await db
       .select()
       .from(emailTemplates)
-      .where(eq(emailTemplates.companyId, authUser.companyId))
+      .where(and(...conditions))
       .orderBy(desc(emailTemplates.createdAt));
 
     logError("GET - template caricati con successo", null, {
@@ -15311,6 +17143,7 @@ export async function POST(request: NextRequest) {
         footerImageUrl: parsed.footerImageUrl ?? null,
         author: authUser.name,
         companyId: authUser.companyId,
+        userId: authUser.id,
       })
       .returning();
 
@@ -16086,6 +17919,236 @@ export default function HtmlEditor({
 }
 </file>
 
+<file path="lib/app-version.ts">
+// Versione dell'app, letta da version.json nella root del progetto.
+// Se il file o il valore non è disponibile (es. durante la build), fallback a "1.0.0".
+import versionData from "@/version.json";
+
+// Build number di Vercel, iniettato a build time (NEXT_PUBLIC_).
+const buildNumber = (process.env.NEXT_PUBLIC_VERCEL_BUILD_NUMBER ?? "").trim();
+
+const raw = (versionData as { version?: string } | undefined)?.version;
+const version = (raw || "1.0.0").trim() || "1.0.0";
+
+export const APP_VERSION = version;
+export const APP_BUILD_NUMBER = buildNumber;
+
+// Formato: v{major.minor.patch} (o v{version}-{buildNumber} se presente il build number)
+export const APP_VERSION_LABEL = buildNumber
+  ? `v${version}-${buildNumber}`
+  : `v${version}`;
+</file>
+
+<file path="lib/auth.ts">
+import { SignJWT, jwtVerify } from "jose";
+import { cookies } from "next/headers";
+import { db } from "@/lib/db";
+import { users } from "@/lib/schema";
+import { eq } from "drizzle-orm";
+import bcrypt from "bcryptjs";
+import dayjs from "dayjs";
+
+const JWT_SECRET = new TextEncoder().encode(
+  process.env.JWT_SECRET || "fallback-secret-change-in-production"
+);
+
+const COOKIE_NAME = "session";
+
+export type AuthUser = {
+  id: string;
+  email: string;
+  name: string;
+  role: "admin" | "user";
+  companyId: string;
+};
+
+/** Crea un JWT e lo salva nei cookie */
+export async function createSession(user: AuthUser): Promise<string> {
+  const token = await new SignJWT({ ...user })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("7d")
+    .sign(JWT_SECRET);
+
+  const isProduction = process.env.NODE_ENV === "production";
+
+  const cookieStore = await cookies();
+  cookieStore.set(COOKIE_NAME, token, {
+    httpOnly: true,
+    // In sviluppo (NODE_ENV !== 'production') il cookie non è "secure" e usa
+    // sameSite "lax" per permettere il login su HTTP locale.
+    // In produzione il cookie è forzato secure: true (solo HTTPS).
+    secure: isProduction,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 7, // 7 giorni
+  });
+
+  console.log(
+    `[AUTH] Cookie di sessione creato per ${user.email} (role=${user.role}, companyId=${user.companyId}) - secure=${isProduction ? "true" : "false"}`
+  );
+
+  return token;
+}
+
+/** Distrugge la sessione cancellando il cookie */
+export async function destroySession() {
+  const cookieStore = await cookies();
+  cookieStore.set(COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
+  });
+}
+
+/** Legge e verifica il JWT dal cookie. Verifica l'utente sul DB e restituisce i dati aggiornati. */
+export async function getAuthUser(): Promise<AuthUser | null> {
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(COOKIE_NAME)?.value;
+    if (!token) return null;
+
+    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const tokenUser = payload as { id?: string };
+    if (!tokenUser?.id) return null;
+
+    // Usa sempre i dati aggiornati dal DB (companyId, ruolo, nome, ecc.)
+    // invece di fidarsi del token: evita che una sessione obsoleta
+    // (es. azienda riassegnata o ruolo cambiato) usi dati errati.
+    const [user] = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        name: users.name,
+        role: users.role,
+        companyId: users.companyId,
+      })
+      .from(users)
+      .where(eq(users.id, tokenUser.id))
+      .limit(1);
+
+    if (!user) return null;
+
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      companyId: user.companyId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Verifica la password in chiaro contro l'hash */
+export async function verifyPassword(
+  plain: string,
+  hash: string
+): Promise<boolean> {
+  return bcrypt.compare(plain, hash);
+}
+
+/** Genera l'hash di una password */
+export async function hashPassword(plain: string): Promise<string> {
+  return bcrypt.hash(plain, 12);
+}
+
+/** Helper per API routes: estrae l'utente corrente o restituisce 401 */
+export async function requireAuth(): Promise<AuthUser> {
+  const user = await getAuthUser();
+  if (!user) {
+    throw new Error("Unauthorized");
+  }
+  return user;
+}
+
+/** Helper per API routes: richiede ruolo admin */
+export async function requireAdmin(): Promise<AuthUser> {
+  const user = await requireAuth();
+  if (user.role !== "admin") {
+    throw new Error("Forbidden");
+  }
+  return user;
+}
+
+/** Helper per API routes: restituisce il companyId dell'utente autenticato */
+export async function requireCompany(): Promise<string> {
+  const user = await requireAuth();
+  return user.companyId;
+}
+
+/** Genera un ID company predefinito (usato per migrazione) */
+export const DEFAULT_COMPANY_ID = "default-company-id";
+
+// ── Superuser ──
+
+const SUPER_JWT_SECRET = new TextEncoder().encode(
+  process.env.SUPER_JWT_SECRET || "super-secret-change-in-production"
+);
+
+const SUPER_COOKIE_NAME = "super_session";
+
+export const SUPERUSER_USERNAME = "ADMIN";
+
+export function generateSuperPassword(): string {
+  return `%${dayjs().format("DDMMYYYY")}%`;
+}
+
+export async function createSuperSession(): Promise<string> {
+  const token = await new SignJWT({ role: "superadmin" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("24h")
+    .sign(SUPER_JWT_SECRET);
+
+  const cookieStore = await cookies();
+  cookieStore.set(SUPER_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24, // 24 ore
+  });
+
+  return token;
+}
+
+export async function destroySuperSession() {
+  const cookieStore = await cookies();
+  cookieStore.set(SUPER_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
+  });
+}
+
+export async function getSuperUser(): Promise<{ role: string } | null> {
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(SUPER_COOKIE_NAME)?.value;
+    if (!token) return null;
+
+    const { payload } = await jwtVerify(token, SUPER_JWT_SECRET);
+    return payload as unknown as { role: string };
+  } catch {
+    return null;
+  }
+}
+
+export async function requireSuperUser(): Promise<{ role: string }> {
+  const su = await getSuperUser();
+  if (!su || su.role !== "superadmin") {
+    throw new Error("Unauthorized");
+  }
+  return su;
+}
+</file>
+
 <file path="lib/email-parser.ts">
 import { db } from "@/lib/db";
 import { clients, tasks } from "@/lib/schema";
@@ -16291,227 +18354,6 @@ export async function getImapConfig(companyId?: string): Promise<ImapConfig | nu
     return { host, port, user, password, filterFrom, filterSubject: "" };
   }
 }
-</file>
-
-<file path="middleware.ts">
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-import { jwtVerify } from "jose";
-import { ROUTE_FEATURE_MAP, isFeatureEnabled } from "@/lib/company-rules-edge";
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "fallback-secret-change-in-production"
-);
-
-const SUPER_JWT_SECRET = new TextEncoder().encode(
-  process.env.SUPER_JWT_SECRET || "super-secret-change-in-production"
-);
-
-const COOKIE_NAME = "session";
-const SUPER_COOKIE_NAME = "super_session";
-
-// Rotte protette che richiedono autenticazione
-const protectedPaths = ["/dashboard", "/clienti", "/kanban", "/task", "/note", "/impostazioni", "/admin"];
-
-// Rotte API protette (esclusa auth)
-const protectedApiPaths = ["/api/clients", "/api/dashboard", "/api/tasks", "/api/note", "/api/users", "/api/email-templates", "/api/imap-settings", "/api/company-settings", "/api/email", "/api/facebook", "/api/company-rules"];
-
-export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-
-  // Superuser login è pubblico
-  if (pathname === "/superuser/login") {
-    return NextResponse.next();
-  }
-
-  // Protezione rotte superuser (tranne login)
-  if (pathname.startsWith("/superuser/")) {
-    const token = request.cookies.get(SUPER_COOKIE_NAME)?.value;
-    if (!token) {
-      return NextResponse.redirect(new URL("/superuser/login", request.url));
-    }
-    try {
-      await jwtVerify(token, SUPER_JWT_SECRET);
-    } catch {
-      return NextResponse.redirect(new URL("/superuser/login", request.url));
-    }
-    return NextResponse.next();
-  }
-
-  // Protezione API superuser
-  if (pathname.startsWith("/api/superuser/") && pathname !== "/api/superuser/login") {
-    const token = request.cookies.get(SUPER_COOKIE_NAME)?.value;
-    if (!token) {
-      return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
-    }
-    try {
-      await jwtVerify(token, SUPER_JWT_SECRET);
-    } catch {
-      return NextResponse.json({ error: "Sessione non valida" }, { status: 401 });
-    }
-    return NextResponse.next();
-  }
-
-  // Protezione API global-settings in PUT (solo superuser)
-  if (pathname === "/api/global-settings" && request.method === "PUT") {
-    const token = request.cookies.get(SUPER_COOKIE_NAME)?.value;
-    if (!token) {
-      return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
-    }
-    try {
-      await jwtVerify(token, SUPER_JWT_SECRET);
-    } catch {
-      return NextResponse.json({ error: "Sessione non valida" }, { status: 401 });
-    }
-    return NextResponse.next();
-  }
-
-  // Protezione API company-rules in PUT (solo superuser)
-  if (pathname === "/api/company-rules" && request.method === "PUT") {
-    const token = request.cookies.get(SUPER_COOKIE_NAME)?.value;
-    if (!token) {
-      // Potrebbe anche essere un utente normale via GET, ma PUT è solo superuser
-      return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
-    }
-    try {
-      await jwtVerify(token, SUPER_JWT_SECRET);
-    } catch {
-      return NextResponse.json({ error: "Sessione non valida" }, { status: 401 });
-    }
-    return NextResponse.next();
-  }
-
-  // Login, register e auth API sono sempre accessibili
-  if (pathname === "/login" || pathname === "/register" || pathname.startsWith("/api/auth")) {
-    // Se già autenticato e va al login/register, reindirizza a dashboard
-    if (pathname === "/login" || pathname === "/register") {
-      const token = request.cookies.get(COOKIE_NAME)?.value;
-      if (token) {
-        try {
-          await jwtVerify(token, JWT_SECRET);
-          return NextResponse.redirect(new URL("/dashboard", request.url));
-        } catch {
-          // Token non valido, continua
-        }
-      }
-    }
-    return NextResponse.next();
-  }
-
-  // Verifica se la rotta è protetta
-  const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
-  const isProtectedApi = protectedApiPaths.some((p) => pathname.startsWith(p));
-
-  if (isProtected || isProtectedApi) {
-    const token = request.cookies.get(COOKIE_NAME)?.value;
-
-    if (!token) {
-      if (pathname.startsWith("/api/")) {
-        return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
-      }
-      return NextResponse.redirect(new URL("/login", request.url));
-    }
-
-    try {
-      const { payload } = await jwtVerify(token, JWT_SECRET);
-      const userPayload = payload as { companyId?: string };
-
-      // Controllo feature: determina la feature key dalla path
-      if (userPayload.companyId) {
-        // Trova la feature key corrispondente al path
-        let featureKey: string | undefined;
-        for (const [routePrefix, key] of Object.entries(ROUTE_FEATURE_MAP)) {
-          if (pathname === routePrefix || pathname.startsWith(routePrefix + "/") || pathname.startsWith(routePrefix + "?")) {
-            featureKey = key;
-            break;
-          }
-        }
-
-        // Per API routes, usa il prefisso /api/... per trovare la feature
-        if (!featureKey && pathname.startsWith("/api/")) {
-          const apiPath = pathname.replace("/api", "");
-          for (const [routePrefix, key] of Object.entries(ROUTE_FEATURE_MAP)) {
-            if (apiPath === routePrefix || apiPath.startsWith(routePrefix + "/")) {
-              featureKey = key;
-              break;
-            }
-          }
-        }
-
-        if (featureKey) {
-          const enabled = await isFeatureEnabled(userPayload.companyId, featureKey);
-          if (!enabled) {
-            if (pathname.startsWith("/api/")) {
-              return NextResponse.json(
-                { error: "Funzionalità disabilitata per questa azienda" },
-                { status: 403 }
-              );
-            }
-            // Per pagine web, redirect a dashboard
-            return NextResponse.redirect(new URL("/dashboard", request.url));
-          }
-        }
-      }
-    } catch {
-      if (pathname.startsWith("/api/")) {
-        return NextResponse.json({ error: "Sessione non valida" }, { status: 401 });
-      }
-      return NextResponse.redirect(new URL("/login", request.url));
-    }
-  }
-
-  return NextResponse.next();
-}
-
-export const config = {
-  matcher: [
-    // Rotte superuser
-    "/superuser/:path*",
-    // Rotte dashboard
-    "/dashboard/:path*",
-    "/clienti/:path*",
-    "/kanban/:path*",
-    "/task/:path*",
-    "/note/:path*",
-    "/impostazioni/:path*",
-    "/admin/:path*",
-    "/login",
-    "/register",
-    // Rotte API
-    "/api/clients/:path*",
-    "/api/dashboard/:path*",
-    "/api/tasks/:path*",
-    "/api/note/:path*",
-    "/api/users/:path*",
-    "/api/auth/:path*",
-    "/api/email-templates/:path*",
-    "/api/imap-settings/:path*",
-    "/api/company-settings/:path*",
-    "/api/email/:path*",
-    "/api/facebook/:path*",
-    "/api/company-rules",
-    "/api/superuser/:path*",
-    "/api/global-settings",
-  ],
-};
-</file>
-
-<file path="next.config.js">
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  // Versione app, iniettata a build time per il client
-  env: {
-    NEXT_PUBLIC_APP_VERSION: process.env.npm_package_version || "1.0.0",
-  },
-  experimental: {
-    serverComponentsExternalPackages: ["@libsql/client", "xlsx"],
-  },
-  // Evita file .xlsx corrotti generati con la libreria "xlsx" (SheetJS)
-  // in produzione: la minificazione swc può rompere il bundle della libreria.
-  swcMinify: false,
-};
-
-module.exports = nextConfig;
 </file>
 
 <file path="app/(dashboard)/admin/imap/page.tsx">
@@ -17998,6 +19840,113 @@ export async function GET(_request: NextRequest) {
 }
 </file>
 
+<file path="lib/comunicazioni.ts">
+import { db } from "@/lib/db";
+import { comunicazioni } from "@/lib/schema";
+import { and, eq, gte, lte, ne, sql } from "drizzle-orm";
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Fuso orario di riferimento per l'invio (default Europe/Rome, l'orario aziendale).
+// Il server (es. Vercel) gira in UTC: va impostato esplicitamente, altrimenti
+// "08:00 locali del server" = 08:00 UTC = 10:00 in Italia.
+const COMUNICAZIONI_TZ = process.env.COMUNICAZIONI_TIME_ZONE || "Europe/Rome";
+
+/** Restituisce il timestamp UTC corrispondente a una data (YYYY-MM-DD) alle ore
+ *  indicate nel fuso orario `tz`. Gestisce correttamente l'ora legale (DST). */
+function dateAtInTimeZone(
+  dateStr: string,
+  tz: string,
+  hour: number,
+  minute = 0,
+  second = 0,
+  ms = 0
+): Date {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+
+  // T0 = istante UTC di prova; confrontandolo con la sua rappresentazione nel fuso
+  // ricaviamo l'offset del fuso alla data scelta (incluso DST) e lo applichiamo.
+  const T0 = Date.UTC(y, m - 1, d, hour, minute, second, ms);
+  const parts = dtf.formatToParts(new Date(T0));
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  const wallAsUTC = Date.UTC(
+    get("year"),
+    get("month") - 1,
+    get("day"),
+    get("hour"),
+    get("minute"),
+    get("second")
+  );
+  const offset = wallAsUTC - T0; // offset del fuso rispetto a UTC alla data scelta
+  return new Date(T0 - offset);
+}
+
+/** Risolve la data (solo giorno, "YYYY-MM-DD") nel timestamp completo di data_invio:
+ *  SEMPRE alle 08:00 del fuso orario configurato (default Europe/Rome).
+ *  In sviluppo, programmare per oggi fa partire l'invio al primo cron
+ *  (le 08:00 di oggi sono già passate). Restituisce null se il formato non è valido.
+ */
+export function resolveDataInvio(dateStr: string): Date | null {
+  if (!DATE_RE.test(dateStr)) return null;
+
+  const d = dateAtInTimeZone(dateStr, COMUNICAZIONI_TZ, 8);
+  if (Number.isNaN(d.getTime())) return null;
+
+  console.log(
+    `[COMUNICAZIONI] data_invio ${dateStr} 08:00 (${COMUNICAZIONI_TZ}) =>`,
+    d.toISOString(),
+    "| locale:",
+    d.toLocaleString("it-IT", { timeZone: COMUNICAZIONI_TZ })
+  );
+  return d;
+}
+
+/** Verifica se una data è già occupata da un'altra comunicazione "attiva"
+ *  (stato diverso da "inviata" e "annullata" → cioè non completata né annullata).
+ *  L'intervallo della giornata è calcolato nel fuso orario di riferimento,
+ *  così da essere coerente con l'ora salvata (08:00 del fuso).
+ *  Permette di escludere la comunicazione corrente in modifica.
+ */
+export async function isDateOccupied(
+  companyId: string,
+  dateStr: string,
+  excludeId?: string
+): Promise<boolean> {
+  if (!DATE_RE.test(dateStr)) return false;
+
+  const start = dateAtInTimeZone(dateStr, COMUNICAZIONI_TZ, 0);
+  const end = dateAtInTimeZone(dateStr, COMUNICAZIONI_TZ, 23, 59, 59, 999);
+
+  const conditions: any[] = [
+    eq(comunicazioni.companyId, companyId),
+    gte(comunicazioni.dataInvio, start),
+    lte(comunicazioni.dataInvio, end),
+    sql`${comunicazioni.stato} NOT IN ('inviata', 'annullata')`,
+  ];
+  if (excludeId) {
+    conditions.push(ne(comunicazioni.id, excludeId));
+  }
+
+  const [row] = await db
+    .select({ id: comunicazioni.id })
+    .from(comunicazioni)
+    .where(and(...conditions))
+    .limit(1);
+
+  return !!row;
+}
+</file>
+
 <file path="drizzle.config.ts">
 import { config } from "dotenv";
 import { defineConfig } from "drizzle-kit";
@@ -18013,6 +19962,225 @@ export default defineConfig({
     authToken: process.env.TURSO_AUTH_TOKEN,
   },
 });
+</file>
+
+<file path="middleware.ts">
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { jwtVerify } from "jose";
+import { ROUTE_FEATURE_MAP, isFeatureEnabled } from "@/lib/company-rules-edge";
+
+const JWT_SECRET = new TextEncoder().encode(
+  process.env.JWT_SECRET || "fallback-secret-change-in-production"
+);
+
+const SUPER_JWT_SECRET = new TextEncoder().encode(
+  process.env.SUPER_JWT_SECRET || "super-secret-change-in-production"
+);
+
+const COOKIE_NAME = "session";
+const SUPER_COOKIE_NAME = "super_session";
+
+// Rotte protette che richiedono autenticazione
+const protectedPaths = ["/dashboard", "/clienti", "/kanban", "/task", "/note", "/impostazioni", "/admin", "/comunicazioni"];
+
+// Rotte API protette (esclusa auth)
+const protectedApiPaths = ["/api/clients", "/api/dashboard", "/api/tasks", "/api/note", "/api/users", "/api/email-templates", "/api/imap-settings", "/api/company-settings", "/api/email", "/api/facebook", "/api/company-rules", "/api/comunicazioni"];
+
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Superuser login è pubblico
+  if (pathname === "/superuser/login") {
+    return NextResponse.next();
+  }
+
+  // Protezione rotte superuser (tranne login)
+  if (pathname.startsWith("/superuser/")) {
+    const token = request.cookies.get(SUPER_COOKIE_NAME)?.value;
+    if (!token) {
+      return NextResponse.redirect(new URL("/superuser/login", request.url));
+    }
+    try {
+      await jwtVerify(token, SUPER_JWT_SECRET);
+    } catch {
+      return NextResponse.redirect(new URL("/superuser/login", request.url));
+    }
+    return NextResponse.next();
+  }
+
+  // Protezione API superuser
+  if (pathname.startsWith("/api/superuser/") && pathname !== "/api/superuser/login") {
+    const token = request.cookies.get(SUPER_COOKIE_NAME)?.value;
+    if (!token) {
+      return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
+    }
+    try {
+      await jwtVerify(token, SUPER_JWT_SECRET);
+    } catch {
+      return NextResponse.json({ error: "Sessione non valida" }, { status: 401 });
+    }
+    return NextResponse.next();
+  }
+
+  // Protezione API global-settings in PUT (solo superuser)
+  if (pathname === "/api/global-settings" && request.method === "PUT") {
+    const token = request.cookies.get(SUPER_COOKIE_NAME)?.value;
+    if (!token) {
+      return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
+    }
+    try {
+      await jwtVerify(token, SUPER_JWT_SECRET);
+    } catch {
+      return NextResponse.json({ error: "Sessione non valida" }, { status: 401 });
+    }
+    return NextResponse.next();
+  }
+
+  // Protezione API company-rules in PUT (solo superuser)
+  if (pathname === "/api/company-rules" && request.method === "PUT") {
+    const token = request.cookies.get(SUPER_COOKIE_NAME)?.value;
+    if (!token) {
+      // Potrebbe anche essere un utente normale via GET, ma PUT è solo superuser
+      return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
+    }
+    try {
+      await jwtVerify(token, SUPER_JWT_SECRET);
+    } catch {
+      return NextResponse.json({ error: "Sessione non valida" }, { status: 401 });
+    }
+    return NextResponse.next();
+  }
+
+  // Login, register e auth API sono sempre accessibili
+  if (pathname === "/login" || pathname === "/register" || pathname.startsWith("/api/auth")) {
+    // Se già autenticato e va al login/register, reindirizza a dashboard
+    if (pathname === "/login" || pathname === "/register") {
+      const token = request.cookies.get(COOKIE_NAME)?.value;
+      if (token) {
+        try {
+          await jwtVerify(token, JWT_SECRET);
+          return NextResponse.redirect(new URL("/dashboard", request.url));
+        } catch {
+          // Token non valido, continua
+        }
+      }
+    }
+    return NextResponse.next();
+  }
+
+  // Verifica se la rotta è protetta
+  const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
+  const isProtectedApi = protectedApiPaths.some((p) => pathname.startsWith(p));
+
+  if (isProtected || isProtectedApi) {
+    const token = request.cookies.get(COOKIE_NAME)?.value;
+
+    if (!token) {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+      }
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
+
+    try {
+      const { payload } = await jwtVerify(token, JWT_SECRET);
+      const userPayload = payload as { companyId?: string };
+
+      // Controllo feature: determina la feature key dalla path
+      if (userPayload.companyId) {
+        // Trova la feature key corrispondente al path
+        let featureKey: string | undefined;
+        for (const [routePrefix, key] of Object.entries(ROUTE_FEATURE_MAP)) {
+          if (pathname === routePrefix || pathname.startsWith(routePrefix + "/") || pathname.startsWith(routePrefix + "?")) {
+            featureKey = key;
+            break;
+          }
+        }
+
+        // Per API routes, usa il prefisso /api/... per trovare la feature
+        if (!featureKey && pathname.startsWith("/api/")) {
+          const apiPath = pathname.replace("/api", "");
+          for (const [routePrefix, key] of Object.entries(ROUTE_FEATURE_MAP)) {
+            if (apiPath === routePrefix || apiPath.startsWith(routePrefix + "/")) {
+              featureKey = key;
+              break;
+            }
+          }
+        }
+
+        if (featureKey) {
+          const enabled = await isFeatureEnabled(userPayload.companyId, featureKey);
+          if (!enabled) {
+            if (pathname.startsWith("/api/")) {
+              return NextResponse.json(
+                { error: "Funzionalità disabilitata per questa azienda" },
+                { status: 403 }
+              );
+            }
+            // Per pagine web, redirect a dashboard
+            return NextResponse.redirect(new URL("/dashboard", request.url));
+          }
+        }
+      }
+    } catch {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json({ error: "Sessione non valida" }, { status: 401 });
+      }
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: [
+    // Rotte superuser
+    "/superuser/:path*",
+    // Rotte dashboard
+    "/dashboard/:path*",
+    "/clienti/:path*",
+    "/kanban/:path*",
+    "/task/:path*",
+    "/note/:path*",
+    "/impostazioni/:path*",
+    "/admin/:path*",
+    "/comunicazioni/:path*",
+    "/login",
+    "/register",
+    // Rotte API
+    "/api/clients/:path*",
+    "/api/dashboard/:path*",
+    "/api/tasks/:path*",
+    "/api/note/:path*",
+    "/api/users/:path*",
+    "/api/auth/:path*",
+    "/api/email-templates/:path*",
+    "/api/imap-settings/:path*",
+    "/api/company-settings/:path*",
+    "/api/email/:path*",
+    "/api/facebook/:path*",
+    "/api/company-rules",
+    "/api/comunicazioni/:path*",
+    "/api/superuser/:path*",
+    "/api/global-settings",
+  ],
+};
+</file>
+
+<file path="next.config.js">
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    serverComponentsExternalPackages: ["@libsql/client", "xlsx"],
+  },
+  // Evita file .xlsx corrotti generati con la libreria "xlsx" (SheetJS)
+  // in produzione: la minificazione swc può rompere il bundle della libreria.
+  swcMinify: false,
+};
+
+module.exports = nextConfig;
 </file>
 
 <file path="app/api/dashboard/route.ts">
@@ -22869,77 +25037,6 @@ function TaskCard({
 }
 </file>
 
-<file path="package.json">
-{
-  "name": "crm-findfit",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "db:generate": "drizzle-kit generate",
-    "db:push": "drizzle-kit push",
-    "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio",
-    "db:migrate-multi-tenant": "npx tsx scripts/migrate-multi-tenant.ts",
-    "menu:analyze": "node scripts/menu-sync.mjs analyze",
-    "menu:status": "node scripts/menu-sync.mjs status",
-    "menu:sync": "node scripts/menu-sync.mjs sync"
-  },
-  "dependencies": {
-    "@hello-pangea/dnd": "^16.6.0",
-    "@libsql/client": "^0.14.0",
-    "@radix-ui/react-alert-dialog": "^1.1.1",
-    "@radix-ui/react-avatar": "^1.1.0",
-    "@radix-ui/react-dialog": "^1.1.1",
-    "@radix-ui/react-dropdown-menu": "^2.1.1",
-    "@radix-ui/react-label": "^2.1.0",
-    "@radix-ui/react-popover": "^1.1.1",
-    "@radix-ui/react-scroll-area": "^1.1.0",
-    "@radix-ui/react-select": "^2.1.1",
-    "@radix-ui/react-separator": "^1.1.0",
-    "@radix-ui/react-slot": "^1.1.0",
-    "@radix-ui/react-toast": "^1.2.1",
-    "@radix-ui/react-tooltip": "^1.1.2",
-    "bcryptjs": "^3.0.3",
-    "class-variance-authority": "^0.7.0",
-    "clsx": "^2.1.1",
-    "date-fns": "^3.6.0",
-    "dayjs": "^1.11.21",
-    "drizzle-orm": "^0.45.2",
-    "imapflow": "^1.4.0",
-    "jose": "^6.2.3",
-    "lucide-react": "^0.379.0",
-    "mailparser": "^3.9.9",
-    "next": "^14.2.3",
-    "nodemailer": "^9.0.3",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "tailwind-merge": "^2.3.0",
-    "tailwindcss-animate": "^1.0.7",
-    "xlsx": "^0.18.5",
-    "zod": "^3.23.8"
-  },
-  "devDependencies": {
-    "@types/bcryptjs": "^3.0.0",
-    "@types/mailparser": "^3.4.6",
-    "@types/node": "^20.12.12",
-    "@types/nodemailer": "^8.0.1",
-    "@types/react": "^18.3.2",
-    "@types/react-dom": "^18.3.0",
-    "autoprefixer": "^10.5.0",
-    "dotenv": "^17.4.2",
-    "drizzle-kit": "^0.31.10",
-    "postcss": "^8.4.38",
-    "tailwindcss": "^3.4.3",
-    "tsx": "^4.22.4",
-    "typescript": "^5.4.5"
-  }
-}
-</file>
-
 <file path="components/sidebar.tsx">
 "use client";
 
@@ -23396,6 +25493,78 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 }
 </file>
 
+<file path="package.json">
+{
+  "name": "crm-findfit",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "db:migrate-multi-tenant": "npx tsx scripts/migrate-multi-tenant.ts",
+    "menu:analyze": "node scripts/menu-sync.mjs analyze",
+    "menu:status": "node scripts/menu-sync.mjs status",
+    "menu:sync": "node scripts/menu-sync.mjs sync"
+  },
+  "dependencies": {
+    "@hello-pangea/dnd": "^16.6.0",
+    "@libsql/client": "^0.14.0",
+    "@radix-ui/react-alert-dialog": "^1.1.1",
+    "@radix-ui/react-avatar": "^1.1.0",
+    "@radix-ui/react-dialog": "^1.1.1",
+    "@radix-ui/react-dropdown-menu": "^2.1.1",
+    "@radix-ui/react-label": "^2.1.0",
+    "@radix-ui/react-popover": "^1.1.1",
+    "@radix-ui/react-scroll-area": "^1.1.0",
+    "@radix-ui/react-select": "^2.1.1",
+    "@radix-ui/react-separator": "^1.1.0",
+    "@radix-ui/react-slot": "^1.1.0",
+    "@radix-ui/react-toast": "^1.2.1",
+    "@radix-ui/react-tooltip": "^1.1.2",
+    "bcryptjs": "^3.0.3",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "dayjs": "^1.11.21",
+    "drizzle-orm": "^0.45.2",
+    "imapflow": "^1.4.0",
+    "jose": "^6.2.3",
+    "lucide-react": "^0.379.0",
+    "mailparser": "^3.9.9",
+    "next": "^14.2.3",
+    "nodemailer": "^9.0.3",
+    "react": "^18.3.1",
+    "react-datepicker": "^9.1.0",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.3.0",
+    "tailwindcss-animate": "^1.0.7",
+    "xlsx": "^0.18.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^20.12.12",
+    "@types/nodemailer": "^8.0.1",
+    "@types/react": "^18.3.2",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.5.0",
+    "dotenv": "^17.4.2",
+    "drizzle-kit": "^0.31.10",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "tsx": "^4.22.4",
+    "typescript": "^5.4.5"
+  }
+}
+</file>
+
 <file path="lib/schema.ts">
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 import { randomUUID } from "crypto";
@@ -23596,6 +25765,7 @@ export const emailTemplates = sqliteTable("email_templates", {
   companyId: text("company_id")
     .notNull()
     .references(() => companies.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -23702,6 +25872,69 @@ export const savedAnalyses = sqliteTable("saved_analyses", {
     .$defaultFn(() => new Date()),
 });
 
+// ── Comunicazioni (invii programmati a un'analisi con un template) ──
+export const comunicazioni = sqliteTable("comunicazioni", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => randomUUID()),
+  titolo: text("titolo").notNull(),
+  templateId: text("template_id").references(() => emailTemplates.id, {
+    onDelete: "set null",
+  }),
+  analisiId: text("analisi_id").references(() => savedAnalyses.id, {
+    onDelete: "set null",
+  }),
+  dataInvio: integer("data_invio", { mode: "timestamp" }).notNull(),
+  stato: text("stato", {
+    enum: [
+      "programmata",
+      "in_elaborazione",
+      "inviata",
+      "inviata_parziale",
+      "fallita",
+      "annullata",
+    ],
+  })
+    .notNull()
+    .default("programmata"),
+  lock: integer("lock", { mode: "boolean" }).notNull().default(false),
+  companyId: text("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
+// ── Batch di invio di una comunicazione (una riga per cliente) ──
+export const comunicazioniBatch = sqliteTable("comunicazioni_batch", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => randomUUID()),
+  comunicazioneId: text("comunicazione_id")
+    .notNull()
+    .references(() => comunicazioni.id, { onDelete: "cascade" }),
+  clientId: text("client_id")
+    .notNull()
+    .references(() => clients.id, { onDelete: "cascade" }),
+  stato: text("stato", { enum: ["pending", "sent", "failed"] })
+    .notNull()
+    .default("pending"),
+  tentativi: integer("tentativi").notNull().default(0),
+  errore: text("errore"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date())
+    .$onUpdateFn(() => new Date()),
+});
+
 // ── Tipi ──
 export type Company = typeof companies.$inferSelect;
 export type NewCompany = typeof companies.$inferInsert;
@@ -23729,6 +25962,10 @@ export type CronLog = typeof cronLog.$inferSelect;
 export type NewCronLog = typeof cronLog.$inferInsert;
 export type SavedAnalysis = typeof savedAnalyses.$inferSelect;
 export type NewSavedAnalysis = typeof savedAnalyses.$inferInsert;
+export type Comunicazione = typeof comunicazioni.$inferSelect;
+export type NewComunicazione = typeof comunicazioni.$inferInsert;
+export type ComunicazioneBatch = typeof comunicazioniBatch.$inferSelect;
+export type NewComunicazioneBatch = typeof comunicazioniBatch.$inferInsert;
 </file>
 
 </files>

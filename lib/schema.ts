@@ -197,6 +197,7 @@ export const emailTemplates = sqliteTable("email_templates", {
   companyId: text("company_id")
     .notNull()
     .references(() => companies.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
