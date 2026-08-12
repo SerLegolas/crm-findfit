@@ -10,6 +10,13 @@ import {
 } from "@hello-pangea/dnd";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import { isOverdue } from "@/lib/utils";
 import {
@@ -109,6 +116,12 @@ export default function TaskCalendarPage() {
   const [listFilter, setListFilter] = useState<"today" | "all">("all");
   const [isMobile, setIsMobile] = useState(false);
 
+  // Ruolo e utenti per il filtro "Assegnato a" (visibile solo agli admin)
+  const [currentUser, setCurrentUser] = useState<{ id: string; name: string; role: string } | null>(null);
+  const isAdmin = currentUser?.role === "admin";
+  const [usersList, setUsersList] = useState<{ id: string; name: string }[]>([]);
+  const [assignedTo, setAssignedTo] = useState<string>("all"); // "all" = tutti gli utenti
+
   // Chiave "YYYY-MM" del mese visualizzato
   const monthKey = useMemo(
     () =>
@@ -116,15 +129,28 @@ export default function TaskCalendarPage() {
     [viewDate]
   );
 
-  // Task del mese visualizzato (se già caricato in memoria)
-  const monthTasks = tasksByMonth.get(monthKey);
+  // Chiave cache: mese + filtro utente (per distinguere i dati caricati per ogni filtro)
+  const dataKey = useMemo(
+    () =>
+      assignedTo && assignedTo !== "all"
+        ? `${monthKey}:${assignedTo}`
+        : monthKey,
+    [monthKey, assignedTo]
+  );
+
+  // Task del mese visualizzato con il filtro corrente (se già caricati in memoria)
+  const monthTasks = tasksByMonth.get(dataKey);
 
   // Carica (e salva nella mappa) i task di un mese specifico
   const loadMonth = useCallback(
     async (key: string) => {
       setLoadingMonth(key);
       try {
-        const res = await fetch(`/api/tasks?month=${key}`);
+        // La chiave è "YYYY-MM" oppure "YYYY-MM:userId" (filtro Assegnato a)
+        const [monthPart, userIdPart] = key.split(":");
+        const params = new URLSearchParams({ month: monthPart });
+        if (userIdPart) params.set("userId", userIdPart);
+        const res = await fetch(`/api/tasks?${params}`);
         const data = await res.json();
         setTasksByMonth((prev) => {
           const next = new Map(prev);
@@ -144,12 +170,12 @@ export default function TaskCalendarPage() {
     [toast]
   );
 
-  // All'avvio e alla navigazione: carica il mese solo se non è già in memoria
+  // All'avvio, alla navigazione o al cambio filtro: carica solo se non è già in memoria
   useEffect(() => {
-    if (!tasksByMonth.has(monthKey)) {
-      loadMonth(monthKey);
+    if (!tasksByMonth.has(dataKey)) {
+      loadMonth(dataKey);
     }
-  }, [monthKey, tasksByMonth, loadMonth]);
+  }, [dataKey, tasksByMonth, loadMonth]);
 
   // Rileva schermi mobili (< 640px = breakpoint sm): su mobile si mostra sempre la lista
   useEffect(() => {
@@ -159,6 +185,35 @@ export default function TaskCalendarPage() {
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
   }, []);
+
+  // Ruolo utente: il filtro "Assegnato a" è visibile SOLO agli admin
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.user) {
+          setCurrentUser({
+            id: data.user.id,
+            name: data.user.name,
+            role: data.user.role,
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Elenco utenti dell'azienda per il dropdown del filtro (solo admin)
+  useEffect(() => {
+    if (!isAdmin) return;
+    fetch("/api/users/names")
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data?.data)) {
+          setUsersList(data.data.map((u: any) => ({ id: u.id, name: u.name })));
+        }
+      })
+      .catch(() => {});
+  }, [isAdmin]);
 
   // Vista effettiva: su mobile sempre "list" (il toggle è nascosto con hidden sm:flex)
   const effectiveViewMode = isMobile ? "list" : viewMode;
@@ -365,7 +420,7 @@ export default function TaskCalendarPage() {
       });
 
       if (!res.ok) {
-        loadMonth(monthKey);
+        loadMonth(dataKey);
         toast({
           title: "Errore",
           description: "Spostamento task fallito",
@@ -373,7 +428,7 @@ export default function TaskCalendarPage() {
         });
       }
     } catch {
-      loadMonth(monthKey);
+      loadMonth(dataKey);
       toast({
         title: "Errore",
         description: "Spostamento task fallito",
@@ -450,6 +505,26 @@ export default function TaskCalendarPage() {
           </Button>
         </div>
         <h3 className="text-lg font-semibold capitalize">{monthLabel}</h3>
+
+        {/* Filtro "Assegnato a" — visibile SOLO agli admin */}
+        {isAdmin && (
+          <div className="ml-auto flex items-center gap-2">
+            <Select value={assignedTo} onValueChange={setAssignedTo}>
+              <SelectTrigger className="h-8 w-52 gap-2">
+                <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <SelectValue placeholder="Assegnato a" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tutti</SelectItem>
+                {usersList.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
 
       {effectiveViewMode === "calendar" ? (
@@ -465,7 +540,7 @@ export default function TaskCalendarPage() {
             <CardContent>
               {!monthTasks ? (
                 <div className="flex h-48 items-center justify-center">
-                  {loadingMonth === monthKey ? (
+                  {loadingMonth === dataKey ? (
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                   ) : (
                     <div className="text-center text-sm text-muted-foreground">
@@ -474,7 +549,7 @@ export default function TaskCalendarPage() {
                         variant="outline"
                         size="sm"
                         className="mt-2"
-                        onClick={() => loadMonth(monthKey)}
+                        onClick={() => loadMonth(dataKey)}
                       >
                         Riprova
                       </Button>
@@ -701,7 +776,7 @@ export default function TaskCalendarPage() {
           <CardContent className="p-0">
             {!monthTasks ? (
               <div className="flex items-center justify-center py-12">
-                {loadingMonth === monthKey ? (
+                {loadingMonth === dataKey ? (
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 ) : (
                   <div className="text-center text-sm text-muted-foreground">
@@ -710,7 +785,7 @@ export default function TaskCalendarPage() {
                       variant="outline"
                       size="sm"
                       className="mt-2"
-                      onClick={() => loadMonth(monthKey)}
+                      onClick={() => loadMonth(dataKey)}
                     >
                       Riprova
                     </Button>

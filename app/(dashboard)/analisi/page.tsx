@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,6 +64,7 @@ import {
   Square,
   ChevronDown,
   ChevronUp,
+  Lock,
 } from "lucide-react";
 
 interface Client {
@@ -115,8 +116,38 @@ export default function AnalisiPage() {
   const [saving, setSaving] = useState(false);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
 
-  const fetchClients = useCallback(async () => {
+  // Utente corrente e ruolo: determinano il comportamento del filtro "Assegnato a"
+  const [currentUser, setCurrentUser] = useState<{ id: string; name: string; role: string } | null>(null);
+  const isAdmin = currentUser?.role === "admin";
+
+  // Previene setState dopo lo smontaggio del componente
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  // Contatore richieste in sospeso per un loading "atomico":
+  // loading resta true finché TUTTE le richieste iniziali non sono complete.
+  const pendingRequests = useRef(0);
+  const beginRequest = useCallback(() => {
+    pendingRequests.current += 1;
     setLoading(true);
+  }, []);
+  const endRequest = useCallback(() => {
+    pendingRequests.current = Math.max(0, pendingRequests.current - 1);
+    if (pendingRequests.current === 0 && isMounted.current) {
+      setLoading(false);
+    }
+  }, []);
+
+  // fetchClients NON tocca loading quando è in modalità "silent" (cambi filtro),
+  // così la lista non lampeggia: il loading è gestito dal contatore solo nel
+  // caricamento iniziale (Promise.all).
+  const fetchClients = useCallback(async (silent = false) => {
+    if (!silent) beginRequest();
     try {
       const params = new URLSearchParams({
         limit: "500",
@@ -130,56 +161,115 @@ export default function AnalisiPage() {
 
       const res = await fetch(`/api/clients?${params}`);
       const data = await res.json();
+      if (!isMounted.current) return;
       setClients(Array.isArray(data?.data) ? data.data : []);
       setTotal(data?.total ?? 0);
     } catch {
+      if (!isMounted.current) return;
       setClients([]);
       setTotal(0);
     } finally {
-      setLoading(false);
+      if (!silent) endRequest();
     }
-  }, [filters]);
+  }, [filters, beginRequest, endRequest]);
 
-  useEffect(() => {
-    fetchClients();
-  }, [fetchClients]);
-
-  useEffect(() => {
-    // Mappa utenti (colonna "Assegnato a" e filtro).
-    // Prova prima /api/users/names (aperto a tutti); fallback /api/users (admin).
-    const loadUsers = async (url: string) => {
-      try {
-        const res = await fetch(url);
-        if (!res.ok) return false;
-        const json = await res.json();
-        if (json.data) {
-          const map: Record<string, string> = {};
-          json.data.forEach((u: any) => {
-            map[u.id] = u.name;
-          });
-          setUsersMap(map);
-          return true;
+  // Mappa utenti (colonna "Assegnato a" e filtro).
+  // Prova prima /api/users/names (aperto a tutti); fallback /api/users (admin).
+  const fetchUsers = useCallback(async () => {
+    beginRequest();
+    try {
+      const loadUsers = async (url: string) => {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) return false;
+          const json = await res.json();
+          if (json.data) {
+            const map: Record<string, string> = {};
+            json.data.forEach((u: any) => {
+              map[u.id] = u.name;
+            });
+            if (isMounted.current) setUsersMap(map);
+            return true;
+          }
+          return false;
+        } catch {
+          return false;
         }
-        return false;
-      } catch {
-        return false;
-      }
-    };
-    (async () => {
+      };
       const ok = await loadUsers("/api/users/names");
       if (!ok) await loadUsers("/api/users");
-    })();
+    } finally {
+      endRequest();
+    }
+  }, [beginRequest, endRequest]);
+
+  // Opzioni categoria per il multiselect
+  const fetchCategories = useCallback(async () => {
+    beginRequest();
+    try {
+      const res = await fetch("/api/clients/categories");
+      const data = await res.json();
+      if (Array.isArray(data?.categories) && isMounted.current) {
+        setCategories(data.categories);
+      }
+    } catch {
+      // silenzioso
+    } finally {
+      endRequest();
+    }
+  }, [beginRequest, endRequest]);
+
+  // Caricamento iniziale: clienti, utenti e categorie in parallelo.
+  // Il loading è gestito dal contatore pendingRequests (false solo a 0).
+  const loadInitialData = useCallback(async () => {
+    await Promise.all([fetchClients(), fetchUsers(), fetchCategories()]);
+  }, [fetchClients, fetchUsers, fetchCategories]);
+
+  // Mount: carica tutto una sola volta (clienti, utenti, categorie).
+  // I cambi filtro sono gestiti dall'effect su fetchClients qui sotto.
+  useEffect(() => {
+    loadInitialData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Refetch clienti quando i filtri cambiano.
+  // Il primo fetch è già eseguito da loadInitialData → viene saltato.
+  // silent=true: non tocca loading, così la lista non lampeggia sui cambi filtro.
+  const skipFirstClientsFetch = useRef(true);
   useEffect(() => {
-    // Opzioni categoria per il multiselect
-    fetch("/api/clients/categories")
+    if (skipFirstClientsFetch.current) {
+      skipFirstClientsFetch.current = false;
+      return;
+    }
+    fetchClients(true);
+  }, [fetchClients]);
+
+  // Recupera l'utente corrente per gestire il filtro "Assegnato a" in base al ruolo
+  useEffect(() => {
+    fetch("/api/auth/me")
       .then((r) => r.json())
       .then((data) => {
-        if (Array.isArray(data?.categories)) setCategories(data.categories);
+        if (data?.user) {
+          setCurrentUser({
+            id: data.user.id,
+            name: data.user.name,
+            role: data.user.role,
+          });
+        }
       })
       .catch(() => {});
   }, []);
+
+  // Gli utenti "user" vedono SOLO i propri clienti: forza il filtro "Assegnato a"
+  // sul proprio ID (il server filtra comunque per company + userId).
+  useEffect(() => {
+    if (currentUser && currentUser.role !== "admin") {
+      setFilters((f) => ({
+        ...f,
+        userId: [currentUser.id],
+      }));
+    }
+  }, [currentUser]);
 
   // ── Selezione ──
   const toggleSelect = (id: string) => {
@@ -416,67 +506,89 @@ export default function AnalisiPage() {
                   )}
                 </div>
                 <div className="w-full">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="w-full justify-between gap-2"
-                      >
-                        <span className="min-w-0 truncate text-sm text-muted-foreground">
-                          Assegnato a...
-                        </span>
-                        <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="max-h-64 w-56 overflow-y-auto">
-                      <DropdownMenuLabel>Assegnato a</DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuCheckboxItem
-                        checked={filters.userId.includes("__none__")}
-                        onCheckedChange={(checked) =>
-                          setFilters((prev) => ({
-                            ...prev,
-                            userId: checked
-                              ? [...prev.userId, "__none__"]
-                              : prev.userId.filter((x) => x !== "__none__"),
-                          }))
-                        }
-                      >
-                        Non assegnato
-                      </DropdownMenuCheckboxItem>
-                      <DropdownMenuSeparator />
-                      {Object.keys(usersMap).length === 0 ? (
-                        <DropdownMenuLabel className="font-normal text-muted-foreground">
-                          Nessun utente disponibile
-                        </DropdownMenuLabel>
-                      ) : (
-                        Object.entries(usersMap).map(([id, name]) => (
+                  {currentUser === null ? (
+                    // In attesa del caricamento del profilo (evita flash del dropdown)
+                    <div className="flex h-10 items-center gap-2 rounded-md border border-dashed bg-muted/40 px-3 py-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">Caricamento profilo...</span>
+                    </div>
+                  ) : isAdmin ? (
+                    // Admin: dropdown completo con tutti gli utenti e "Non assegnato"
+                    <>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full justify-between gap-2"
+                          >
+                            <span className="min-w-0 truncate text-sm text-muted-foreground">
+                              Assegnato a...
+                            </span>
+                            <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="max-h-64 w-56 overflow-y-auto">
+                          <DropdownMenuLabel>Assegnato a</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
                           <DropdownMenuCheckboxItem
-                            key={id}
-                            checked={filters.userId.includes(id)}
+                            checked={filters.userId.includes("__none__")}
                             onCheckedChange={(checked) =>
                               setFilters((prev) => ({
                                 ...prev,
                                 userId: checked
-                                  ? [...prev.userId, id]
-                                  : prev.userId.filter((x) => x !== id),
+                                  ? [...prev.userId, "__none__"]
+                                  : prev.userId.filter((x) => x !== "__none__"),
                               }))
                             }
                           >
-                            {name}
+                            Non assegnato
                           </DropdownMenuCheckboxItem>
-                        ))
+                          <DropdownMenuSeparator />
+                          {Object.keys(usersMap).length === 0 ? (
+                            <DropdownMenuLabel className="font-normal text-muted-foreground">
+                              Nessun utente disponibile
+                            </DropdownMenuLabel>
+                          ) : (
+                            Object.entries(usersMap).map(([id, name]) => (
+                              <DropdownMenuCheckboxItem
+                                key={id}
+                                checked={filters.userId.includes(id)}
+                                onCheckedChange={(checked) =>
+                                  setFilters((prev) => ({
+                                    ...prev,
+                                    userId: checked
+                                      ? [...prev.userId, id]
+                                      : prev.userId.filter((x) => x !== id),
+                                  }))
+                                }
+                              >
+                                {name}
+                              </DropdownMenuCheckboxItem>
+                            ))
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      {filters.userId.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {filters.userId.map((id) => (
+                            <Badge key={id} variant="secondary" className="text-xs">
+                              {id === "__none__" ? "Non assegnato" : usersMap[id] || id}
+                            </Badge>
+                          ))}
+                        </div>
                       )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                  {filters.userId.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {filters.userId.map((id) => (
-                        <Badge key={id} variant="secondary" className="text-xs">
-                          {id === "__none__" ? "Non assegnato" : usersMap[id] || id}
-                        </Badge>
-                      ))}
+                    </>
+                  ) : (
+                    // Utente "user": filtro bloccato sul proprio nome, con lucchetto
+                    <div className="flex items-center gap-2 rounded-md border border-dashed bg-muted/40 px-3 py-2">
+                      <Lock className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">
+                        Assegnato a:{" "}
+                        <strong className="text-foreground">
+                          {usersMap[currentUser?.id || ""] || currentUser?.name || "..."}
+                        </strong>
+                      </span>
                     </div>
                   )}
                 </div>

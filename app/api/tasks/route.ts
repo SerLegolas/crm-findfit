@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status") || "";
     const clientId = searchParams.get("clientId") || "";
+    const userId = searchParams.get("userId") || "";
     const from = searchParams.get("from") || "";
     const to = searchParams.get("to") || "";
     const month = searchParams.get("month") || "";
@@ -46,6 +47,12 @@ export async function GET(request: NextRequest) {
 
     if (clientId) {
       conditions.push(eq(tasks.clientId, clientId));
+    }
+
+    // Filtro "Assegnato a": task dei clienti assegnati a un utente specifico
+    // (usato dal filtro admin nella pagina Calendario Task)
+    if (userId) {
+      conditions.push(eq(clients.userId, userId));
     }
 
     // Filtra per user_id se non admin: vede i non assegnati + i propri
