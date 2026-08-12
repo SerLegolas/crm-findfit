@@ -90,6 +90,9 @@ export default function ClientiPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [categoriaFilter, setCategoriaFilter] = useState("all");
   const [consentFilter, setConsentFilter] = useState("all"); // all | true | false
+  const [assignedToFilter, setAssignedToFilter] = useState("all"); // all | __none__ | userId
+  const [usersList, setUsersList] = useState<{ id: string; name: string }[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [sort, setSort] = useState("createdAt");
   const [order, setOrder] = useState("desc");
   const [loading, setLoading] = useState(true);
@@ -124,6 +127,7 @@ export default function ClientiPage() {
       if (categoriaFilter && categoriaFilter !== "all")
         params.set("categoria", categoriaFilter);
       if (consentFilter !== "all") params.set("consent", consentFilter);
+      if (assignedToFilter !== "all") params.set("userId", assignedToFilter);
 
       const res = await fetch(`/api/clients?${params}`);
       const data = await res.json();
@@ -138,13 +142,16 @@ export default function ClientiPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, statusFilter, categoriaFilter, consentFilter, sort, order, toast]);
+  }, [page, limit, search, statusFilter, categoriaFilter, consentFilter, assignedToFilter, sort, order, toast]);
 
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => r.json())
       .then((json) => {
-        if (json.user) setCurrentUserId(json.user.id);
+        if (json.user) {
+          setCurrentUserId(json.user.id);
+          setIsAdmin(json.user.role === "admin");
+        }
       })
       .catch(() => {});
 
@@ -156,6 +163,13 @@ export default function ClientiPage() {
           json.data.forEach((u: any) => { map[u.id] = u.name; });
           setUsersMap(map);
         }
+      })
+      .catch(() => {});
+
+    fetch("/api/users/names")
+      .then((r) => r.json())
+      .then((json) => {
+        if (Array.isArray(json.data)) setUsersList(json.data);
       })
       .catch(() => {});
 
@@ -360,6 +374,28 @@ export default function ClientiPage() {
             <SelectItem value="false">Solo non consenzienti</SelectItem>
           </SelectContent>
         </Select>
+        {isAdmin && (
+          <Select
+            value={assignedToFilter}
+            onValueChange={(v) => {
+              setAssignedToFilter(v);
+              setPage(1);
+            }}
+          >
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue placeholder="Assegnato a" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tutti</SelectItem>
+              <SelectItem value="__none__">Non assegnato</SelectItem>
+              {usersList.map((u) => (
+                <SelectItem key={u.id} value={u.id}>
+                  {u.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {/* Table */}
@@ -382,7 +418,15 @@ export default function ClientiPage() {
                 </div>
               </TableHead>
               <TableHead className="hidden sm:table-cell">Contatti</TableHead>
-              <TableHead className="hidden sm:table-cell">Assegnato a</TableHead>
+              <TableHead
+                className="hidden sm:table-cell cursor-pointer"
+                onClick={() => toggleSort("userId")}
+              >
+                <div className="flex items-center gap-1">
+                  Assegnato a
+                  <ArrowUpDown className="h-3 w-3" />
+                </div>
+              </TableHead>
               <TableHead className="hidden sm:table-cell">Consenso</TableHead>
               <TableHead>Azioni</TableHead>
             </TableRow>

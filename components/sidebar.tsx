@@ -212,6 +212,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               </button>
               {strumentiOpen && (
                 <div className="mt-1 space-y-1">
+                  {(!enabledFeatures || enabledFeatures.clienti === true) && (
                   <Link
                     href="/analisi"
                     onClick={onClose}
@@ -225,6 +226,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     <BarChart3 className="h-5 w-5 shrink-0" />
                     <span>Nuova Analisi</span>
                   </Link>
+                  )}
+                  {(!enabledFeatures || enabledFeatures.clienti === true) && (
                   <Link
                     href="/analisi-salvate"
                     onClick={onClose}
@@ -238,6 +241,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     <History className="h-5 w-5 shrink-0" />
                     <span>Analisi Salvate</span>
                   </Link>
+                  )}
+                  {(!enabledFeatures || enabledFeatures.email === true) && (
                   <Link
                     href="/template-nuovo"
                     onClick={onClose}
@@ -251,6 +256,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     <FileText className="h-5 w-5 shrink-0" />
                     <span>Nuovo Template</span>
                   </Link>
+                  )}
+                  {(!enabledFeatures || enabledFeatures.email === true) && (
                   <Link
                     href="/template-salvati"
                     onClick={onClose}
@@ -264,6 +271,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     <FileText className="h-5 w-5 shrink-0" />
                     <span>Template Salvati</span>
                   </Link>
+                  )}
+                  {(!enabledFeatures || enabledFeatures.email === true) && (
                   <Link
                     href="/comunicazioni"
                     onClick={onClose}
@@ -277,6 +286,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     <MailIcon className="h-5 w-5 shrink-0" />
                     <span>Comunicazioni</span>
                   </Link>
+                  )}
                 </div>
               )}
             </div>

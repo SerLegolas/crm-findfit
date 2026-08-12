@@ -4,11 +4,25 @@ import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
-import dayjs from "dayjs";
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "fallback-secret-change-in-production"
-);
+/** Legge il secret JWT da env; in produzione è obbligatorio (niente fallback hardcoded). */
+function getJwtSecret(name: "JWT_SECRET" | "SUPER_JWT_SECRET"): Uint8Array {
+  const secret = process.env[name];
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(`${name} non configurato in produzione`);
+    }
+    // In sviluppo: valore stabile ma NON sicuro (solo per il server locale)
+    return new TextEncoder().encode(
+      name === "JWT_SECRET"
+        ? "dev-insecure-jwt-secret"
+        : "dev-insecure-super-jwt-secret"
+    );
+  }
+  return new TextEncoder().encode(secret);
+}
+
+const JWT_SECRET = getJwtSecret("JWT_SECRET");
 
 const COOKIE_NAME = "session";
 
@@ -143,17 +157,14 @@ export const DEFAULT_COMPANY_ID = "default-company-id";
 
 // ── Superuser ──
 
-const SUPER_JWT_SECRET = new TextEncoder().encode(
-  process.env.SUPER_JWT_SECRET || "super-secret-change-in-production"
-);
+const SUPER_JWT_SECRET = getJwtSecret("SUPER_JWT_SECRET");
 
 const SUPER_COOKIE_NAME = "super_session";
 
 export const SUPERUSER_USERNAME = "ADMIN";
 
-export function generateSuperPassword(): string {
-  return `%${dayjs().format("DDMMYYYY")}%`;
-}
+/** Password superuser: letta SOLO da env (obbligatoria; nessuna derivazione prevedibile). */
+export const SUPER_PASSWORD = process.env.SUPER_PASSWORD;
 
 export async function createSuperSession(): Promise<string> {
   const token = await new SignJWT({ role: "superadmin" })

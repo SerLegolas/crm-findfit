@@ -35,7 +35,6 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
-    "dayjs": "^1.11.21",
     "drizzle-orm": "^0.45.2",
     "imapflow": "^1.4.0",
     "jose": "^6.2.3",

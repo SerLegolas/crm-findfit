@@ -51,7 +51,12 @@ export async function GET(request: NextRequest) {
     const emails = await db
       .select()
       .from(emailLog)
-      .where(eq(emailLog.clientId, clientId))
+      .where(
+        and(
+          eq(emailLog.clientId, clientId),
+          eq(emailLog.companyId, authUser.companyId)
+        )
+      )
       .orderBy(desc(emailLog.sentAt));
 
     return NextResponse.json(emails);
@@ -84,11 +89,16 @@ export async function POST(request: NextRequest) {
 
     const parsed = emailSchema.parse({ subject, body: emailBody, sender });
 
-    // Ottieni email del cliente
+    // Ottieni email del cliente (scoped per company)
     const [client] = await db
       .select()
       .from(clients)
-      .where(eq(clients.id, clientId))
+      .where(
+        and(
+          eq(clients.id, clientId),
+          eq(clients.companyId, authUser.companyId)
+        )
+      )
       .limit(1);
 
     if (!client) {

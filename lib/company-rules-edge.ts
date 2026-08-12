@@ -27,6 +27,12 @@ export const ROUTE_FEATURE_MAP: Record<string, string> = {
   "/task": "task",
   "/note": "note",
   "/impostazioni": "impostazioni",
+  "/comunicazioni": "email",
+  "/template-nuovo": "email",
+  "/template-salvati": "email",
+  "/template-anteprima": "email",
+  "/analisi": "clienti",
+  "/analisi-salvate": "clienti",
 };
 
 /**

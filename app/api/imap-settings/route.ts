@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { imapSettings } from "@/lib/schema";
 import { encrypt, decrypt } from "@/lib/crypto";
 import { eq, and } from "drizzle-orm";
-import { getAuthUser } from "@/lib/auth";
+import { getAuthUser, requireAdmin } from "@/lib/auth";
 import { checkAdminFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
 
 export const runtime = "nodejs";
@@ -12,10 +12,7 @@ export const dynamic = "force-dynamic";
 /** GET: recupera le impostazioni IMAP/SMTP (decriptate) per la company corrente */
 export async function GET() {
   try {
-    const authUser = await getAuthUser();
-    if (!authUser) {
-      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
-    }
+    const authUser = await requireAdmin();
 
     // Verifica feature admin
     try {
@@ -53,6 +50,12 @@ export async function GET() {
 
     return NextResponse.json({ settings });
   } catch (error: any) {
+    if (error?.message === "Unauthorized") {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+    if (error?.message === "Forbidden") {
+      return NextResponse.json({ error: "Non autorizzato" }, { status: 403 });
+    }
     console.error("Errore lettura impostazioni IMAP:", error);
     return NextResponse.json(
       { error: `Errore: ${error.message || "Errore sconosciuto"}` },
@@ -64,10 +67,7 @@ export async function GET() {
 /** PUT: salva (upsert) le impostazioni IMAP/SMTP (criptate) per la company corrente */
 export async function PUT(request: NextRequest) {
   try {
-    const authUser = await getAuthUser();
-    if (!authUser) {
-      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
-    }
+    const authUser = await requireAdmin();
 
     const body = await request.json();
     const { imapHost, imapPort, user, password, filterFrom, filterSubject, smtpHost, smtpPort, smtpSecure } = body;
@@ -115,6 +115,12 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
+    if (error?.message === "Unauthorized") {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+    if (error?.message === "Forbidden") {
+      return NextResponse.json({ error: "Non autorizzato" }, { status: 403 });
+    }
     console.error("Errore salvataggio impostazioni IMAP:", error);
     return NextResponse.json(
       { error: `Errore: ${error.message || "Errore sconosciuto"}` },

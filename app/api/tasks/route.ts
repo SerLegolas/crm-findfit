@@ -152,19 +152,37 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const parsed = taskSchema.parse(body);
 
-    // Auto-assign: se utente non-admin e cliente senza userId, assegna a lui
-    if (authUser.role !== "admin" && body.clientId) {
+    // Validazione: il cliente deve appartenere alla company dell'utente (anti-IDOR)
+    if (body.clientId) {
       const [client] = await db
         .select({ userId: clients.userId })
         .from(clients)
-        .where(eq(clients.id, body.clientId))
+        .where(
+          and(
+            eq(clients.id, body.clientId),
+            eq(clients.companyId, authUser.companyId)
+          )
+        )
         .limit(1);
 
-      if (client && !client.userId) {
+      if (!client) {
+        return NextResponse.json(
+          { error: "Cliente non trovato" },
+          { status: 404 }
+        );
+      }
+
+      // Auto-assign: se utente non-admin e cliente senza userId, assegna a lui
+      if (authUser.role !== "admin" && !client.userId) {
         await db
           .update(clients)
           .set({ userId: authUser.id, updatedAt: new Date() })
-          .where(eq(clients.id, body.clientId));
+          .where(
+            and(
+              eq(clients.id, body.clientId),
+              eq(clients.companyId, authUser.companyId)
+            )
+          );
       }
     }
 

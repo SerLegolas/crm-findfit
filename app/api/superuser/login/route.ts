@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SUPERUSER_USERNAME, generateSuperPassword, createSuperSession } from "@/lib/auth";
+import { timingSafeEqual } from "crypto";
+import { SUPERUSER_USERNAME, SUPER_PASSWORD, createSuperSession } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,8 +20,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const expectedPassword = generateSuperPassword();
-    if (password !== expectedPassword) {
+    // Verifica a tempo costante: SUPER_PASSWORD deve essere configurata in env
+    if (
+      !SUPER_PASSWORD ||
+      typeof password !== "string" ||
+      password.length !== SUPER_PASSWORD.length ||
+      !timingSafeEqual(Buffer.from(password), Buffer.from(SUPER_PASSWORD))
+    ) {
       return NextResponse.json(
         { error: "Credenziali non valide" },
         { status: 401 }
