@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { savedAnalyses, clients, users } from "@/lib/schema";
-import { eq, or, desc, and, sql, leftJoin, type SQL } from "drizzle-orm";
+import { eq, or, desc, and, sql, type SQL } from "drizzle-orm";
 import { getAuthUser } from "@/lib/auth";
 import { buildClientWhere } from "@/lib/client-filters";
 import { checkFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
