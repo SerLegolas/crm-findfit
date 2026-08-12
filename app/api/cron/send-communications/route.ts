@@ -15,6 +15,7 @@ import { eq, and, inArray, lte, sql } from "drizzle-orm";
 import { decrypt } from "@/lib/crypto";
 import { randomUUID } from "crypto";
 import { trackingPixelUrl } from "@/lib/tracking";
+import { optOutBlock } from "@/lib/opt-out";
 import nodemailer from "nodemailer";
 import { buildClientWhere } from "@/lib/client-filters";
 import type { AuthUser } from "@/lib/auth";
@@ -273,6 +274,22 @@ export async function GET(request: NextRequest) {
           await Promise.all(
             batch.map(async (row) => {
               const client = clientById.get(row.clientId);
+              const tentativi = (row.tentativi ?? 0) + 1;
+
+              // Opt-out: cliente non consenziente → salta l'invio, nessun email_log né nota
+              if (client && client.emailConsent === false) {
+                await db
+                  .update(comunicazioniBatch)
+                  .set({
+                    stato: "failed",
+                    tentativi,
+                    errore: "Opt-out: cliente non consenziente",
+                  })
+                  .where(eq(comunicazioniBatch.id, row.id));
+                failed++;
+                return;
+              }
+
               const today = new Date().toLocaleDateString("it-IT", {
                 day: "numeric",
                 month: "long",
@@ -294,6 +311,9 @@ export async function GET(request: NextRequest) {
   <img src="${template.footerImageUrl}" alt="" style="max-width:100%;height:auto" />
 </div>`;
               }
+
+              // Link opt-out (prima del footer azienda)
+              bodyHtml += optOutBlock(client?.id || row.clientId);
 
               if (companyRow?.footerAttivo && companyRow.denominazione) {
                 const parts = [
@@ -348,7 +368,6 @@ ${parts.join("<br />")}
                 errore = err?.message || "Errore invio";
               }
 
-              const tentativi = (row.tentativi ?? 0) + 1;
               await db
                 .update(comunicazioniBatch)
                 .set({ stato: rowStato, tentativi, errore })

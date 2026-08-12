@@ -12,6 +12,7 @@ import { emailSchema } from "@/types";
 import { eq, and, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { trackingPixelUrl } from "@/lib/tracking";
+import { optOutBlock } from "@/lib/opt-out";
 import { decrypt } from "@/lib/crypto";
 import nodemailer from "nodemailer";
 import { checkFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
@@ -104,6 +105,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Controllo consenso email (opt-out)
+    if (client.emailConsent === false) {
+      return NextResponse.json(
+        { error: "Cliente non consenziente" },
+        { status: 400 }
+      );
+    }
+
     // Sostituisci placeholder (@name, @company, @oggetto, @data)
     const today = new Date().toLocaleDateString("it-IT", {
       day: "numeric",
@@ -142,6 +151,9 @@ export async function POST(request: NextRequest) {
   <img src="${templateFooterImageUrl}" alt="" style="max-width:100%;height:auto" />
 </div>`;
     }
+
+    // Link opt-out (prima del footer azienda)
+    resolvedBody += optOutBlock(client.id);
 
     // Footer dati azienda
     const [companyRow] = await db

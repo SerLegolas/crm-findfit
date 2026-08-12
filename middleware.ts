@@ -102,6 +102,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // L'endpoint di opt-out email è PUBBLICO: la sicurezza è garantita dal token
+  // HMAC presente nell'URL (nessun cookie di sessione richiesto).
+  if (pathname === "/api/email/opt-out") {
+    return NextResponse.next();
+  }
+
   // Verifica se la rotta è protetta
   const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
   const isProtectedApi = protectedApiPaths.some((p) => pathname.startsWith(p));

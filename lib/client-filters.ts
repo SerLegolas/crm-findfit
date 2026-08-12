@@ -66,6 +66,15 @@ export function buildClientWhere(
     }
   }
 
+  // ── Filtro Consenso email (opt-out) ──
+  // "true" → solo consenzienti, "false" → solo non consenzienti
+  const consent = searchParams.get("consent") || "";
+  if (consent === "true") {
+    conditions.push(eq(clients.emailConsent, true));
+  } else if (consent === "false") {
+    conditions.push(eq(clients.emailConsent, false));
+  }
+
   // ── Filtri Task (EXISTS) ──
   const hasTask = searchParams.get("hasTask");
   const taskStatus = searchParams.get("taskStatus") || "";

@@ -11,6 +11,7 @@ import { eq, and, inArray, or, sql } from "drizzle-orm";
 import { decrypt } from "@/lib/crypto";
 import { randomUUID } from "crypto";
 import { trackingPixelUrl } from "@/lib/tracking";
+import { optOutBlock } from "@/lib/opt-out";
 import nodemailer from "nodemailer";
 import { getAuthUser } from "@/lib/auth";
 import { checkFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
@@ -132,6 +133,7 @@ export async function POST(request: NextRequest) {
       async start(controller) {
         let sent = 0;
         let failed = 0;
+        let skipped = 0;
         let processed = 0;
         const total = targetClients.length;
 
@@ -141,6 +143,13 @@ export async function POST(request: NextRequest) {
 
             await Promise.all(
               batch.map(async (client) => {
+                // Opt-out: salta i clienti non consenzienti (nessun email_log)
+                if (client.emailConsent === false) {
+                  skipped++;
+                  processed++;
+                  return;
+                }
+
                 const today = new Date().toLocaleDateString("it-IT", {
                   day: "numeric",
                   month: "long",
@@ -162,6 +171,9 @@ export async function POST(request: NextRequest) {
   <img src="${template.footerImageUrl}" alt="" style="max-width:100%;height:auto" />
 </div>`;
                 }
+
+                // Link opt-out (prima del footer azienda)
+                bodyHtml += optOutBlock(client.id);
 
                 if (companyRow?.footerAttivo && companyRow.denominazione) {
                   const parts = [
@@ -229,14 +241,14 @@ ${parts.join("<br />")}
 
             controller.enqueue(
               encoder.encode(
-                JSON.stringify({ type: "progress", processed, sent, failed, total }) + "\n"
+                JSON.stringify({ type: "progress", processed, sent, failed, skipped, total }) + "\n"
               )
             );
           }
 
           controller.enqueue(
             encoder.encode(
-              JSON.stringify({ type: "done", processed, sent, failed, total }) + "\n"
+              JSON.stringify({ type: "done", processed, sent, failed, skipped, total }) + "\n"
             )
           );
           controller.close();

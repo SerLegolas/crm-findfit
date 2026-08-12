@@ -98,6 +98,11 @@ export async function PATCH(
     }
     updateData.updatedAt = new Date();
 
+    // Consenso email (booleano): gestito separatamente per evitare il "|| null"
+    if (body.emailConsent !== undefined) {
+      updateData.emailConsent = !!body.emailConsent;
+    }
+
     // Auto-assign: se utente non-admin e cliente senza userId, assegna a lui
     const authUser = await getAuthUser();
     if (authUser && authUser.role !== "admin" && !currentClient.userId) {

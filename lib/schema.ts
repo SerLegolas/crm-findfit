@@ -55,6 +55,9 @@ export const clients = sqliteTable("clients", {
     .default("lead"),
   categoria: text("categoria"),
   notes: text("notes"),
+  emailConsent: integer("email_consent", { mode: "boolean" })
+    .notNull()
+    .default(true),
   userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
   companyId: text("company_id")
     .notNull()

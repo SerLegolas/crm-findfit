@@ -95,6 +95,7 @@ interface Client {
   status: ClientStatus;
   categoria: string | null;
   notes: string | null;
+  emailConsent: boolean;
   userId: string | null;
   createdAt: number;
   updatedAt: number;
@@ -354,6 +355,32 @@ export default function ClientDetailPage() {
       toast({ title: "Cliente aggiornato", variant: "success" as any });
       fetchClient();
     } catch {
+      toast({ title: "Errore", description: "Aggiornamento fallito", variant: "destructive" });
+    }
+  };
+
+  // ── Toggle consenso email (opt-out) ──
+  const handleEmailConsentChange = async (value: boolean) => {
+    if (!client) return;
+    // Ottimistic update
+    setClient({ ...client, emailConsent: value });
+    try {
+      const res = await fetch(`/api/clients/${client.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emailConsent: value }),
+      });
+      if (!res.ok) throw new Error();
+      toast({
+        title: value ? "Consenso attivato" : "Consenso disattivato",
+        description: value
+          ? "Il cliente tornerà a ricevere le email."
+          : "Il cliente non riceverà più le email.",
+        variant: "success" as any,
+      });
+    } catch {
+      // Revert in caso di errore
+      setClient({ ...client, emailConsent: !value });
       toast({ title: "Errore", description: "Aggiornamento fallito", variant: "destructive" });
     }
   };
@@ -991,6 +1018,26 @@ export default function ClientDetailPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+              )}
+
+              {/* Consenso email (solo admin) */}
+              {currentUser?.role === "admin" && (
+                <div className="space-y-2 pt-4 border-t">
+                  <Label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={!!client.emailConsent}
+                      onChange={(e) => handleEmailConsentChange(e.target.checked)}
+                      className="h-4 w-4 rounded border-border"
+                    />
+                    Riceve email
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    {client.emailConsent
+                      ? "Il cliente riceve le email (consenziente)."
+                      : "Il cliente NON riceve le email (disiscritto)."}
+                  </p>
                 </div>
               )}
             </CardContent>

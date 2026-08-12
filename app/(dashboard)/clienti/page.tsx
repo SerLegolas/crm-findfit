@@ -74,6 +74,7 @@ interface Client {
   status: ClientStatus;
   categoria: string | null;
   notes: string | null;
+  emailConsent: boolean;
   userId: string | null;
   createdAt: number;
 }
@@ -88,6 +89,7 @@ export default function ClientiPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [categoriaFilter, setCategoriaFilter] = useState("all");
+  const [consentFilter, setConsentFilter] = useState("all"); // all | true | false
   const [sort, setSort] = useState("createdAt");
   const [order, setOrder] = useState("desc");
   const [loading, setLoading] = useState(true);
@@ -121,6 +123,7 @@ export default function ClientiPage() {
       if (statusFilter) params.set("status", statusFilter);
       if (categoriaFilter && categoriaFilter !== "all")
         params.set("categoria", categoriaFilter);
+      if (consentFilter !== "all") params.set("consent", consentFilter);
 
       const res = await fetch(`/api/clients?${params}`);
       const data = await res.json();
@@ -135,7 +138,7 @@ export default function ClientiPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, statusFilter, categoriaFilter, sort, order, toast]);
+  }, [page, limit, search, statusFilter, categoriaFilter, consentFilter, sort, order, toast]);
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -341,6 +344,22 @@ export default function ClientiPage() {
             ))}
           </SelectContent>
         </Select>
+        <Select
+          value={consentFilter}
+          onValueChange={(v) => {
+            setConsentFilter(v);
+            setPage(1);
+          }}
+        >
+          <SelectTrigger className="w-full sm:w-48">
+            <SelectValue placeholder="Consenso" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tutti</SelectItem>
+            <SelectItem value="true">Solo consenzienti</SelectItem>
+            <SelectItem value="false">Solo non consenzienti</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Table */}
@@ -364,19 +383,20 @@ export default function ClientiPage() {
               </TableHead>
               <TableHead className="hidden sm:table-cell">Contatti</TableHead>
               <TableHead className="hidden sm:table-cell">Assegnato a</TableHead>
+              <TableHead className="hidden sm:table-cell">Consenso</TableHead>
               <TableHead>Azioni</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8">
+                <TableCell colSpan={6} className="text-center py-8">
                   Caricamento...
                 </TableCell>
               </TableRow>
             ) : clients.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8">
+                <TableCell colSpan={6} className="text-center py-8">
                   Nessun cliente trovato
                 </TableCell>
               </TableRow>
@@ -411,6 +431,9 @@ export default function ClientiPage() {
                     {client.userId && usersMap[client.userId]
                       ? usersMap[client.userId]
                       : "—"}
+                  </TableCell>
+                  <TableCell className="hidden sm:table-cell">
+                    {client.emailConsent ? "✅" : "❌"}
                   </TableCell>
                   <TableCell>
                     <div
