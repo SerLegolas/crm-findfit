@@ -14,10 +14,13 @@ Moduli attivabili per azienda (modello opt-in: visibili solo se `true`).
 
 - dashboard: Dashboard
 - clienti: Clienti
-- kanban: Kanban (Trattative)
+- kanban: Kanban
 - task: Task
 - note: Note
 - email: Email
+- analisi: Analisi
+- template: Template
+- comunicazioni: Comunicazioni
 - impostazioni: Impostazioni
 
 ## Moduli Admin (featuresAdmin)

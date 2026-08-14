@@ -119,6 +119,9 @@ export async function POST(request: NextRequest) {
           task: true,
           note: true,
           email: true,
+          analisi: true,
+          template: true,
+          comunicazioni: true,
           impostazioni: true,
         },
         featuresAdmin: {

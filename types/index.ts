@@ -38,7 +38,7 @@ export const clientCategories = [
 
 export const clientSchema = z.object({
   name: z.string().min(1, "Il nome è obbligatorio"),
-  email: z.string().email("Email non valida").optional().or(z.literal("")),
+  email: z.string().min(1, "L'email è obbligatoria").email("Email non valida"),
   phone: z.string().optional().or(z.literal("")),
   company: z.string().optional().or(z.literal("")),
   status: z.enum(clientStatuses).default("lead"),

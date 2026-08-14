@@ -130,6 +130,7 @@ export default function AnalisiSalvatePage() {
   const buildExportUrl = (a: SavedAnalysis) => {
     const ids = Array.isArray(a.clientIds) ? a.clientIds : [];
     const params = new URLSearchParams();
+    params.set("filename", a.name);
     // Analisi dinamica (senza lista fissa): esporta i clienti correnti tramite i filtri salvati
     if (a.isDynamic || ids.length === 0) {
       const f = a.filters || {};

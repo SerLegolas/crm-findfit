@@ -16,7 +16,18 @@ import {
   Save,
   Check,
   X,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 
 const FEATURE_OPTIONS = [
   { key: "dashboard", label: "Dashboard" },
@@ -25,6 +36,9 @@ const FEATURE_OPTIONS = [
   { key: "task", label: "Task" },
   { key: "note", label: "Note" },
   { key: "email", label: "Email" },
+  { key: "analisi", label: "Analisi" },
+  { key: "template", label: "Template" },
+  { key: "comunicazioni", label: "Comunicazioni" },
   { key: "impostazioni", label: "Impostazioni" },
 ];
 
@@ -33,6 +47,23 @@ const ADMIN_FEATURE_OPTIONS = [
   { key: "configurazione_email", label: "Configurazione Email" },
   { key: "recupero_email", label: "Recupero Email" },
   { key: "facebook_post", label: "Facebook Post" },
+];
+
+// Etichette per i conteggi mostrati nel modal di eliminazione
+const COUNT_LABELS = [
+  { key: "users", label: "Utenti" },
+  { key: "clients", label: "Clienti" },
+  { key: "tasks", label: "Task" },
+  { key: "notes", label: "Note" },
+  { key: "emailLog", label: "Email Log" },
+  { key: "emailTemplates", label: "Template Email" },
+  { key: "imapSettings", label: "Impostazioni IMAP" },
+  { key: "companySettings", label: "Impostazioni Azienda" },
+  { key: "companyRules", label: "Regole Azienda" },
+  { key: "cronLog", label: "Log Cron" },
+  { key: "comunicazioni", label: "Comunicazioni" },
+  { key: "comunicazioniBatch", label: "Batch Comunicazioni" },
+  { key: "savedAnalyses", label: "Analisi Salvate" },
 ];
 
 interface AdminDetail {
@@ -76,6 +107,13 @@ export default function AdminDetailPage() {
   const [formMaxTasks, setFormMaxTasks] = useState("0");
   const [formFeatures, setFormFeatures] = useState<Record<string, boolean>>({});
   const [formFeaturesAdmin, setFormFeaturesAdmin] = useState<Record<string, boolean>>({});
+
+  // Eliminazione azienda
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteCounts, setDeleteCounts] = useState<Record<string, number> | null>(null);
+  const [countsLoading, setCountsLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`/api/superuser/admins/${params.id}`)
@@ -146,6 +184,59 @@ export default function AdminDetailPage() {
       }
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Apre il modal e carica i conteggi dei dati collegati
+  async function openDeleteDialog() {
+    if (!admin) return;
+    setDeleteOpen(true);
+    setDeleteCounts(null);
+    setDeleteError(null);
+    setCountsLoading(true);
+    try {
+      const res = await fetch(`/api/superuser/admins/${admin.id}/counts`);
+      if (res.status === 401) {
+        router.push("/superuser/login");
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.json();
+        setDeleteError(err.error || "Errore nel calcolo dei conteggi");
+        return;
+      }
+      const data = await res.json();
+      setDeleteCounts(data.counts);
+    } catch {
+      setDeleteError("Errore di rete nel calcolo dei conteggi");
+    } finally {
+      setCountsLoading(false);
+    }
+  }
+
+  // Conferma finale: elimina l'azienda e torna alla dashboard
+  async function handleConfirmDelete() {
+    if (!admin) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`/api/superuser/admins/${admin.id}`, {
+        method: "DELETE",
+      });
+      if (res.status === 401) {
+        router.push("/superuser/login");
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.json();
+        setDeleteError(err.error || "Errore nell'eliminazione dell'azienda");
+        setDeleting(false);
+        return;
+      }
+      router.push("/superuser/dashboard");
+    } catch {
+      setDeleteError("Errore di rete durante l'eliminazione");
+      setDeleting(false);
     }
   }
 
@@ -387,6 +478,85 @@ export default function AdminDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Eliminazione Azienda */}
+      <div className="flex justify-start pt-2">
+        <Button
+          variant="destructive"
+          onClick={openDeleteDialog}
+          className="gap-2"
+        >
+          <Trash2 className="h-4 w-4" />
+          Elimina Azienda
+        </Button>
+      </div>
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Elimina Azienda
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Stai per eliminare definitivamente l&apos;azienda{" "}
+              <strong>{admin.companyName}</strong>. Tutti i dati collegati
+              verranno cancellati in modo irreversibile. Questa azione non può
+              essere annullata.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="rounded-lg border bg-muted/40 p-4">
+            {countsLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Calcolo dati da eliminare...
+              </div>
+            ) : deleteCounts ? (
+              <div className="space-y-1.5">
+                {COUNT_LABELS.filter(
+                  (c) => (deleteCounts[c.key] ?? 0) > 0
+                ).map((c) => (
+                  <div
+                    key={c.key}
+                    className="flex items-center justify-between text-sm"
+                  >
+                    <span className="text-muted-foreground">{c.label}</span>
+                    <span className="font-medium">{deleteCounts[c.key]}</span>
+                  </div>
+                ))}
+                {Object.values(deleteCounts).every((n) => n === 0) && (
+                  <p className="text-sm text-muted-foreground">
+                    Nessun dato collegato trovato.
+                  </p>
+                )}
+              </div>
+            ) : null}
+          </div>
+
+          {deleteError && !countsLoading && (
+            <p className="text-sm text-destructive">{deleteError}</p>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Annulla</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmDelete}
+              disabled={deleting || countsLoading}
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  Eliminazione...
+                </>
+              ) : (
+                "Elimina Definitivamente"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

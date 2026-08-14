@@ -132,6 +132,13 @@ export function Sidebar({ open, onClose }: SidebarProps) {
     return enabledFeatures[featureKey] === true;
   });
 
+  // Dropdown "Strumenti": visibile se almeno una feature tra analisi, template e comunicazioni è attiva
+  const strumentiVisible =
+    !enabledFeatures ||
+    enabledFeatures.analisi === true ||
+    enabledFeatures.template === true ||
+    enabledFeatures.comunicazioni === true;
+
   const handleLogout = async () => {
     await fetch("/api/auth/me", { method: "DELETE" });
     window.location.href = "/login";
@@ -194,7 +201,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               );
             })}
 
-            {/* Strumenti dropdown — visibile a tutti */}
+            {/* Strumenti dropdown — visibile se almeno una feature tra analisi, template e comunicazioni è attiva */}
+            {strumentiVisible && (
             <div className="mt-1">
               <button
                 onClick={() => setStrumentiOpen(!strumentiOpen)}
@@ -212,7 +220,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               </button>
               {strumentiOpen && (
                 <div className="mt-1 space-y-1">
-                  {(!enabledFeatures || enabledFeatures.clienti === true) && (
+                  {(!enabledFeatures || enabledFeatures.analisi === true) && (
                   <Link
                     href="/analisi"
                     onClick={onClose}
@@ -227,7 +235,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     <span>Nuova Analisi</span>
                   </Link>
                   )}
-                  {(!enabledFeatures || enabledFeatures.clienti === true) && (
+                  {(!enabledFeatures || enabledFeatures.analisi === true) && (
                   <Link
                     href="/analisi-salvate"
                     onClick={onClose}
@@ -242,7 +250,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     <span>Analisi Salvate</span>
                   </Link>
                   )}
-                  {(!enabledFeatures || enabledFeatures.email === true) && (
+                  {(!enabledFeatures || enabledFeatures.template === true) && (
                   <Link
                     href="/template-nuovo"
                     onClick={onClose}
@@ -257,7 +265,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     <span>Nuovo Template</span>
                   </Link>
                   )}
-                  {(!enabledFeatures || enabledFeatures.email === true) && (
+                  {(!enabledFeatures || enabledFeatures.template === true) && (
                   <Link
                     href="/template-salvati"
                     onClick={onClose}
@@ -272,7 +280,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     <span>Template Salvati</span>
                   </Link>
                   )}
-                  {(!enabledFeatures || enabledFeatures.email === true) && (
+                  {(!enabledFeatures || enabledFeatures.comunicazioni === true) && (
                   <Link
                     href="/comunicazioni"
                     onClick={onClose}
@@ -290,6 +298,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 </div>
               )}
             </div>
+            )}
 
             {/* Impostazioni dropdown — visibile se feature "impostazioni" attiva */}
             {(!enabledFeatures || enabledFeatures.impostazioni === true) && (

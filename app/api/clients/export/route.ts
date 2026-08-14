@@ -150,8 +150,12 @@ export async function GET(request: NextRequest) {
     // Buffer generato interamente in memoria (nessun file system, adatto a Vercel)
     const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
 
+    const filenameParam = searchParams.get("filename") || "clienti";
+    const cleanFilename =
+      filenameParam.replace(/[^a-zA-Z0-9À-ÿ\s\-_]/g, "").trim().slice(0, 80) ||
+      "clienti";
     const dateStr = new Date().toISOString().slice(0, 10);
-    const filename = `clienti_${dateStr}.xlsx`;
+    const filename = `${cleanFilename}_${dateStr}.xlsx`;
 
     return new Response(new Uint8Array(buffer), {
       headers: {

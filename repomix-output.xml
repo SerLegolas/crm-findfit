@@ -183,9 +183,15 @@ app/
     superuser/
       admins/
         [id]/
+          counts/
+            route.ts
           route.ts
         route.ts
       company-rules/
+        route.ts
+      db-backup/
+        route.ts
+      db-schema/
         route.ts
       login/
         route.ts
@@ -210,6 +216,8 @@ app/
     cron/
       page.tsx
     dashboard/
+      page.tsx
+    database/
       page.tsx
     login/
       page.tsx
@@ -252,6 +260,7 @@ lib/
   app-version.ts
   auth.ts
   client-filters.ts
+  company-counts.ts
   company-rules-edge.ts
   company-rules.ts
   comunicazioni.ts
@@ -325,6 +334,7 @@ scripts/
   run-migration-0014.mjs
   run-migration-direct.mjs
   seed-admin.ts
+  set-vercel-secrets.mjs
   test-pragma-off.mjs
 types/
   index.ts
@@ -342,6 +352,554 @@ version.json
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="app/api/superuser/admins/[id]/counts/route.ts">
+import { NextResponse } from "next/server";
+import { requireSuperUser } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { users } from "@/lib/schema";
+import { eq } from "drizzle-orm";
+import { getCompanyCounts } from "@/lib/company-counts";
+
+export const dynamic = "force-dynamic";
+
+// GET /api/superuser/admins/:id/counts
+// Conteggi dei dati collegati all'azienda dell'admin (per il modal di conferma)
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    await requireSuperUser();
+
+    const { id } = await params;
+
+    const [admin] = await db
+      .select({ companyId: users.companyId })
+      .from(users)
+      .where(eq(users.id, id))
+      .limit(1);
+
+    if (!admin) {
+      return NextResponse.json({ error: "Admin non trovato" }, { status: 404 });
+    }
+
+    const counts = await getCompanyCounts(admin.companyId);
+
+    return NextResponse.json({ companyId: admin.companyId, counts });
+  } catch (error: any) {
+    if (error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
+    }
+    console.error("Error fetching company counts:", error);
+    return NextResponse.json(
+      { error: "Errore nel calcolo dei conteggi" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/superuser/db-backup/route.ts">
+import { NextResponse } from "next/server";
+import { requireSuperUser } from "@/lib/auth";
+import { client } from "@/lib/db";
+
+export const dynamic = "force-dynamic";
+
+// GET /api/superuser/db-backup — export JSON con tutti i dati di tutte le tabelle (file scaricabile datato)
+export async function GET() {
+  try {
+    await requireSuperUser();
+
+    const tablesRes = await client.execute(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+    );
+    const tableNames = tablesRes.rows.map((r) => String(r.name));
+
+    const data: Record<string, unknown[]> = {};
+    await Promise.all(
+      tableNames.map(async (name) => {
+        const res = await client.execute(`SELECT * FROM "${name}"`);
+        data[name] = res.rows as unknown[];
+      })
+    );
+
+    const now = new Date();
+    const payload = {
+      app: "CRM FindFit",
+      exportedAt: now.toISOString(),
+      tables: data,
+    };
+
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const filename = `crm-backup-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(
+      now.getDate()
+    )}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}.json`;
+
+    return new NextResponse(JSON.stringify(payload, null, 2), {
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+      },
+    });
+  } catch (error: any) {
+    if (error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
+    }
+    console.error("Error creating db backup:", error);
+    return NextResponse.json(
+      { error: "Errore nella creazione del backup" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/superuser/db-schema/route.ts">
+import { NextResponse } from "next/server";
+import { requireSuperUser } from "@/lib/auth";
+import { client } from "@/lib/db";
+
+export const dynamic = "force-dynamic";
+
+interface ColumnInfo {
+  name: string;
+  type: string;
+  notNull: number;
+  pk: number;
+  defaultValue: unknown;
+}
+
+interface TableInfo {
+  name: string;
+  count: number;
+  columns: ColumnInfo[];
+}
+
+// GET /api/superuser/db-schema — elenco tabelle con conteggio record e colonne (PRAGMA table_info)
+export async function GET() {
+  try {
+    await requireSuperUser();
+
+    const tablesRes = await client.execute(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+    );
+    const tableNames = tablesRes.rows.map((r) => String(r.name));
+
+    const tables: TableInfo[] = await Promise.all(
+      tableNames.map(async (name) => {
+        const [countRes, colRes] = await Promise.all([
+          client.execute(`SELECT COUNT(*) AS n FROM "${name}"`),
+          client.execute(`PRAGMA table_info("${name}")`),
+        ]);
+        const count = Number(countRes.rows[0]?.n ?? 0);
+        const columns: ColumnInfo[] = colRes.rows.map((r) => ({
+          name: String(r.name),
+          type: String(r.type),
+          notNull: Number(r.notnull ?? 0),
+          pk: Number(r.pk ?? 0),
+          defaultValue: r.dflt_value ?? null,
+        }));
+        return { name, count, columns };
+      })
+    );
+
+    const totalRecords = tables.reduce((sum, t) => sum + t.count, 0);
+
+    return NextResponse.json({
+      generatedAt: new Date().toISOString(),
+      totalRecords,
+      tables,
+    });
+  } catch (error: any) {
+    if (error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
+    }
+    console.error("Error fetching db schema:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento dello schema" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/superuser/database/page.tsx">
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Loader2,
+  Database,
+  Download,
+  RefreshCw,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
+
+interface ColumnInfo {
+  name: string;
+  type: string;
+  notNull: number;
+  pk: number;
+  defaultValue: unknown;
+}
+
+interface TableInfo {
+  name: string;
+  count: number;
+  columns: ColumnInfo[];
+}
+
+interface SchemaData {
+  generatedAt: string;
+  totalRecords: number;
+  tables: TableInfo[];
+}
+
+export default function SuperuserDatabasePage() {
+  const router = useRouter();
+  const [schema, setSchema] = useState<SchemaData | null>(null);
+  const [schemaLoading, setSchemaLoading] = useState(true);
+  const [schemaError, setSchemaError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [backupError, setBackupError] = useState<string | null>(null);
+
+  async function loadSchema() {
+    setSchemaLoading(true);
+    setSchemaError(null);
+    try {
+      const res = await fetch("/api/superuser/db-schema");
+      if (res.status === 401) {
+        router.push("/superuser/login");
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.json();
+        setSchemaError(err.error || "Errore nel caricamento dello schema");
+        return;
+      }
+      const data = await res.json();
+      setSchema(data);
+    } catch {
+      setSchemaError("Errore di rete nel caricamento dello schema");
+    } finally {
+      setSchemaLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadSchema();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleDownloadBackup() {
+    setBackupLoading(true);
+    setBackupError(null);
+    try {
+      const res = await fetch("/api/superuser/db-backup");
+      if (res.status === 401) {
+        router.push("/superuser/login");
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.json();
+        setBackupError(err.error || "Errore nella creazione del backup");
+        return;
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="?([^";]+)"?/);
+      const filename =
+        match?.[1] ||
+        `crm-backup-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setBackupError("Errore di rete durante il download del backup");
+    } finally {
+      setBackupLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+          <Database className="h-6 w-6 text-primary" />
+          Database
+        </h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Struttura dello schema e backup dei dati dell&apos;intero sistema.
+        </p>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2">
+        {/* Schema DB */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Database className="h-5 w-5 text-primary" />
+                Schema DB
+              </CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={loadSchema}
+                disabled={schemaLoading}
+              >
+                <RefreshCw
+                  className={`h-4 w-4 mr-1 ${schemaLoading ? "animate-spin" : ""}`}
+                />
+                Aggiorna
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {schemaLoading ? (
+              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground py-8">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                Caricamento schema...
+              </div>
+            ) : schemaError ? (
+              <p className="text-sm text-destructive">{schemaError}</p>
+            ) : schema ? (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  {schema.tables.length} tabelle ·{" "}
+                  {schema.totalRecords.toLocaleString("it-IT")} record totali
+                </p>
+                <div className="rounded-lg border">
+                  {schema.tables.map((t, i) => (
+                    <div key={t.name} className={i > 0 ? "border-t" : ""}>
+                      <button
+                        onClick={() =>
+                          setExpanded((p) => ({ ...p, [t.name]: !p[t.name] }))
+                        }
+                        className="flex w-full items-center justify-between px-3 py-2.5 text-sm hover:bg-accent/50 transition-colors"
+                      >
+                        <span className="flex items-center gap-2 font-medium">
+                          {expanded[t.name] ? (
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          )}
+                          {t.name}
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <Badge variant="secondary">
+                            {t.count.toLocaleString("it-IT")}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {t.columns.length} col
+                          </span>
+                        </span>
+                      </button>
+                      {expanded[t.name] && (
+                        <div className="px-3 pb-3">
+                          <div className="overflow-x-auto rounded-md border bg-muted/30">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="border-b text-left text-muted-foreground">
+                                  <th className="px-2 py-1 font-medium">Colonna</th>
+                                  <th className="px-2 py-1 font-medium">Tipo</th>
+                                  <th className="px-2 py-1 font-medium">PK</th>
+                                  <th className="px-2 py-1 font-medium">NOT NULL</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {t.columns.map((c) => (
+                                  <tr
+                                    key={c.name}
+                                    className="border-b last:border-0"
+                                  >
+                                    <td className="px-2 py-1 font-medium">
+                                      {c.name}
+                                    </td>
+                                    <td className="px-2 py-1">{c.type}</td>
+                                    <td className="px-2 py-1">
+                                      {c.pk ? "✓" : ""}
+                                    </td>
+                                    <td className="px-2 py-1">
+                                      {c.notNull ? "✓" : ""}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        {/* Backup */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Download className="h-5 w-5 text-primary" />
+              Backup
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Scarica un file JSON con tutti i dati di tutte le tabelle del
+              sistema. Il file è datato e scaricabile.
+            </p>
+            <Button
+              onClick={handleDownloadBackup}
+              disabled={backupLoading}
+              className="gap-2"
+            >
+              {backupLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Generazione backup...
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4" />
+                  Scarica Backup JSON
+                </>
+              )}
+            </Button>
+            {backupError && (
+              <p className="text-sm text-destructive">{backupError}</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="lib/company-counts.ts">
+/**
+ * Conteggi dati per azienda (companyId).
+ * Usato dal SuperAdmin per mostrare i dati prima dell'eliminazione
+ * e per il log dell'operazione.
+ */
+import { db } from "@/lib/db";
+import { count, eq } from "drizzle-orm";
+import {
+  users,
+  clients,
+  tasks,
+  notes,
+  emailLog,
+  emailTemplates,
+  imapSettings,
+  companySettings,
+  companyRules,
+  cronLog,
+  comunicazioni,
+  comunicazioniBatch,
+  savedAnalyses,
+} from "@/lib/schema";
+
+export interface CompanyCounts {
+  users: number;
+  clients: number;
+  tasks: number;
+  notes: number;
+  emailLog: number;
+  emailTemplates: number;
+  imapSettings: number;
+  companySettings: number;
+  companyRules: number;
+  cronLog: number;
+  comunicazioni: number;
+  comunicazioniBatch: number;
+  savedAnalyses: number;
+}
+
+/**
+ * Conta le righe per ogni tabella collegata alla company.
+ * `comunicazioni_batch` non ha company_id: conta via join su comunicazioni.
+ */
+export async function getCompanyCounts(
+  companyId: string
+): Promise<CompanyCounts> {
+  const [u, c, t, n, e, et, im, cs, cr, cl, com, batch, sa] =
+    await Promise.all([
+      db.select({ n: count() }).from(users).where(eq(users.companyId, companyId)),
+      db.select({ n: count() }).from(clients).where(eq(clients.companyId, companyId)),
+      db.select({ n: count() }).from(tasks).where(eq(tasks.companyId, companyId)),
+      db.select({ n: count() }).from(notes).where(eq(notes.companyId, companyId)),
+      db.select({ n: count() }).from(emailLog).where(eq(emailLog.companyId, companyId)),
+      db
+        .select({ n: count() })
+        .from(emailTemplates)
+        .where(eq(emailTemplates.companyId, companyId)),
+      db
+        .select({ n: count() })
+        .from(imapSettings)
+        .where(eq(imapSettings.companyId, companyId)),
+      db
+        .select({ n: count() })
+        .from(companySettings)
+        .where(eq(companySettings.companyId, companyId)),
+      db
+        .select({ n: count() })
+        .from(companyRules)
+        .where(eq(companyRules.companyId, companyId)),
+      db.select({ n: count() }).from(cronLog).where(eq(cronLog.companyId, companyId)),
+      db
+        .select({ n: count() })
+        .from(comunicazioni)
+        .where(eq(comunicazioni.companyId, companyId)),
+      db
+        .select({ n: count() })
+        .from(comunicazioniBatch)
+        .innerJoin(
+          comunicazioni,
+          eq(comunicazioniBatch.comunicazioneId, comunicazioni.id)
+        )
+        .where(eq(comunicazioni.companyId, companyId)),
+      db
+        .select({ n: count() })
+        .from(savedAnalyses)
+        .where(eq(savedAnalyses.companyId, companyId)),
+    ]);
+
+  const num = (r: { n: number }[]) => Number(r[0]?.n ?? 0);
+
+  return {
+    users: num(u),
+    clients: num(c),
+    tasks: num(t),
+    notes: num(n),
+    emailLog: num(e),
+    emailTemplates: num(et),
+    imapSettings: num(im),
+    companySettings: num(cs),
+    companyRules: num(cr),
+    cronLog: num(cl),
+    comunicazioni: num(com),
+    comunicazioniBatch: num(batch),
+    savedAnalyses: num(sa),
+  };
+}
+</file>
 
 <file path="scripts/add-email-consent.mjs">
 import { config } from "dotenv";
@@ -808,6 +1366,39 @@ for (let i = 0; i < toInsert.length; i += BATCH) {
 console.log(`\n✅ Import completato: ${insertedClients} clienti, ${insertedNotes} note (${skipped} skippati).`);
 </file>
 
+<file path="scripts/set-vercel-secrets.mjs">
+// Script locale (non committare): imposta SUPER_JWT_SECRET e SUPER_PASSWORD
+// su Vercel (production) scrivendo il valore direttamente sullo stdin di
+// vercel CLI, senza newline finale (evita il warning "Value contains newlines"
+// e il fallimento del login con password "sporca").
+import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
+
+function addEnv(name, value) {
+  const res = spawnSync(
+    "vercel",
+    ["env", "add", name, "production", "--yes"],
+    { input: value, encoding: "utf8", shell: process.platform === "win32" }
+  );
+  if (res.status !== 0) {
+    console.error(`[ERR] ${name}: ${res.stderr || res.stdout}`);
+    process.exitCode = 1;
+    return false;
+  }
+  console.log(`[OK] ${name}`);
+  return true;
+}
+
+const jwt = randomBytes(32).toString("hex");
+const pass = randomBytes(18).toString("base64url");
+
+if (addEnv("SUPER_JWT_SECRET", jwt) && addEnv("SUPER_PASSWORD", pass)) {
+  // Stampa i valori per copiarli in .env.local
+  console.log("SUPER_JWT_SECRET=" + jwt);
+  console.log("SUPER_PASSWORD=" + pass);
+}
+</file>
+
 <file path=".github/agents/change-tracker.agent.md">
 ---
 name: 'Change Tracker'
@@ -918,10 +1509,13 @@ Moduli attivabili per azienda (modello opt-in: visibili solo se `true`).
 
 - dashboard: Dashboard
 - clienti: Clienti
-- kanban: Kanban (Trattative)
+- kanban: Kanban
 - task: Task
 - note: Note
 - email: Email
+- analisi: Analisi
+- template: Template
+- comunicazioni: Comunicazioni
 - impostazioni: Impostazioni
 
 ## Moduli Admin (featuresAdmin)
@@ -4496,6 +5090,9 @@ export async function POST(request: NextRequest) {
           task: true,
           note: true,
           email: true,
+          analisi: true,
+          template: true,
+          comunicazioni: true,
           impostazioni: true,
         },
         featuresAdmin: {
@@ -4852,8 +5449,12 @@ export async function GET(request: NextRequest) {
     // Buffer generato interamente in memoria (nessun file system, adatto a Vercel)
     const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
 
+    const filenameParam = searchParams.get("filename") || "clienti";
+    const cleanFilename =
+      filenameParam.replace(/[^a-zA-Z0-9À-ÿ\s\-_]/g, "").trim().slice(0, 80) ||
+      "clienti";
     const dateStr = new Date().toISOString().slice(0, 10);
-    const filename = `clienti_${dateStr}.xlsx`;
+    const filename = `${cleanFilename}_${dateStr}.xlsx`;
 
     return new Response(new Uint8Array(buffer), {
       headers: {
@@ -5669,8 +6270,24 @@ export async function POST(request: NextRequest) {
 import { NextResponse } from "next/server";
 import { requireSuperUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { users, companies } from "@/lib/schema";
-import { eq, desc } from "drizzle-orm";
+import {
+  users,
+  companies,
+  clients,
+  tasks,
+  notes,
+  emailLog,
+  emailTemplates,
+  imapSettings,
+  companySettings,
+  companyRules,
+  cronLog,
+  comunicazioni,
+  comunicazioniBatch,
+  savedAnalyses,
+} from "@/lib/schema";
+import { eq, desc, inArray } from "drizzle-orm";
+import { getCompanyCounts } from "@/lib/company-counts";
 
 export const dynamic = "force-dynamic";
 
@@ -5728,6 +6345,97 @@ export async function GET(
     console.error("Error fetching admin:", error);
     return NextResponse.json(
       { error: "Errore nel caricamento dell'admin" },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE /api/superuser/admins/:id — elimina l'azienda dell'admin e tutti i dati collegati
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    await requireSuperUser();
+
+    const { id } = await params;
+
+    // Recupera admin + azienda
+    const [admin] = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        companyId: users.companyId,
+        companyName: companies.name,
+      })
+      .from(users)
+      .innerJoin(companies, eq(users.companyId, companies.id))
+      .where(eq(users.id, id))
+      .limit(1);
+
+    if (!admin) {
+      return NextResponse.json({ error: "Admin non trovato" }, { status: 404 });
+    }
+
+    // Conteggi prima dell'eliminazione (per il log dell'operazione)
+    const counts = await getCompanyCounts(admin.companyId);
+
+    // Elimina tutti i dati collegati in ordine di dipendenza
+    // (il DB non garantisce ON DELETE CASCADE su tutte le FK)
+    await db.transaction(async (tx) => {
+      // comunicazioni_batch: nessuna company_id → recupera gli id delle comunicazioni della company
+      const comIds = await tx
+        .select({ id: comunicazioni.id })
+        .from(comunicazioni)
+        .where(eq(comunicazioni.companyId, admin.companyId));
+      const ids = comIds.map((r) => r.id);
+      if (ids.length > 0) {
+        await tx
+          .delete(comunicazioniBatch)
+          .where(inArray(comunicazioniBatch.comunicazioneId, ids));
+      }
+
+      await tx
+        .delete(comunicazioni)
+        .where(eq(comunicazioni.companyId, admin.companyId));
+      await tx.delete(emailLog).where(eq(emailLog.companyId, admin.companyId));
+      await tx.delete(notes).where(eq(notes.companyId, admin.companyId));
+      await tx.delete(tasks).where(eq(tasks.companyId, admin.companyId));
+      await tx
+        .delete(emailTemplates)
+        .where(eq(emailTemplates.companyId, admin.companyId));
+      await tx
+        .delete(savedAnalyses)
+        .where(eq(savedAnalyses.companyId, admin.companyId));
+      await tx
+        .delete(imapSettings)
+        .where(eq(imapSettings.companyId, admin.companyId));
+      await tx
+        .delete(companySettings)
+        .where(eq(companySettings.companyId, admin.companyId));
+      await tx
+        .delete(companyRules)
+        .where(eq(companyRules.companyId, admin.companyId));
+      await tx.delete(cronLog).where(eq(cronLog.companyId, admin.companyId));
+      await tx.delete(clients).where(eq(clients.companyId, admin.companyId));
+      await tx.delete(users).where(eq(users.companyId, admin.companyId));
+      await tx.delete(companies).where(eq(companies.id, admin.companyId));
+    });
+
+    // Log operazione
+    console.log(
+      `[SUPERUSER] Azienda eliminata: company=${admin.companyId} (${admin.companyName}) ` +
+        `admin=${admin.email} counts=${JSON.stringify(counts)} ts=${new Date().toISOString()}`
+    );
+
+    return NextResponse.json({ success: true, counts });
+  } catch (error: any) {
+    if (error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
+    }
+    console.error("Error deleting admin:", error);
+    return NextResponse.json(
+      { error: "Errore nell'eliminazione dell'azienda" },
       { status: 500 }
     );
   }
@@ -5900,49 +6608,6 @@ export async function POST(request: NextRequest) {
 }
 </file>
 
-<file path="app/api/superuser/login/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { SUPERUSER_USERNAME, generateSuperPassword, createSuperSession } from "@/lib/auth";
-
-export async function POST(request: NextRequest) {
-  try {
-    const { username, password } = await request.json();
-
-    if (!username || !password) {
-      return NextResponse.json(
-        { error: "Inserisci username e password" },
-        { status: 400 }
-      );
-    }
-
-    if (username !== SUPERUSER_USERNAME) {
-      return NextResponse.json(
-        { error: "Credenziali non valide" },
-        { status: 401 }
-      );
-    }
-
-    const expectedPassword = generateSuperPassword();
-    if (password !== expectedPassword) {
-      return NextResponse.json(
-        { error: "Credenziali non valide" },
-        { status: 401 }
-      );
-    }
-
-    await createSuperSession();
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Superuser login error:", error);
-    return NextResponse.json(
-      { error: "Errore durante il login" },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
 <file path="app/api/users/names/route.ts">
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -6002,7 +6667,18 @@ import {
   Save,
   Check,
   X,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 
 const FEATURE_OPTIONS = [
   { key: "dashboard", label: "Dashboard" },
@@ -6011,6 +6687,9 @@ const FEATURE_OPTIONS = [
   { key: "task", label: "Task" },
   { key: "note", label: "Note" },
   { key: "email", label: "Email" },
+  { key: "analisi", label: "Analisi" },
+  { key: "template", label: "Template" },
+  { key: "comunicazioni", label: "Comunicazioni" },
   { key: "impostazioni", label: "Impostazioni" },
 ];
 
@@ -6019,6 +6698,23 @@ const ADMIN_FEATURE_OPTIONS = [
   { key: "configurazione_email", label: "Configurazione Email" },
   { key: "recupero_email", label: "Recupero Email" },
   { key: "facebook_post", label: "Facebook Post" },
+];
+
+// Etichette per i conteggi mostrati nel modal di eliminazione
+const COUNT_LABELS = [
+  { key: "users", label: "Utenti" },
+  { key: "clients", label: "Clienti" },
+  { key: "tasks", label: "Task" },
+  { key: "notes", label: "Note" },
+  { key: "emailLog", label: "Email Log" },
+  { key: "emailTemplates", label: "Template Email" },
+  { key: "imapSettings", label: "Impostazioni IMAP" },
+  { key: "companySettings", label: "Impostazioni Azienda" },
+  { key: "companyRules", label: "Regole Azienda" },
+  { key: "cronLog", label: "Log Cron" },
+  { key: "comunicazioni", label: "Comunicazioni" },
+  { key: "comunicazioniBatch", label: "Batch Comunicazioni" },
+  { key: "savedAnalyses", label: "Analisi Salvate" },
 ];
 
 interface AdminDetail {
@@ -6062,6 +6758,13 @@ export default function AdminDetailPage() {
   const [formMaxTasks, setFormMaxTasks] = useState("0");
   const [formFeatures, setFormFeatures] = useState<Record<string, boolean>>({});
   const [formFeaturesAdmin, setFormFeaturesAdmin] = useState<Record<string, boolean>>({});
+
+  // Eliminazione azienda
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteCounts, setDeleteCounts] = useState<Record<string, number> | null>(null);
+  const [countsLoading, setCountsLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`/api/superuser/admins/${params.id}`)
@@ -6132,6 +6835,59 @@ export default function AdminDetailPage() {
       }
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Apre il modal e carica i conteggi dei dati collegati
+  async function openDeleteDialog() {
+    if (!admin) return;
+    setDeleteOpen(true);
+    setDeleteCounts(null);
+    setDeleteError(null);
+    setCountsLoading(true);
+    try {
+      const res = await fetch(`/api/superuser/admins/${admin.id}/counts`);
+      if (res.status === 401) {
+        router.push("/superuser/login");
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.json();
+        setDeleteError(err.error || "Errore nel calcolo dei conteggi");
+        return;
+      }
+      const data = await res.json();
+      setDeleteCounts(data.counts);
+    } catch {
+      setDeleteError("Errore di rete nel calcolo dei conteggi");
+    } finally {
+      setCountsLoading(false);
+    }
+  }
+
+  // Conferma finale: elimina l'azienda e torna alla dashboard
+  async function handleConfirmDelete() {
+    if (!admin) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`/api/superuser/admins/${admin.id}`, {
+        method: "DELETE",
+      });
+      if (res.status === 401) {
+        router.push("/superuser/login");
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.json();
+        setDeleteError(err.error || "Errore nell'eliminazione dell'azienda");
+        setDeleting(false);
+        return;
+      }
+      router.push("/superuser/dashboard");
+    } catch {
+      setDeleteError("Errore di rete durante l'eliminazione");
+      setDeleting(false);
     }
   }
 
@@ -6373,6 +7129,85 @@ export default function AdminDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Eliminazione Azienda */}
+      <div className="flex justify-start pt-2">
+        <Button
+          variant="destructive"
+          onClick={openDeleteDialog}
+          className="gap-2"
+        >
+          <Trash2 className="h-4 w-4" />
+          Elimina Azienda
+        </Button>
+      </div>
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Elimina Azienda
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Stai per eliminare definitivamente l&apos;azienda{" "}
+              <strong>{admin.companyName}</strong>. Tutti i dati collegati
+              verranno cancellati in modo irreversibile. Questa azione non può
+              essere annullata.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="rounded-lg border bg-muted/40 p-4">
+            {countsLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Calcolo dati da eliminare...
+              </div>
+            ) : deleteCounts ? (
+              <div className="space-y-1.5">
+                {COUNT_LABELS.filter(
+                  (c) => (deleteCounts[c.key] ?? 0) > 0
+                ).map((c) => (
+                  <div
+                    key={c.key}
+                    className="flex items-center justify-between text-sm"
+                  >
+                    <span className="text-muted-foreground">{c.label}</span>
+                    <span className="font-medium">{deleteCounts[c.key]}</span>
+                  </div>
+                ))}
+                {Object.values(deleteCounts).every((n) => n === 0) && (
+                  <p className="text-sm text-muted-foreground">
+                    Nessun dato collegato trovato.
+                  </p>
+                )}
+              </div>
+            ) : null}
+          </div>
+
+          {deleteError && !countsLoading && (
+            <p className="text-sm text-destructive">{deleteError}</p>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Annulla</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmDelete}
+              disabled={deleting || countsLoading}
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  Eliminazione...
+                </>
+              ) : (
+                "Elimina Definitivamente"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -6962,6 +7797,7 @@ import {
   Menu,
   X,
   RefreshCw,
+  Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -6984,6 +7820,7 @@ export default function SuperuserLayout({
     { href: "/superuser/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/superuser/settings", label: "Impostazioni Globali", icon: Settings },
     { href: "/superuser/cron", label: "Cron Sincronizzazione", icon: RefreshCw },
+    { href: "/superuser/database", label: "Database", icon: Database },
   ];
 
   return (
@@ -8940,8 +9777,155 @@ La tabella elenca tutte le comunicazioni con:
 
   // ── Altre pagine: placeholder ──
   "/dashboard": "Guida in fase di scrittura per questa pagina.",
-  "/kanban": "Guida in fase di scrittura per questa pagina.",
-  "/clienti": "Guida in fase di scrittura per questa pagina.",
+  "/kanban": `## 📘 Guida Pagina "Trattative"
+
+### A cosa serve
+
+La pagina **Trattative** ti permette di gestire lo stato di avanzamento dei tuoi clienti attraverso un sistema di **colonne trascinabili**.
+Visualizzi i clienti divisi per fase del processo di vendita: Lead, Suspect, Won e Closed Lost.
+
+---
+
+### Come si usa
+
+#### 1. Trascinare un cliente tra le colonne
+
+- Trova il cliente nella colonna corrispondente al suo stato attuale.
+- **Trascina** la scheda del cliente verso la colonna di destinazione.
+- Rilascia per aggiornare automaticamente lo status.
+
+> ⚠️ **Nota:** Le transizioni tra colonne seguono le regole del processo di vendita:
+> - **Lead** → può andare a *Suspect*, *Won* o *Closed Lost*.
+> - **Suspect** → può tornare a *Lead*, andare a *Won* o *Closed Lost*.
+> - **Won** → non può essere spostato (il ciclo di vendita è completato).
+> - **Closed Lost** → può essere riportato a *Lead*, *Suspect* o *Won*.
+
+---
+
+#### 2. Chiudere un cliente (Closed Lost)
+
+- Quando trascini un cliente in **Closed Lost**, viene richiesta una **nota obbligatoria**.
+- Inserisci il motivo della chiusura nel dialog che appare.
+- La nota viene salvata automaticamente come "decisione" nella cronologia del cliente.
+
+---
+
+#### 3. Filtrare per assegnazione (solo Admin)
+
+- Se sei **Amministratore**, puoi filtrare i clienti per utente assegnato.
+- Usa il dropdown **"Assegnato a"** in alto a destra.
+- Seleziona un utente specifico per vedere solo i suoi clienti.
+
+---
+
+#### 4. Navigazione e dettagli cliente
+
+- **Clicca** su una qualsiasi scheda cliente per andare alla pagina di dettaglio.
+- Da lì puoi gestire note, task, email e aggiornare i dati anagrafici.
+
+---
+
+### Suggerimenti
+
+- **Stato delle colonne**: ogni colonna mostra il numero totale di clienti che contiene.
+- **Paginazione**: se una colonna ha più di 20 clienti, usa i pulsanti "Precedente" / "Successiva" in fondo per navigare.
+- **Trascina con precisione**: assicurati di rilasciare la scheda all'interno della colonna di destinazione (evidenziata in blu quando il trascinamento è attivo).
+
+---
+
+### Regole importanti
+
+- **Solo transizioni consentite**: se provi a fare una mossa non permessa, vedrai un messaggio di errore.
+- **Nota per Closed Lost**: obbligatoria per tracciare il motivo della perdita del cliente. Non puoi chiudere senza nota.
+- **I dati vengono sincronizzati** immediatamente con il database: non è necessario salvare manualmente.
+`,
+  "/clienti": `## 📘 Guida Pagina "Lista Clienti"
+
+### A cosa serve
+
+La pagina **Lista Clienti** è il punto centrale per la gestione anagrafica di tutti i tuoi contatti. Da qui puoi visualizzare, cercare, filtrare, creare, modificare ed eliminare i clienti.
+
+---
+
+### Come si usa
+
+#### 1. Visualizzare la lista
+
+- La tabella mostra tutti i clienti della tua azienda.
+- Ogni riga contiene: **Status**, **Azienda** / **Nome**, **Contatti** (email/telefono), **Assegnato a**, **Consenso email**.
+- **Clicca** su una riga per aprire la pagina di dettaglio del cliente.
+
+---
+
+#### 2. Cercare e filtrare
+
+- **Ricerca libera**: usa il campo di ricerca in alto per trovare clienti per nome, email o azienda.
+- **Filtro per Status**: seleziona uno status specifico (Lead, Suspect, Won, Closed Lost).
+- **Filtro per Categoria**: scegli una categoria (Palestra, PT, Piscina, ecc.).
+- **Filtro per Consenso**: mostra solo i clienti che hanno acconsentito (✅) o meno (❌) a ricevere email.
+- **Filtro per Assegnazione** (solo Admin): filtra per utente assegnato.
+
+> 💡 I filtri si applicano automaticamente quando cambi selezione.
+
+---
+
+#### 3. Creare un nuovo cliente
+
+- Clicca sul pulsante **"Nuovo cliente"** (icona +).
+- Compila i campi obbligatori: **Nome**.
+- Compila i campi opzionali: Email, Telefono, Azienda, Categoria, Status, Note.
+- Clicca **"Crea cliente"** per salvare.
+
+> ⚠️ **Nota:** Se selezioni lo status *Suspect* o *Won*, verranno creati automaticamente task di follow-up (es. "Chiamata qualificazione" per Suspect, "Invia contratto" per Won).
+
+---
+
+#### 4. Modificare un cliente
+
+- Clicca sull'icona **✏️ (Matita)** nella colonna "Azioni".
+- Aggiorna i campi desiderati.
+- Clicca **"Salva modifiche"**.
+
+---
+
+#### 5. Eliminare un cliente
+
+- Clicca sull'icona **🗑️ (Cestino)** nella colonna "Azioni".
+- Conferma l'eliminazione nel dialog di conferma.
+
+> ⚠️ **Attenzione:** L'eliminazione è irreversibile e cancella anche tutte le note, i task e le email associate al cliente.
+
+---
+
+### Funzionalità speciali
+
+#### Consenso email (Opt-out)
+
+- I clienti hanno un flag **"Consenso"** che indica se possono ricevere email.
+- **Admin** può modificare questo flag dal dettaglio cliente.
+- Se un cliente si disiscrive tramite il link nelle email, il flag viene automaticamente impostato su **❌**.
+
+#### Assegnazione a utenti (solo Admin)
+
+- Gli Admin possono assegnare un cliente a un utente specifico della propria azienda.
+- I clienti **non assegnati** sono visibili a tutti.
+
+---
+
+### Suggerimenti
+
+- Usa la **ricerca combinata con i filtri** per trovare rapidamente gruppi di clienti (es. tutti i Lead di categoria "Palestra").
+- La **paginazione** mostra 10 clienti per pagina: usa i pulsanti "Precedente" / "Successiva" per navigare.
+- Clicca sul nome del cliente nella tabella per accedere alla **pagina di dettaglio**, dove puoi gestire note, task ed email.
+
+---
+
+### Regole importanti
+
+- **Email univoca**: non è possibile avere due clienti con la stessa email.
+- **Campi obbligatori**: solo il campo **Nome** è obbligatorio alla creazione. Tutti gli altri sono opzionali.
+- **Accesso ai dati**: gli utenti con ruolo "user" vedono solo i clienti **assegnati a loro** o **non assegnati**. Gli Admin vedono tutti i clienti dell'azienda.
+`,
   "/task-calendar": "Guida in fase di scrittura per questa pagina.",
   "/task": "Guida in fase di scrittura per questa pagina.",
   "/note": "Guida in fase di scrittura per questa pagina.",
@@ -8954,90 +9938,6 @@ La tabella elenca tutte le comunicazioni con:
 
 /** Testo placeholder predefinito per le pagine non ancora documentate. */
 export const PLACEHOLDER_GUIDE = "Guida in fase di scrittura per questa pagina.";
-</file>
-
-<file path="lib/company-rules-edge.ts">
-/**
- * Edge-compatible utility per leggere le regole azienda.
- * Usa @libsql/client che funziona nell'Edge Runtime di Next.js.
- */
-import { createClient } from "@libsql/client";
-
-const client = createClient({
-  url: process.env.TURSO_DB_URL!,
-  authToken: process.env.TURSO_AUTH_TOKEN,
-});
-
-export interface CompanyRuleData {
-  features: Record<string, boolean> | null;
-  maxUsers: number;
-  maxClients: number;
-  maxTasks: number;
-}
-
-/**
- * Mappa: route path → feature key
- */
-export const ROUTE_FEATURE_MAP: Record<string, string> = {
-  // /dashboard non è qui perché è sempre accessibile
-  // /admin non è qui: la visibilità è gestita dalla sidebar (featuresAdmin) e le API danno 403
-  "/clienti": "clienti",
-  "/kanban": "kanban",
-  "/task": "task",
-  "/note": "note",
-  "/impostazioni": "impostazioni",
-};
-
-/**
- * Legge le regole per una company (edge-safe).
- */
-export async function getCompanyRules(
-  companyId: string
-): Promise<CompanyRuleData | null> {
-  try {
-    const result = await client.execute({
-      sql: "SELECT max_users, max_clients, max_tasks, features FROM company_rules WHERE company_id = ?",
-      args: [companyId],
-    });
-
-    if (result.rows.length === 0) return null;
-
-    const row = result.rows[0];
-    let features: Record<string, boolean> | null = null;
-    try {
-      features = JSON.parse(row.features as string);
-    } catch {
-      features = {};
-    }
-
-    return {
-      maxUsers: Number(row.max_users) || 0,
-      maxClients: Number(row.max_clients) || 0,
-      maxTasks: Number(row.max_tasks) || 0,
-      features,
-    };
-  } catch (e) {
-    console.error("[company-rules-edge] Errore lettura regole:", e);
-    return null;
-  }
-}
-
-/**
- * Verifica se una feature è abilitata per una company (edge-safe).
- * Restituisce true se abilitata o se non ci sono regole.
- */
-export async function isFeatureEnabled(
-  companyId: string,
-  featureKey: string
-): Promise<boolean> {
-  const rules = await getCompanyRules(companyId);
-  // Nessuna regola → tutto permesso
-  if (!rules || !rules.features) return true;
-  // Se l'oggetto features è vuoto, tutto permesso
-  if (Object.keys(rules.features).length === 0) return true;
-  // Opt-in: abilitata solo se esplicitamente true
-  return rules.features[featureKey] === true;
-}
 </file>
 
 <file path="lib/company-rules.ts">
@@ -9244,6 +10144,8 @@ const client = createClient({
 });
 
 export const db = drizzle(client, { schema });
+
+export { client };
 </file>
 
 <file path="lib/opt-out.ts">
@@ -12268,6 +13170,10 @@ npm run db:push      # Pusha schema
 npm run db:migrate   # Esegui migrazioni
 npm run db:studio    # Apri Drizzle Studio
 ```
+
+Per Allineare i menu
+Esegui npm run menu:analyze (per vedere le differenze)
+Esegui npm run menu:sync (per applicare le modifiche con conferme)
 </file>
 
 <file path="tailwind.config.ts">
@@ -13523,6 +14429,7 @@ export default function AnalisiSalvatePage() {
   const buildExportUrl = (a: SavedAnalysis) => {
     const ids = Array.isArray(a.clientIds) ? a.clientIds : [];
     const params = new URLSearchParams();
+    params.set("filename", a.name);
     // Analisi dinamica (senza lista fissa): esporta i clienti correnti tramite i filtri salvati
     if (a.isDynamic || ids.length === 0) {
       const f = a.filters || {};
@@ -15255,6 +16162,55 @@ export async function POST(request: NextRequest) {
 }
 </file>
 
+<file path="app/api/superuser/login/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
+import { SUPERUSER_USERNAME, SUPER_PASSWORD, createSuperSession } from "@/lib/auth";
+
+export async function POST(request: NextRequest) {
+  try {
+    const { username, password } = await request.json();
+
+    if (!username || !password) {
+      return NextResponse.json(
+        { error: "Inserisci username e password" },
+        { status: 400 }
+      );
+    }
+
+    if (username !== SUPERUSER_USERNAME) {
+      return NextResponse.json(
+        { error: "Credenziali non valide" },
+        { status: 401 }
+      );
+    }
+
+    // Verifica a tempo costante: SUPER_PASSWORD deve essere configurata in env
+    if (
+      !SUPER_PASSWORD ||
+      typeof password !== "string" ||
+      password.length !== SUPER_PASSWORD.length ||
+      !timingSafeEqual(Buffer.from(password), Buffer.from(SUPER_PASSWORD))
+    ) {
+      return NextResponse.json(
+        { error: "Credenziali non valide" },
+        { status: 401 }
+      );
+    }
+
+    await createSuperSession();
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Superuser login error:", error);
+    return NextResponse.json(
+      { error: "Errore durante il login" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
 <file path="app/api/users/[id]/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -16195,6 +17151,96 @@ export function buildClientWhere(
 }
 </file>
 
+<file path="lib/company-rules-edge.ts">
+/**
+ * Edge-compatible utility per leggere le regole azienda.
+ * Usa @libsql/client che funziona nell'Edge Runtime di Next.js.
+ */
+import { createClient } from "@libsql/client";
+
+const client = createClient({
+  url: process.env.TURSO_DB_URL!,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
+
+export interface CompanyRuleData {
+  features: Record<string, boolean> | null;
+  maxUsers: number;
+  maxClients: number;
+  maxTasks: number;
+}
+
+/**
+ * Mappa: route path → feature key
+ */
+export const ROUTE_FEATURE_MAP: Record<string, string> = {
+  // /dashboard non è qui perché è sempre accessibile
+  // /admin non è qui: la visibilità è gestita dalla sidebar (featuresAdmin) e le API danno 403
+  "/clienti": "clienti",
+  "/kanban": "kanban",
+  "/task": "task",
+  "/note": "note",
+  "/impostazioni": "impostazioni",
+  "/comunicazioni": "comunicazioni",
+  "/template-nuovo": "template",
+  "/template-salvati": "template",
+  "/template-anteprima": "template",
+  "/analisi": "analisi",
+  "/analisi-salvate": "analisi",
+};
+
+/**
+ * Legge le regole per una company (edge-safe).
+ */
+export async function getCompanyRules(
+  companyId: string
+): Promise<CompanyRuleData | null> {
+  try {
+    const result = await client.execute({
+      sql: "SELECT max_users, max_clients, max_tasks, features FROM company_rules WHERE company_id = ?",
+      args: [companyId],
+    });
+
+    if (result.rows.length === 0) return null;
+
+    const row = result.rows[0];
+    let features: Record<string, boolean> | null = null;
+    try {
+      features = JSON.parse(row.features as string);
+    } catch {
+      features = {};
+    }
+
+    return {
+      maxUsers: Number(row.max_users) || 0,
+      maxClients: Number(row.max_clients) || 0,
+      maxTasks: Number(row.max_tasks) || 0,
+      features,
+    };
+  } catch (e) {
+    console.error("[company-rules-edge] Errore lettura regole:", e);
+    return null;
+  }
+}
+
+/**
+ * Verifica se una feature è abilitata per una company (edge-safe).
+ * Restituisce true se abilitata o se non ci sono regole.
+ */
+export async function isFeatureEnabled(
+  companyId: string,
+  featureKey: string
+): Promise<boolean> {
+  const rules = await getCompanyRules(companyId);
+  // Nessuna regola → tutto permesso
+  if (!rules || !rules.features) return true;
+  // Se l'oggetto features è vuoto, tutto permesso
+  if (Object.keys(rules.features).length === 0) return true;
+  // Opt-in: abilitata solo se esplicitamente true
+  return rules.features[featureKey] === true;
+}
+</file>
+
 <file path="lib/utils.ts">
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -16409,7 +17455,7 @@ export async function POST(request: NextRequest) {
 
     // Verifica feature abilitata
     try {
-      await checkFeatureEnabled(authUser.companyId, "clienti");
+      await checkFeatureEnabled(authUser.companyId, "analisi");
     } catch (e) {
       if (e instanceof FeatureDisabledError) {
         return NextResponse.json({ error: e.message }, { status: 403 });
@@ -16474,7 +17520,7 @@ export async function GET() {
 
     // Verifica feature abilitata
     try {
-      await checkFeatureEnabled(authUser.companyId, "clienti");
+      await checkFeatureEnabled(authUser.companyId, "analisi");
     } catch (e) {
       if (e instanceof FeatureDisabledError) {
         return NextResponse.json({ error: e.message }, { status: 403 });
@@ -16975,7 +18021,7 @@ export async function GET(
 
     // Verifica feature abilitata
     try {
-      await checkFeatureEnabled(authUser.companyId, "email");
+      await checkFeatureEnabled(authUser.companyId, "template");
     } catch (e) {
       if (e instanceof FeatureDisabledError) {
         return NextResponse.json({ error: e.message }, { status: 403 });
@@ -17263,150 +18309,6 @@ export async function DELETE(
     console.error("Error deleting note:", error);
     return NextResponse.json(
       { error: "Errore nell'eliminazione della nota" },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
-<file path="app/api/note/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { notes, clients } from "@/lib/schema";
-import { noteSchema } from "@/types";
-import { eq, desc, like, and, gte, sql, or } from "drizzle-orm";
-import { getAuthUser } from "@/lib/auth";
-import { checkFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
-
-export async function GET(request: NextRequest) {
-  try {
-    const authUser = await getAuthUser();
-    if (!authUser) {
-      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
-    }
-
-    // Verifica feature abilitata
-    try {
-      await checkFeatureEnabled(authUser.companyId, "note");
-    } catch (e) {
-      if (e instanceof FeatureDisabledError) {
-        return NextResponse.json({ error: e.message }, { status: 403 });
-      }
-      throw e;
-    }
-
-    const companyId = authUser.companyId;
-
-    const { searchParams } = new URL(request.url);
-    const search = searchParams.get("search") || "";
-    const type = searchParams.get("type") || "";
-    const clientId = searchParams.get("clientId") || "";
-    const days = parseInt(searchParams.get("days") || "30");
-
-    const dateThreshold = new Date();
-    dateThreshold.setDate(dateThreshold.getDate() - days);
-
-    const conditions = [
-      gte(notes.createdAt, dateThreshold),
-      eq(notes.companyId, companyId),
-    ];
-
-    if (type) {
-      conditions.push(eq(notes.type, type as any));
-    }
-
-    if (clientId) {
-      conditions.push(eq(notes.clientId, clientId));
-    }
-
-    // Filtra per user_id se non admin: vede i non assegnati + i propri
-    if (authUser.role !== "admin") {
-      conditions.push(
-        sql`(${clients.userId} = ${authUser.id} OR ${clients.userId} IS NULL)`
-      );
-    }
-
-    const data = await db
-      .select({
-        id: notes.id,
-        content: notes.content,
-        type: notes.type,
-        author: notes.author,
-        clientId: notes.clientId,
-        createdAt: notes.createdAt,
-        updatedAt: notes.updatedAt,
-        clientName: clients.name,
-      })
-      .from(notes)
-      .leftJoin(clients, eq(notes.clientId, clients.id))
-      .where(
-        search
-          ? and(
-              ...conditions,
-              like(notes.content, `%${search}%`)
-            )
-          : and(...conditions)
-      )
-      .orderBy(desc(notes.createdAt));
-
-    return NextResponse.json(data);
-  } catch (error) {
-    console.error("Error fetching notes:", error);
-    return NextResponse.json(
-      { error: "Errore nel caricamento delle note" },
-      { status: 500 }
-    );
-  }
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const authUser = await getAuthUser();
-    if (!authUser) {
-      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
-    }
-
-    const body = await request.json();
-    const parsed = noteSchema.parse(body);
-
-    // Auto-assign: se utente non-admin e cliente senza userId, assegna a lui
-    if (authUser.role !== "admin" && body.clientId) {
-      const [client] = await db
-        .select({ userId: clients.userId })
-        .from(clients)
-        .where(eq(clients.id, body.clientId))
-        .limit(1);
-
-      if (client && !client.userId) {
-        await db
-          .update(clients)
-          .set({ userId: authUser.id, updatedAt: new Date() })
-          .where(eq(clients.id, body.clientId));
-      }
-    }
-
-    const [note] = await db
-      .insert(notes)
-      .values({
-        clientId: body.clientId,
-        content: parsed.content,
-        type: parsed.type,
-        author: parsed.author,
-        companyId: authUser.companyId,
-      })
-      .returning();
-
-    return NextResponse.json(note, { status: 201 });
-  } catch (error: any) {
-    if (error?.issues) {
-      return NextResponse.json(
-        { error: "Dati non validi", details: error.issues },
-        { status: 400 }
-      );
-    }
-    console.error("Error creating note:", error);
-    return NextResponse.json(
-      { error: "Errore nella creazione della nota" },
       { status: 500 }
     );
   }
@@ -17953,216 +18855,6 @@ export const APP_BUILD_NUMBER = buildNumber;
 export const APP_VERSION_LABEL = buildNumber
   ? `v${version}-${buildNumber}`
   : `v${version}`;
-</file>
-
-<file path="lib/auth.ts">
-import { SignJWT, jwtVerify } from "jose";
-import { cookies } from "next/headers";
-import { db } from "@/lib/db";
-import { users } from "@/lib/schema";
-import { eq } from "drizzle-orm";
-import bcrypt from "bcryptjs";
-import dayjs from "dayjs";
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "fallback-secret-change-in-production"
-);
-
-const COOKIE_NAME = "session";
-
-export type AuthUser = {
-  id: string;
-  email: string;
-  name: string;
-  role: "admin" | "user";
-  companyId: string;
-};
-
-/** Crea un JWT e lo salva nei cookie */
-export async function createSession(user: AuthUser): Promise<string> {
-  const token = await new SignJWT({ ...user })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime("7d")
-    .sign(JWT_SECRET);
-
-  const isProduction = process.env.NODE_ENV === "production";
-
-  const cookieStore = await cookies();
-  cookieStore.set(COOKIE_NAME, token, {
-    httpOnly: true,
-    // In sviluppo (NODE_ENV !== 'production') il cookie non è "secure" e usa
-    // sameSite "lax" per permettere il login su HTTP locale.
-    // In produzione il cookie è forzato secure: true (solo HTTPS).
-    secure: isProduction,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 7, // 7 giorni
-  });
-
-  console.log(
-    `[AUTH] Cookie di sessione creato per ${user.email} (role=${user.role}, companyId=${user.companyId}) - secure=${isProduction ? "true" : "false"}`
-  );
-
-  return token;
-}
-
-/** Distrugge la sessione cancellando il cookie */
-export async function destroySession() {
-  const cookieStore = await cookies();
-  cookieStore.set(COOKIE_NAME, "", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 0,
-  });
-}
-
-/** Legge e verifica il JWT dal cookie. Verifica l'utente sul DB e restituisce i dati aggiornati. */
-export async function getAuthUser(): Promise<AuthUser | null> {
-  try {
-    const cookieStore = await cookies();
-    const token = cookieStore.get(COOKIE_NAME)?.value;
-    if (!token) return null;
-
-    const { payload } = await jwtVerify(token, JWT_SECRET);
-    const tokenUser = payload as { id?: string };
-    if (!tokenUser?.id) return null;
-
-    // Usa sempre i dati aggiornati dal DB (companyId, ruolo, nome, ecc.)
-    // invece di fidarsi del token: evita che una sessione obsoleta
-    // (es. azienda riassegnata o ruolo cambiato) usi dati errati.
-    const [user] = await db
-      .select({
-        id: users.id,
-        email: users.email,
-        name: users.name,
-        role: users.role,
-        companyId: users.companyId,
-      })
-      .from(users)
-      .where(eq(users.id, tokenUser.id))
-      .limit(1);
-
-    if (!user) return null;
-
-    return {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      companyId: user.companyId,
-    };
-  } catch {
-    return null;
-  }
-}
-
-/** Verifica la password in chiaro contro l'hash */
-export async function verifyPassword(
-  plain: string,
-  hash: string
-): Promise<boolean> {
-  return bcrypt.compare(plain, hash);
-}
-
-/** Genera l'hash di una password */
-export async function hashPassword(plain: string): Promise<string> {
-  return bcrypt.hash(plain, 12);
-}
-
-/** Helper per API routes: estrae l'utente corrente o restituisce 401 */
-export async function requireAuth(): Promise<AuthUser> {
-  const user = await getAuthUser();
-  if (!user) {
-    throw new Error("Unauthorized");
-  }
-  return user;
-}
-
-/** Helper per API routes: richiede ruolo admin */
-export async function requireAdmin(): Promise<AuthUser> {
-  const user = await requireAuth();
-  if (user.role !== "admin") {
-    throw new Error("Forbidden");
-  }
-  return user;
-}
-
-/** Helper per API routes: restituisce il companyId dell'utente autenticato */
-export async function requireCompany(): Promise<string> {
-  const user = await requireAuth();
-  return user.companyId;
-}
-
-/** Genera un ID company predefinito (usato per migrazione) */
-export const DEFAULT_COMPANY_ID = "default-company-id";
-
-// ── Superuser ──
-
-const SUPER_JWT_SECRET = new TextEncoder().encode(
-  process.env.SUPER_JWT_SECRET || "super-secret-change-in-production"
-);
-
-const SUPER_COOKIE_NAME = "super_session";
-
-export const SUPERUSER_USERNAME = "ADMIN";
-
-export function generateSuperPassword(): string {
-  return `%${dayjs().format("DDMMYYYY")}%`;
-}
-
-export async function createSuperSession(): Promise<string> {
-  const token = await new SignJWT({ role: "superadmin" })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime("24h")
-    .sign(SUPER_JWT_SECRET);
-
-  const cookieStore = await cookies();
-  cookieStore.set(SUPER_COOKIE_NAME, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24, // 24 ore
-  });
-
-  return token;
-}
-
-export async function destroySuperSession() {
-  const cookieStore = await cookies();
-  cookieStore.set(SUPER_COOKIE_NAME, "", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 0,
-  });
-}
-
-export async function getSuperUser(): Promise<{ role: string } | null> {
-  try {
-    const cookieStore = await cookies();
-    const token = cookieStore.get(SUPER_COOKIE_NAME)?.value;
-    if (!token) return null;
-
-    const { payload } = await jwtVerify(token, SUPER_JWT_SECRET);
-    return payload as unknown as { role: string };
-  } catch {
-    return null;
-  }
-}
-
-export async function requireSuperUser(): Promise<{ role: string }> {
-  const su = await getSuperUser();
-  if (!su || su.role !== "superadmin") {
-    throw new Error("Unauthorized");
-  }
-  return su;
-}
 </file>
 
 <file path="lib/email-parser.ts">
@@ -20100,7 +20792,7 @@ export async function GET() {
 
     // Verifica feature abilitata
     try {
-      await checkFeatureEnabled(authUser.companyId, "email");
+      await checkFeatureEnabled(authUser.companyId, "template");
     } catch (e) {
       if (e instanceof FeatureDisabledError) {
         return NextResponse.json({ error: e.message }, { status: 403 });
@@ -20184,7 +20876,7 @@ export async function POST(request: NextRequest) {
 
     // Verifica feature abilitata (nessun controllo admin)
     try {
-      await checkFeatureEnabled(authUser.companyId, "email");
+      await checkFeatureEnabled(authUser.companyId, "template");
     } catch (e) {
       if (e instanceof FeatureDisabledError) {
         return NextResponse.json({ error: e.message }, { status: 403 });
@@ -20270,6 +20962,389 @@ export async function POST(request: NextRequest) {
       { status: 500, headers: corsHeaders() }
     );
   }
+}
+</file>
+
+<file path="app/api/note/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { notes, clients } from "@/lib/schema";
+import { noteSchema } from "@/types";
+import { eq, desc, like, and, gte, sql, or } from "drizzle-orm";
+import { getAuthUser } from "@/lib/auth";
+import { checkFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
+
+export async function GET(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    // Verifica feature abilitata
+    try {
+      await checkFeatureEnabled(authUser.companyId, "note");
+    } catch (e) {
+      if (e instanceof FeatureDisabledError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
+
+    const companyId = authUser.companyId;
+
+    const { searchParams } = new URL(request.url);
+    const search = searchParams.get("search") || "";
+    const type = searchParams.get("type") || "";
+    const clientId = searchParams.get("clientId") || "";
+    const days = parseInt(searchParams.get("days") || "30");
+
+    const dateThreshold = new Date();
+    dateThreshold.setDate(dateThreshold.getDate() - days);
+
+    const conditions = [
+      gte(notes.createdAt, dateThreshold),
+      eq(notes.companyId, companyId),
+    ];
+
+    if (type) {
+      conditions.push(eq(notes.type, type as any));
+    }
+
+    if (clientId) {
+      conditions.push(eq(notes.clientId, clientId));
+    }
+
+    // Filtra per user_id se non admin: vede i non assegnati + i propri
+    if (authUser.role !== "admin") {
+      conditions.push(
+        sql`(${clients.userId} = ${authUser.id} OR ${clients.userId} IS NULL)`
+      );
+    }
+
+    const data = await db
+      .select({
+        id: notes.id,
+        content: notes.content,
+        type: notes.type,
+        author: notes.author,
+        clientId: notes.clientId,
+        createdAt: notes.createdAt,
+        updatedAt: notes.updatedAt,
+        clientName: clients.name,
+      })
+      .from(notes)
+      .leftJoin(clients, eq(notes.clientId, clients.id))
+      .where(
+        search
+          ? and(
+              ...conditions,
+              like(notes.content, `%${search}%`)
+            )
+          : and(...conditions)
+      )
+      .orderBy(desc(notes.createdAt));
+
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error("Error fetching notes:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento delle note" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const parsed = noteSchema.parse(body);
+
+    // Validazione: il cliente deve appartenere alla company dell'utente (anti-IDOR)
+    if (body.clientId) {
+      const [client] = await db
+        .select({ userId: clients.userId })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, body.clientId),
+            eq(clients.companyId, authUser.companyId)
+          )
+        )
+        .limit(1);
+
+      if (!client) {
+        return NextResponse.json(
+          { error: "Cliente non trovato" },
+          { status: 404 }
+        );
+      }
+
+      // Auto-assign: se utente non-admin e cliente senza userId, assegna a lui
+      if (authUser.role !== "admin" && !client.userId) {
+        await db
+          .update(clients)
+          .set({ userId: authUser.id, updatedAt: new Date() })
+          .where(
+            and(
+              eq(clients.id, body.clientId),
+              eq(clients.companyId, authUser.companyId)
+            )
+          );
+      }
+    }
+
+    const [note] = await db
+      .insert(notes)
+      .values({
+        clientId: body.clientId,
+        content: parsed.content,
+        type: parsed.type,
+        author: parsed.author,
+        companyId: authUser.companyId,
+      })
+      .returning();
+
+    return NextResponse.json(note, { status: 201 });
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error creating note:", error);
+    return NextResponse.json(
+      { error: "Errore nella creazione della nota" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="lib/auth.ts">
+import { SignJWT, jwtVerify } from "jose";
+import { cookies } from "next/headers";
+import { db } from "@/lib/db";
+import { users } from "@/lib/schema";
+import { eq } from "drizzle-orm";
+import bcrypt from "bcryptjs";
+
+/** Legge il secret JWT da env; in produzione è obbligatorio (niente fallback hardcoded). */
+function getJwtSecret(name: "JWT_SECRET" | "SUPER_JWT_SECRET"): Uint8Array {
+  const secret = process.env[name];
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(`${name} non configurato in produzione`);
+    }
+    // In sviluppo: valore stabile ma NON sicuro (solo per il server locale)
+    return new TextEncoder().encode(
+      name === "JWT_SECRET"
+        ? "dev-insecure-jwt-secret"
+        : "dev-insecure-super-jwt-secret"
+    );
+  }
+  return new TextEncoder().encode(secret);
+}
+
+const JWT_SECRET = getJwtSecret("JWT_SECRET");
+
+const COOKIE_NAME = "session";
+
+export type AuthUser = {
+  id: string;
+  email: string;
+  name: string;
+  role: "admin" | "user";
+  companyId: string;
+};
+
+/** Crea un JWT e lo salva nei cookie */
+export async function createSession(user: AuthUser): Promise<string> {
+  const token = await new SignJWT({ ...user })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("7d")
+    .sign(JWT_SECRET);
+
+  const isProduction = process.env.NODE_ENV === "production";
+
+  const cookieStore = await cookies();
+  cookieStore.set(COOKIE_NAME, token, {
+    httpOnly: true,
+    // In sviluppo (NODE_ENV !== 'production') il cookie non è "secure" e usa
+    // sameSite "lax" per permettere il login su HTTP locale.
+    // In produzione il cookie è forzato secure: true (solo HTTPS).
+    secure: isProduction,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 7, // 7 giorni
+  });
+
+  console.log(
+    `[AUTH] Cookie di sessione creato per ${user.email} (role=${user.role}, companyId=${user.companyId}) - secure=${isProduction ? "true" : "false"}`
+  );
+
+  return token;
+}
+
+/** Distrugge la sessione cancellando il cookie */
+export async function destroySession() {
+  const cookieStore = await cookies();
+  cookieStore.set(COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
+  });
+}
+
+/** Legge e verifica il JWT dal cookie. Verifica l'utente sul DB e restituisce i dati aggiornati. */
+export async function getAuthUser(): Promise<AuthUser | null> {
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(COOKIE_NAME)?.value;
+    if (!token) return null;
+
+    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const tokenUser = payload as { id?: string };
+    if (!tokenUser?.id) return null;
+
+    // Usa sempre i dati aggiornati dal DB (companyId, ruolo, nome, ecc.)
+    // invece di fidarsi del token: evita che una sessione obsoleta
+    // (es. azienda riassegnata o ruolo cambiato) usi dati errati.
+    const [user] = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        name: users.name,
+        role: users.role,
+        companyId: users.companyId,
+      })
+      .from(users)
+      .where(eq(users.id, tokenUser.id))
+      .limit(1);
+
+    if (!user) return null;
+
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      companyId: user.companyId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Verifica la password in chiaro contro l'hash */
+export async function verifyPassword(
+  plain: string,
+  hash: string
+): Promise<boolean> {
+  return bcrypt.compare(plain, hash);
+}
+
+/** Genera l'hash di una password */
+export async function hashPassword(plain: string): Promise<string> {
+  return bcrypt.hash(plain, 12);
+}
+
+/** Helper per API routes: estrae l'utente corrente o restituisce 401 */
+export async function requireAuth(): Promise<AuthUser> {
+  const user = await getAuthUser();
+  if (!user) {
+    throw new Error("Unauthorized");
+  }
+  return user;
+}
+
+/** Helper per API routes: richiede ruolo admin */
+export async function requireAdmin(): Promise<AuthUser> {
+  const user = await requireAuth();
+  if (user.role !== "admin") {
+    throw new Error("Forbidden");
+  }
+  return user;
+}
+
+/** Helper per API routes: restituisce il companyId dell'utente autenticato */
+export async function requireCompany(): Promise<string> {
+  const user = await requireAuth();
+  return user.companyId;
+}
+
+/** Genera un ID company predefinito (usato per migrazione) */
+export const DEFAULT_COMPANY_ID = "default-company-id";
+
+// ── Superuser ──
+
+const SUPER_JWT_SECRET = getJwtSecret("SUPER_JWT_SECRET");
+
+const SUPER_COOKIE_NAME = "super_session";
+
+export const SUPERUSER_USERNAME = "ADMIN";
+
+/** Password superuser: letta SOLO da env (obbligatoria; nessuna derivazione prevedibile). */
+export const SUPER_PASSWORD = process.env.SUPER_PASSWORD;
+
+export async function createSuperSession(): Promise<string> {
+  const token = await new SignJWT({ role: "superadmin" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("24h")
+    .sign(SUPER_JWT_SECRET);
+
+  const cookieStore = await cookies();
+  cookieStore.set(SUPER_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24, // 24 ore
+  });
+
+  return token;
+}
+
+export async function destroySuperSession() {
+  const cookieStore = await cookies();
+  cookieStore.set(SUPER_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
+  });
+}
+
+export async function getSuperUser(): Promise<{ role: string } | null> {
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(SUPER_COOKIE_NAME)?.value;
+    if (!token) return null;
+
+    const { payload } = await jwtVerify(token, SUPER_JWT_SECRET);
+    return payload as unknown as { role: string };
+  } catch {
+    return null;
+  }
+}
+
+export async function requireSuperUser(): Promise<{ role: string }> {
+  const su = await getSuperUser();
+  if (!su || su.role !== "superadmin") {
+    throw new Error("Unauthorized");
+  }
+  return su;
 }
 </file>
 
@@ -21075,407 +22150,6 @@ export async function GET() {
 }
 </file>
 
-<file path="app/api/email/send/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthUser } from "@/lib/auth";
-import { db } from "@/lib/db";
-import {
-  emailLog,
-  imapSettings,
-  clients,
-  companySettings,
-  emailTemplates,
-} from "@/lib/schema";
-import { emailSchema } from "@/types";
-import { eq, and, desc } from "drizzle-orm";
-import { randomUUID } from "crypto";
-import { trackingPixelUrl } from "@/lib/tracking";
-import { optOutBlock } from "@/lib/opt-out";
-import { decrypt } from "@/lib/crypto";
-import nodemailer from "nodemailer";
-import { checkFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-/** GET: recupera le email inviate per un client */
-export async function GET(request: NextRequest) {
-  try {
-    const authUser = await getAuthUser();
-    if (!authUser) {
-      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
-    }
-
-    // Verifica feature abilitata
-    try {
-      await checkFeatureEnabled(authUser.companyId, "email");
-    } catch (e) {
-      if (e instanceof FeatureDisabledError) {
-        return NextResponse.json({ error: e.message }, { status: 403 });
-      }
-      throw e;
-    }
-
-    const { searchParams } = new URL(request.url);
-    const clientId = searchParams.get("clientId");
-
-    if (!clientId) {
-      return NextResponse.json(
-        { error: "clientId è obbligatorio" },
-        { status: 400 }
-      );
-    }
-
-    const emails = await db
-      .select()
-      .from(emailLog)
-      .where(eq(emailLog.clientId, clientId))
-      .orderBy(desc(emailLog.sentAt));
-
-    return NextResponse.json(emails);
-  } catch (error) {
-    console.error("Error fetching email logs:", error);
-    return NextResponse.json(
-      { error: "Errore nel caricamento delle email" },
-      { status: 500 }
-    );
-  }
-}
-
-/** POST: invia un'email via SMTP Aruba e salva nel log */
-export async function POST(request: NextRequest) {
-  try {
-    const authUser = await getAuthUser();
-    if (!authUser) {
-      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
-    }
-
-    const body = await request.json();
-    const { clientId, subject, body: emailBody, sender, templateId } = body;
-
-    if (!clientId) {
-      return NextResponse.json(
-        { error: "clientId è obbligatorio" },
-        { status: 400 }
-      );
-    }
-
-    const parsed = emailSchema.parse({ subject, body: emailBody, sender });
-
-    // Ottieni email del cliente
-    const [client] = await db
-      .select()
-      .from(clients)
-      .where(eq(clients.id, clientId))
-      .limit(1);
-
-    if (!client) {
-      return NextResponse.json(
-        { error: "Cliente non trovato" },
-        { status: 404 }
-      );
-    }
-
-    if (!client.email) {
-      return NextResponse.json(
-        { error: "Il cliente non ha un indirizzo email" },
-        { status: 400 }
-      );
-    }
-
-    // Controllo consenso email (opt-out)
-    if (client.emailConsent === false) {
-      return NextResponse.json(
-        { error: "Cliente non consenziente" },
-        { status: 400 }
-      );
-    }
-
-    // Sostituisci placeholder (@name, @company, @oggetto, @data)
-    const today = new Date().toLocaleDateString("it-IT", {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
-    const replaceTags = (text: string) =>
-      text
-        .replace(/@name/g, client.name || "")
-        .replace(/@company/g, client.company || "")
-        .replace(/@data/g, today);
-
-    const resolvedSubject = replaceTags(parsed.subject);
-    let resolvedBody = replaceTags(parsed.body);
-
-    // Recupera il template (se indicato) per l'immagine footer
-    let templateFooterImageUrl: string | null = null;
-    if (templateId) {
-      const [tmpl] = await db
-        .select()
-        .from(emailTemplates)
-        .where(
-          and(
-            eq(emailTemplates.id, templateId),
-            eq(emailTemplates.companyId, authUser.companyId)
-          )
-        )
-        .limit(1);
-      if (tmpl) templateFooterImageUrl = tmpl.footerImageUrl ?? null;
-    }
-
-    // Immagine footer del template (se configurata) — prima del footer azienda
-    if (templateFooterImageUrl) {
-      resolvedBody += `
-<div style="margin-top:32px;text-align:center">
-  <img src="${templateFooterImageUrl}" alt="" style="max-width:100%;height:auto" />
-</div>`;
-    }
-
-    // Link opt-out (prima del footer azienda)
-    resolvedBody += optOutBlock(client.id);
-
-    // Footer dati azienda
-    const [companyRow] = await db
-      .select()
-      .from(companySettings)
-      .where(eq(companySettings.companyId, authUser.companyId))
-      .limit(1);
-
-    if (companyRow?.footerAttivo && companyRow.denominazione) {
-      const parts = [
-        companyRow.denominazione,
-        [companyRow.indirizzo, companyRow.città, companyRow.provincia].filter(Boolean).join(", ") +
-          (companyRow.cap ? ` ${companyRow.cap}` : ""),
-        `Tel: ${companyRow.telefono} - Email: ${companyRow.email}`,
-        `P.IVA: ${companyRow.piva} - C.F.: ${companyRow.cf}`,
-      ].filter(Boolean);
-
-      if (parts.length > 0) {
-        const footer = `
-<hr />
-<div style="text-align:center;font-size:12px;color:#888;">
-${parts.join("<br />")}
-</div>`;
-        resolvedBody += footer;
-      }
-    }
-
-    // Tracking: UUID univoco + pixel invisibile in coda all'email
-    const trackingId = randomUUID();
-    resolvedBody += `<img src="${trackingPixelUrl(trackingId)}" alt="" width="1" height="1" style="display:none" />`;
-
-    // Leggi configurazione SMTP da imap_settings (della company corrente)
-    const rows = await db
-      .select()
-      .from(imapSettings)
-      .where(eq(imapSettings.companyId, authUser.companyId))
-      .limit(1);
-
-    if (rows.length === 0 || !rows[0].imapHost || !rows[0].imapPort || !rows[0].user || !rows[0].password) {
-      return NextResponse.json(
-        { error: "Configurazione SMTP mancante. Vai su Impostazioni per configurarla." },
-        { status: 500 }
-      );
-    }
-
-    const row = rows[0];
-    const smtpHost = row.smtpHost ? decrypt(row.smtpHost) : decrypt(row.imapHost);
-    const smtpPortStr = row.smtpPort ? decrypt(row.smtpPort) : decrypt(row.imapPort);
-    const smtpPort = parseInt(smtpPortStr, 10);
-    const smtpSecure = row.smtpSecure ?? (smtpPort === 465);
-
-    const transporter = nodemailer.createTransport({
-      host: smtpHost,
-      port: smtpPort,
-      secure: smtpSecure,
-      auth: {
-        user: decrypt(row.user),
-        pass: decrypt(row.password),
-      },
-    });
-
-    let status: "sent" | "pending" | "failed" = "sent";
-    let sentAt = new Date();
-
-    try {
-      await transporter.sendMail({
-        from: `"${authUser.name}" <${parsed.sender}>`,
-        to: client.email,
-        subject: resolvedSubject,
-        html: resolvedBody,
-      });
-    } catch (sendErr) {
-      console.error("[EMAIL-SEND] SMTP error:", sendErr);
-      status = "failed";
-    }
-
-    // Salva nel log
-    const [saved] = await db
-      .insert(emailLog)
-      .values({
-        clientId,
-        subject: resolvedSubject,
-        body: resolvedBody,
-        sender: parsed.sender,
-        author: authUser.name,
-        status,
-        sentAt,
-        trackingId,
-        companyId: authUser.companyId,
-      })
-      .returning();
-
-    // Segna come consegnata se l'invio è riuscito
-    if (status === "sent" && saved) {
-      await db
-        .update(emailLog)
-        .set({ deliveredAt: new Date() })
-        .where(eq(emailLog.id, saved.id));
-    }
-
-    return NextResponse.json(saved, { status: 201 });
-  } catch (error: any) {
-    if (error?.issues) {
-      return NextResponse.json(
-        { error: "Dati non validi", details: error.issues },
-        { status: 400 }
-      );
-    }
-    console.error("Error sending email:", error);
-    return NextResponse.json(
-      { error: "Errore nell'invio dell'email" },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
-<file path="app/api/imap-settings/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { imapSettings } from "@/lib/schema";
-import { encrypt, decrypt } from "@/lib/crypto";
-import { eq, and } from "drizzle-orm";
-import { getAuthUser } from "@/lib/auth";
-import { checkAdminFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-/** GET: recupera le impostazioni IMAP/SMTP (decriptate) per la company corrente */
-export async function GET() {
-  try {
-    const authUser = await getAuthUser();
-    if (!authUser) {
-      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
-    }
-
-    // Verifica feature admin
-    try {
-      await checkAdminFeatureEnabled(authUser.companyId, "configurazione_email");
-    } catch (e) {
-      if (e instanceof FeatureDisabledError) {
-        return NextResponse.json({ error: e.message }, { status: 403 });
-      }
-      throw e;
-    }
-
-    const rows = await db
-      .select()
-      .from(imapSettings)
-      .where(eq(imapSettings.companyId, authUser.companyId))
-      .limit(1);
-
-    if (rows.length === 0) {
-      return NextResponse.json({ settings: null });
-    }
-
-    const row = rows[0];
-    const settings = {
-      id: row.id,
-      imapHost: decrypt(row.imapHost),
-      imapPort: decrypt(row.imapPort),
-      user: decrypt(row.user),
-      password: decrypt(row.password),
-      filterFrom: decrypt(row.filterFrom),
-      filterSubject: decrypt(row.filterSubject),
-      smtpHost: row.smtpHost ? decrypt(row.smtpHost) : null,
-      smtpPort: row.smtpPort ? decrypt(row.smtpPort) : null,
-      smtpSecure: row.smtpSecure ?? false,
-    };
-
-    return NextResponse.json({ settings });
-  } catch (error: any) {
-    console.error("Errore lettura impostazioni IMAP:", error);
-    return NextResponse.json(
-      { error: `Errore: ${error.message || "Errore sconosciuto"}` },
-      { status: 500 }
-    );
-  }
-}
-
-/** PUT: salva (upsert) le impostazioni IMAP/SMTP (criptate) per la company corrente */
-export async function PUT(request: NextRequest) {
-  try {
-    const authUser = await getAuthUser();
-    if (!authUser) {
-      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
-    }
-
-    const body = await request.json();
-    const { imapHost, imapPort, user, password, filterFrom, filterSubject, smtpHost, smtpPort, smtpSecure } = body;
-
-    if (!imapHost || !imapPort || !user || !password) {
-      return NextResponse.json(
-        { error: "I campi imapHost, imapPort, user e password sono obbligatori" },
-        { status: 400 }
-      );
-    }
-
-    const encrypted = {
-      imapHost: encrypt(imapHost),
-      imapPort: encrypt(imapPort),
-      user: encrypt(user),
-      password: encrypt(password),
-      filterFrom: encrypt(filterFrom || ""),
-      filterSubject: encrypt(filterSubject || ""),
-      smtpHost: smtpHost ? encrypt(smtpHost) : null,
-      smtpPort: smtpPort ? encrypt(smtpPort) : null,
-      smtpSecure: smtpSecure ?? false,
-      companyId: authUser.companyId,
-    };
-
-    // Upsert: verifica se esiste già una riga per questa company
-    const existing = await db
-      .select()
-      .from(imapSettings)
-      .where(eq(imapSettings.companyId, authUser.companyId))
-      .limit(1);
-
-    if (existing.length > 0) {
-      await db
-        .update(imapSettings)
-        .set({ ...encrypted, updatedAt: new Date() })
-        .where(eq(imapSettings.id, existing[0].id));
-    } else {
-      // id univoco per azienda: evita il conflitto di chiave primaria
-      // (l'id fisso "default" permetteva una sola riga in tutta la tabella)
-      await db.insert(imapSettings).values({
-        ...encrypted,
-        id: authUser.companyId,
-      });
-    }
-
-    return NextResponse.json({ success: true });
-  } catch (error: any) {
-    console.error("Errore salvataggio impostazioni IMAP:", error);
-    return NextResponse.json(
-      { error: `Errore: ${error.message || "Errore sconosciuto"}` },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
 <file path="middleware.ts">
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
@@ -21956,6 +22630,423 @@ export default function DashboardPage() {
 }
 </file>
 
+<file path="app/api/email/send/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { getAuthUser } from "@/lib/auth";
+import { db } from "@/lib/db";
+import {
+  emailLog,
+  imapSettings,
+  clients,
+  companySettings,
+  emailTemplates,
+} from "@/lib/schema";
+import { emailSchema } from "@/types";
+import { eq, and, desc } from "drizzle-orm";
+import { randomUUID } from "crypto";
+import { trackingPixelUrl } from "@/lib/tracking";
+import { optOutBlock } from "@/lib/opt-out";
+import { decrypt } from "@/lib/crypto";
+import nodemailer from "nodemailer";
+import { checkFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/** GET: recupera le email inviate per un client */
+export async function GET(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    // Verifica feature abilitata
+    try {
+      await checkFeatureEnabled(authUser.companyId, "email");
+    } catch (e) {
+      if (e instanceof FeatureDisabledError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
+
+    const { searchParams } = new URL(request.url);
+    const clientId = searchParams.get("clientId");
+
+    if (!clientId) {
+      return NextResponse.json(
+        { error: "clientId è obbligatorio" },
+        { status: 400 }
+      );
+    }
+
+    const emails = await db
+      .select()
+      .from(emailLog)
+      .where(
+        and(
+          eq(emailLog.clientId, clientId),
+          eq(emailLog.companyId, authUser.companyId)
+        )
+      )
+      .orderBy(desc(emailLog.sentAt));
+
+    return NextResponse.json(emails);
+  } catch (error) {
+    console.error("Error fetching email logs:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento delle email" },
+      { status: 500 }
+    );
+  }
+}
+
+/** POST: invia un'email via SMTP Aruba e salva nel log */
+export async function POST(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { clientId, subject, body: emailBody, sender, templateId } = body;
+
+    if (!clientId) {
+      return NextResponse.json(
+        { error: "clientId è obbligatorio" },
+        { status: 400 }
+      );
+    }
+
+    const parsed = emailSchema.parse({ subject, body: emailBody, sender });
+
+    // Ottieni email del cliente (scoped per company)
+    const [client] = await db
+      .select()
+      .from(clients)
+      .where(
+        and(
+          eq(clients.id, clientId),
+          eq(clients.companyId, authUser.companyId)
+        )
+      )
+      .limit(1);
+
+    if (!client) {
+      return NextResponse.json(
+        { error: "Cliente non trovato" },
+        { status: 404 }
+      );
+    }
+
+    if (!client.email) {
+      return NextResponse.json(
+        { error: "Il cliente non ha un indirizzo email" },
+        { status: 400 }
+      );
+    }
+
+    // Controllo consenso email (opt-out)
+    if (client.emailConsent === false) {
+      return NextResponse.json(
+        { error: "Cliente non consenziente" },
+        { status: 400 }
+      );
+    }
+
+    // Sostituisci placeholder (@name, @company, @oggetto, @data)
+    const today = new Date().toLocaleDateString("it-IT", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+    const replaceTags = (text: string) =>
+      text
+        .replace(/@name/g, client.name || "")
+        .replace(/@company/g, client.company || "")
+        .replace(/@data/g, today);
+
+    const resolvedSubject = replaceTags(parsed.subject);
+    let resolvedBody = replaceTags(parsed.body);
+
+    // Recupera il template (se indicato) per l'immagine footer
+    let templateFooterImageUrl: string | null = null;
+    if (templateId) {
+      const [tmpl] = await db
+        .select()
+        .from(emailTemplates)
+        .where(
+          and(
+            eq(emailTemplates.id, templateId),
+            eq(emailTemplates.companyId, authUser.companyId)
+          )
+        )
+        .limit(1);
+      if (tmpl) templateFooterImageUrl = tmpl.footerImageUrl ?? null;
+    }
+
+    // Immagine footer del template (se configurata) — prima del footer azienda
+    if (templateFooterImageUrl) {
+      resolvedBody += `
+<div style="margin-top:32px;text-align:center">
+  <img src="${templateFooterImageUrl}" alt="" style="max-width:100%;height:auto" />
+</div>`;
+    }
+
+    // Link opt-out (prima del footer azienda)
+    resolvedBody += optOutBlock(client.id);
+
+    // Footer dati azienda
+    const [companyRow] = await db
+      .select()
+      .from(companySettings)
+      .where(eq(companySettings.companyId, authUser.companyId))
+      .limit(1);
+
+    if (companyRow?.footerAttivo && companyRow.denominazione) {
+      const parts = [
+        companyRow.denominazione,
+        [companyRow.indirizzo, companyRow.città, companyRow.provincia].filter(Boolean).join(", ") +
+          (companyRow.cap ? ` ${companyRow.cap}` : ""),
+        `Tel: ${companyRow.telefono} - Email: ${companyRow.email}`,
+        `P.IVA: ${companyRow.piva} - C.F.: ${companyRow.cf}`,
+      ].filter(Boolean);
+
+      if (parts.length > 0) {
+        const footer = `
+<hr />
+<div style="text-align:center;font-size:12px;color:#888;">
+${parts.join("<br />")}
+</div>`;
+        resolvedBody += footer;
+      }
+    }
+
+    // Tracking: UUID univoco + pixel invisibile in coda all'email
+    const trackingId = randomUUID();
+    resolvedBody += `<img src="${trackingPixelUrl(trackingId)}" alt="" width="1" height="1" style="display:none" />`;
+
+    // Leggi configurazione SMTP da imap_settings (della company corrente)
+    const rows = await db
+      .select()
+      .from(imapSettings)
+      .where(eq(imapSettings.companyId, authUser.companyId))
+      .limit(1);
+
+    if (rows.length === 0 || !rows[0].imapHost || !rows[0].imapPort || !rows[0].user || !rows[0].password) {
+      return NextResponse.json(
+        { error: "Configurazione SMTP mancante. Vai su Impostazioni per configurarla." },
+        { status: 500 }
+      );
+    }
+
+    const row = rows[0];
+    const smtpHost = row.smtpHost ? decrypt(row.smtpHost) : decrypt(row.imapHost);
+    const smtpPortStr = row.smtpPort ? decrypt(row.smtpPort) : decrypt(row.imapPort);
+    const smtpPort = parseInt(smtpPortStr, 10);
+    const smtpSecure = row.smtpSecure ?? (smtpPort === 465);
+
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
+      auth: {
+        user: decrypt(row.user),
+        pass: decrypt(row.password),
+      },
+    });
+
+    let status: "sent" | "pending" | "failed" = "sent";
+    let sentAt = new Date();
+
+    try {
+      await transporter.sendMail({
+        from: `"${authUser.name}" <${parsed.sender}>`,
+        to: client.email,
+        subject: resolvedSubject,
+        html: resolvedBody,
+      });
+    } catch (sendErr) {
+      console.error("[EMAIL-SEND] SMTP error:", sendErr);
+      status = "failed";
+    }
+
+    // Salva nel log
+    const [saved] = await db
+      .insert(emailLog)
+      .values({
+        clientId,
+        subject: resolvedSubject,
+        body: resolvedBody,
+        sender: parsed.sender,
+        author: authUser.name,
+        status,
+        sentAt,
+        trackingId,
+        companyId: authUser.companyId,
+      })
+      .returning();
+
+    // Segna come consegnata se l'invio è riuscito
+    if (status === "sent" && saved) {
+      await db
+        .update(emailLog)
+        .set({ deliveredAt: new Date() })
+        .where(eq(emailLog.id, saved.id));
+    }
+
+    return NextResponse.json(saved, { status: 201 });
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error sending email:", error);
+    return NextResponse.json(
+      { error: "Errore nell'invio dell'email" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/imap-settings/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { imapSettings } from "@/lib/schema";
+import { encrypt, decrypt } from "@/lib/crypto";
+import { eq, and } from "drizzle-orm";
+import { getAuthUser, requireAdmin } from "@/lib/auth";
+import { checkAdminFeatureEnabled, FeatureDisabledError } from "@/lib/company-rules";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/** GET: recupera le impostazioni IMAP/SMTP (decriptate) per la company corrente */
+export async function GET() {
+  try {
+    const authUser = await requireAdmin();
+
+    // Verifica feature admin
+    try {
+      await checkAdminFeatureEnabled(authUser.companyId, "configurazione_email");
+    } catch (e) {
+      if (e instanceof FeatureDisabledError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
+
+    const rows = await db
+      .select()
+      .from(imapSettings)
+      .where(eq(imapSettings.companyId, authUser.companyId))
+      .limit(1);
+
+    if (rows.length === 0) {
+      return NextResponse.json({ settings: null });
+    }
+
+    const row = rows[0];
+    const settings = {
+      id: row.id,
+      imapHost: decrypt(row.imapHost),
+      imapPort: decrypt(row.imapPort),
+      user: decrypt(row.user),
+      password: decrypt(row.password),
+      filterFrom: decrypt(row.filterFrom),
+      filterSubject: decrypt(row.filterSubject),
+      smtpHost: row.smtpHost ? decrypt(row.smtpHost) : null,
+      smtpPort: row.smtpPort ? decrypt(row.smtpPort) : null,
+      smtpSecure: row.smtpSecure ?? false,
+    };
+
+    return NextResponse.json({ settings });
+  } catch (error: any) {
+    if (error?.message === "Unauthorized") {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+    if (error?.message === "Forbidden") {
+      return NextResponse.json({ error: "Non autorizzato" }, { status: 403 });
+    }
+    console.error("Errore lettura impostazioni IMAP:", error);
+    return NextResponse.json(
+      { error: `Errore: ${error.message || "Errore sconosciuto"}` },
+      { status: 500 }
+    );
+  }
+}
+
+/** PUT: salva (upsert) le impostazioni IMAP/SMTP (criptate) per la company corrente */
+export async function PUT(request: NextRequest) {
+  try {
+    const authUser = await requireAdmin();
+
+    const body = await request.json();
+    const { imapHost, imapPort, user, password, filterFrom, filterSubject, smtpHost, smtpPort, smtpSecure } = body;
+
+    if (!imapHost || !imapPort || !user || !password) {
+      return NextResponse.json(
+        { error: "I campi imapHost, imapPort, user e password sono obbligatori" },
+        { status: 400 }
+      );
+    }
+
+    const encrypted = {
+      imapHost: encrypt(imapHost),
+      imapPort: encrypt(imapPort),
+      user: encrypt(user),
+      password: encrypt(password),
+      filterFrom: encrypt(filterFrom || ""),
+      filterSubject: encrypt(filterSubject || ""),
+      smtpHost: smtpHost ? encrypt(smtpHost) : null,
+      smtpPort: smtpPort ? encrypt(smtpPort) : null,
+      smtpSecure: smtpSecure ?? false,
+      companyId: authUser.companyId,
+    };
+
+    // Upsert: verifica se esiste già una riga per questa company
+    const existing = await db
+      .select()
+      .from(imapSettings)
+      .where(eq(imapSettings.companyId, authUser.companyId))
+      .limit(1);
+
+    if (existing.length > 0) {
+      await db
+        .update(imapSettings)
+        .set({ ...encrypted, updatedAt: new Date() })
+        .where(eq(imapSettings.id, existing[0].id));
+    } else {
+      // id univoco per azienda: evita il conflitto di chiave primaria
+      // (l'id fisso "default" permetteva una sola riga in tutta la tabella)
+      await db.insert(imapSettings).values({
+        ...encrypted,
+        id: authUser.companyId,
+      });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    if (error?.message === "Unauthorized") {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+    if (error?.message === "Forbidden") {
+      return NextResponse.json({ error: "Non autorizzato" }, { status: 403 });
+    }
+    console.error("Errore salvataggio impostazioni IMAP:", error);
+    return NextResponse.json(
+      { error: `Errore: ${error.message || "Errore sconosciuto"}` },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
 <file path="components/topbar.tsx">
 "use client";
 
@@ -22294,6 +23385,293 @@ export function Topbar({ onMenuClick }: TopbarProps) {
 }
 </file>
 
+<file path="app/api/clients/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { clients, tasks } from "@/lib/schema";
+import { clientSchema } from "@/types";
+import { eq, desc, sql } from "drizzle-orm";
+import { getAuthUser, requireCompany } from "@/lib/auth";
+import { buildClientWhere } from "@/lib/client-filters";
+import {
+  checkMaxClients,
+  MaxLimitError,
+  checkFeatureEnabled,
+  FeatureDisabledError,
+} from "@/lib/company-rules";
+
+export async function GET(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    // Verifica feature abilitata
+    try {
+      await checkFeatureEnabled(authUser.companyId, "clienti");
+    } catch (e) {
+      if (e instanceof FeatureDisabledError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
+
+    const { searchParams } = new URL(request.url);
+    const sort = searchParams.get("sort") || "createdAt";
+    const order = searchParams.get("order") || "desc";
+    const page = parseInt(searchParams.get("page") || "1");
+    const limit = parseInt(searchParams.get("limit") || "10");
+    const offset = (page - 1) * limit;
+
+    // Filtri anagrafici + task + note (EXISTS), con scoping per ruolo utente
+    const where = buildClientWhere(authUser, searchParams);
+
+    const orderBy =
+      order === "asc"
+        ? (sql`${clients[sort as keyof typeof clients]} ASC` as any)
+        : (sql`${clients[sort as keyof typeof clients]} DESC` as any);
+
+    const data = await db
+      .select()
+      .from(clients)
+      .where(where)
+      .orderBy(orderBy)
+      .limit(limit)
+      .offset(offset);
+
+    const totalResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(clients)
+      .where(where);
+
+    const total = Number(totalResult[0]?.count || 0);
+
+    return NextResponse.json({ data, total, page, limit });
+  } catch (error) {
+    console.error("Error fetching clients:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento dei clienti" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    // Controlla limite massimo clienti
+    try {
+      await checkMaxClients(authUser.companyId);
+    } catch (e) {
+      if (e instanceof MaxLimitError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
+
+    const body = await request.json();
+    const parsed = clientSchema.parse(body);
+
+    const [client] = await db
+      .insert(clients)
+      .values({
+        name: parsed.name,
+        email: parsed.email || null,
+        phone: parsed.phone || null,
+        company: parsed.company || null,
+        status: parsed.status,
+        categoria: parsed.categoria || null,
+        notes: parsed.notes || null,
+        userId: authUser.role === "admin" ? null : authUser.id,
+        companyId: authUser.companyId,
+      })
+      .returning();
+
+    // Auto-create tasks for suspect and won
+    if (client.status === "suspect") {
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 3);
+      await db.insert(tasks).values({
+        clientId: client.id,
+        title: "Chiamata qualificazione",
+        description: "Chiamata di qualificazione per il nuovo suspect",
+        dueDate,
+        priority: "high",
+        companyId: authUser.companyId,
+      });
+    }
+
+    if (client.status === "won") {
+      const dueContract = new Date();
+      dueContract.setDate(dueContract.getDate() + 2);
+      const dueOnboarding = new Date();
+      dueOnboarding.setDate(dueOnboarding.getDate() + 7);
+
+      await db.insert(tasks).values([
+        {
+          clientId: client.id,
+          title: "Invia contratto",
+          description: "Inviare il contratto al cliente",
+          dueDate: dueContract,
+          priority: "high",
+          companyId: authUser.companyId,
+        },
+        {
+          clientId: client.id,
+          title: "Onboarding",
+          description: "Completare l'onboarding del cliente",
+          dueDate: dueOnboarding,
+          priority: "medium",
+          companyId: authUser.companyId,
+        },
+      ]);
+    }
+
+    return NextResponse.json(client, { status: 201 });
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error creating client:", error);
+    return NextResponse.json(
+      { error: "Errore nella creazione del cliente" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="types/index.ts">
+import { z } from "zod";
+
+// ── Utente ──
+export const userRoles = ["admin", "user"] as const;
+export type UserRole = (typeof userRoles)[number];
+
+export const userSchema = z.object({
+  email: z.string().email("Email non valida"),
+  password: z.string().min(6, "Minimo 6 caratteri").optional().or(z.literal("")),
+  name: z.string().min(1, "Il nome è obbligatorio"),
+  role: z.enum(userRoles).default("user"),
+  isActive: z.boolean().default(true),
+});
+
+export type UserFormData = z.infer<typeof userSchema>;
+
+// ── Login ──
+export const loginSchema = z.object({
+  email: z.string().email("Email non valida"),
+  password: z.string().min(1, "La password è obbligatoria"),
+});
+
+export type LoginFormData = z.infer<typeof loginSchema>;
+
+// ── Client ──
+export const clientStatuses = ["lead", "suspect", "won", "closed_lost"] as const;
+export type ClientStatus = (typeof clientStatuses)[number];
+
+export const clientCategories = [
+  "Palestra",
+  "PT",
+  "Piscina",
+  "Osteopata",
+  "Fisioterapista",
+  "Nutrizionista",
+  "Altro",
+] as const;
+
+export const clientSchema = z.object({
+  name: z.string().min(1, "Il nome è obbligatorio"),
+  email: z.string().email("Email non valida").optional().or(z.literal("")),
+  phone: z.string().optional().or(z.literal("")),
+  company: z.string().optional().or(z.literal("")),
+  status: z.enum(clientStatuses).default("lead"),
+  categoria: z.string().optional().or(z.literal("")),
+  notes: z.string().optional().or(z.literal("")),
+});
+
+export type ClientFormData = z.infer<typeof clientSchema>;
+
+// ── Note ──
+export const noteTypes = ["conversazione", "promemoria", "decisione"] as const;
+export type NoteType = (typeof noteTypes)[number];
+
+export const noteSchema = z.object({
+  content: z.string().min(1, "Il contenuto è obbligatorio"),
+  type: z.enum(noteTypes).default("conversazione"),
+  author: z.string().min(1, "L'autore è obbligatorio").default("Utente"),
+});
+
+export type NoteFormData = z.infer<typeof noteSchema>;
+
+// ── Task ──
+export const taskStatuses = [
+  "todo",
+  "in_progress",
+  "completed",
+  "cancelled",
+] as const;
+export type TaskStatus = (typeof taskStatuses)[number];
+
+export const priorities = ["low", "medium", "high"] as const;
+export type Priority = (typeof priorities)[number];
+
+export const taskSchema = z.object({
+  title: z.string().min(1, "Il titolo è obbligatorio"),
+  description: z.string().optional().or(z.literal("")),
+  dueDate: z.string().optional().or(z.literal("")),
+  status: z.enum(taskStatuses).default("todo"),
+  priority: z.enum(priorities).default("medium"),
+});
+
+export type TaskFormData = z.infer<typeof taskSchema>;
+
+// ── Email Log ──
+export const emailStatuses = ["sent", "pending", "failed"] as const;
+export type EmailStatus = (typeof emailStatuses)[number];
+
+export const emailSchema = z.object({
+  subject: z.string().min(1, "L'oggetto è obbligatorio"),
+  body: z.string().min(1, "Il corpo è obbligatorio"),
+  sender: z.string().email("Email mittente non valida"),
+});
+
+export type EmailFormData = z.infer<typeof emailSchema>;
+
+// ── Email Template ──
+export const emailTemplateSchema = z.object({
+  name: z.string().min(1, "Il nome è obbligatorio"),
+  subject: z.string().min(1, "L'oggetto è obbligatorio"),
+  bodyHtml: z.string().min(1, "Il corpo è obbligatorio"),
+  footerImageUrl: z.string().optional(),
+});
+
+export type EmailTemplateFormData = z.infer<typeof emailTemplateSchema>;
+
+// ── Transizioni status ──
+export const allowedTransitions: Record<ClientStatus, ClientStatus[]> = {
+  lead: ["suspect", "won", "closed_lost"],
+  suspect: ["lead", "won", "closed_lost"],
+  won: [],
+  closed_lost: ["lead", "suspect", "won"],
+};
+
+export function requiresNoteForTransition(
+  from: ClientStatus,
+  to: ClientStatus
+): boolean {
+  return (from === "lead" || from === "suspect") && to === "closed_lost";
+}
+</file>
+
 <file path="app/(dashboard)/clienti/page.tsx">
 "use client";
 
@@ -22387,6 +23765,9 @@ export default function ClientiPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [categoriaFilter, setCategoriaFilter] = useState("all");
   const [consentFilter, setConsentFilter] = useState("all"); // all | true | false
+  const [assignedToFilter, setAssignedToFilter] = useState("all"); // all | __none__ | userId
+  const [usersList, setUsersList] = useState<{ id: string; name: string }[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [sort, setSort] = useState("createdAt");
   const [order, setOrder] = useState("desc");
   const [loading, setLoading] = useState(true);
@@ -22421,6 +23802,7 @@ export default function ClientiPage() {
       if (categoriaFilter && categoriaFilter !== "all")
         params.set("categoria", categoriaFilter);
       if (consentFilter !== "all") params.set("consent", consentFilter);
+      if (assignedToFilter !== "all") params.set("userId", assignedToFilter);
 
       const res = await fetch(`/api/clients?${params}`);
       const data = await res.json();
@@ -22435,13 +23817,16 @@ export default function ClientiPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, statusFilter, categoriaFilter, consentFilter, sort, order, toast]);
+  }, [page, limit, search, statusFilter, categoriaFilter, consentFilter, assignedToFilter, sort, order, toast]);
 
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => r.json())
       .then((json) => {
-        if (json.user) setCurrentUserId(json.user.id);
+        if (json.user) {
+          setCurrentUserId(json.user.id);
+          setIsAdmin(json.user.role === "admin");
+        }
       })
       .catch(() => {});
 
@@ -22453,6 +23838,13 @@ export default function ClientiPage() {
           json.data.forEach((u: any) => { map[u.id] = u.name; });
           setUsersMap(map);
         }
+      })
+      .catch(() => {});
+
+    fetch("/api/users/names")
+      .then((r) => r.json())
+      .then((json) => {
+        if (Array.isArray(json.data)) setUsersList(json.data);
       })
       .catch(() => {});
 
@@ -22657,6 +24049,28 @@ export default function ClientiPage() {
             <SelectItem value="false">Solo non consenzienti</SelectItem>
           </SelectContent>
         </Select>
+        {isAdmin && (
+          <Select
+            value={assignedToFilter}
+            onValueChange={(v) => {
+              setAssignedToFilter(v);
+              setPage(1);
+            }}
+          >
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue placeholder="Assegnato a" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tutti</SelectItem>
+              <SelectItem value="__none__">Non assegnato</SelectItem>
+              {usersList.map((u) => (
+                <SelectItem key={u.id} value={u.id}>
+                  {u.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {/* Table */}
@@ -22679,7 +24093,15 @@ export default function ClientiPage() {
                 </div>
               </TableHead>
               <TableHead className="hidden sm:table-cell">Contatti</TableHead>
-              <TableHead className="hidden sm:table-cell">Assegnato a</TableHead>
+              <TableHead
+                className="hidden sm:table-cell cursor-pointer"
+                onClick={() => toggleSort("userId")}
+              >
+                <div className="flex items-center gap-1">
+                  Assegnato a
+                  <ArrowUpDown className="h-3 w-3" />
+                </div>
+              </TableHead>
               <TableHead className="hidden sm:table-cell">Consenso</TableHead>
               <TableHead>Azioni</TableHead>
             </TableRow>
@@ -22938,494 +24360,6 @@ export default function ClientiPage() {
       </Dialog>
     </div>
   );
-}
-</file>
-
-<file path="app/api/clients/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { clients, tasks } from "@/lib/schema";
-import { clientSchema } from "@/types";
-import { eq, desc, sql } from "drizzle-orm";
-import { getAuthUser, requireCompany } from "@/lib/auth";
-import { buildClientWhere } from "@/lib/client-filters";
-import {
-  checkMaxClients,
-  MaxLimitError,
-  checkFeatureEnabled,
-  FeatureDisabledError,
-} from "@/lib/company-rules";
-
-export async function GET(request: NextRequest) {
-  try {
-    const authUser = await getAuthUser();
-    if (!authUser) {
-      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
-    }
-
-    // Verifica feature abilitata
-    try {
-      await checkFeatureEnabled(authUser.companyId, "clienti");
-    } catch (e) {
-      if (e instanceof FeatureDisabledError) {
-        return NextResponse.json({ error: e.message }, { status: 403 });
-      }
-      throw e;
-    }
-
-    const { searchParams } = new URL(request.url);
-    const sort = searchParams.get("sort") || "createdAt";
-    const order = searchParams.get("order") || "desc";
-    const page = parseInt(searchParams.get("page") || "1");
-    const limit = parseInt(searchParams.get("limit") || "10");
-    const offset = (page - 1) * limit;
-
-    // Filtri anagrafici + task + note (EXISTS), con scoping per ruolo utente
-    const where = buildClientWhere(authUser, searchParams);
-
-    const orderBy =
-      order === "asc"
-        ? (sql`${clients[sort as keyof typeof clients]} ASC` as any)
-        : (sql`${clients[sort as keyof typeof clients]} DESC` as any);
-
-    const data = await db
-      .select()
-      .from(clients)
-      .where(where)
-      .orderBy(orderBy)
-      .limit(limit)
-      .offset(offset);
-
-    const totalResult = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(clients)
-      .where(where);
-
-    const total = Number(totalResult[0]?.count || 0);
-
-    return NextResponse.json({ data, total, page, limit });
-  } catch (error) {
-    console.error("Error fetching clients:", error);
-    return NextResponse.json(
-      { error: "Errore nel caricamento dei clienti" },
-      { status: 500 }
-    );
-  }
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const authUser = await getAuthUser();
-    if (!authUser) {
-      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
-    }
-
-    // Controlla limite massimo clienti
-    try {
-      await checkMaxClients(authUser.companyId);
-    } catch (e) {
-      if (e instanceof MaxLimitError) {
-        return NextResponse.json({ error: e.message }, { status: 403 });
-      }
-      throw e;
-    }
-
-    const body = await request.json();
-    const parsed = clientSchema.parse(body);
-
-    const [client] = await db
-      .insert(clients)
-      .values({
-        name: parsed.name,
-        email: parsed.email || null,
-        phone: parsed.phone || null,
-        company: parsed.company || null,
-        status: parsed.status,
-        categoria: parsed.categoria || null,
-        notes: parsed.notes || null,
-        userId: authUser.role === "admin" ? null : authUser.id,
-        companyId: authUser.companyId,
-      })
-      .returning();
-
-    // Auto-create tasks for suspect and won
-    if (client.status === "suspect") {
-      const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + 3);
-      await db.insert(tasks).values({
-        clientId: client.id,
-        title: "Chiamata qualificazione",
-        description: "Chiamata di qualificazione per il nuovo suspect",
-        dueDate,
-        priority: "high",
-        companyId: authUser.companyId,
-      });
-    }
-
-    if (client.status === "won") {
-      const dueContract = new Date();
-      dueContract.setDate(dueContract.getDate() + 2);
-      const dueOnboarding = new Date();
-      dueOnboarding.setDate(dueOnboarding.getDate() + 7);
-
-      await db.insert(tasks).values([
-        {
-          clientId: client.id,
-          title: "Invia contratto",
-          description: "Inviare il contratto al cliente",
-          dueDate: dueContract,
-          priority: "high",
-          companyId: authUser.companyId,
-        },
-        {
-          clientId: client.id,
-          title: "Onboarding",
-          description: "Completare l'onboarding del cliente",
-          dueDate: dueOnboarding,
-          priority: "medium",
-          companyId: authUser.companyId,
-        },
-      ]);
-    }
-
-    return NextResponse.json(client, { status: 201 });
-  } catch (error: any) {
-    if (error?.issues) {
-      return NextResponse.json(
-        { error: "Dati non validi", details: error.issues },
-        { status: 400 }
-      );
-    }
-    console.error("Error creating client:", error);
-    return NextResponse.json(
-      { error: "Errore nella creazione del cliente" },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
-<file path="app/api/tasks/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { tasks, clients } from "@/lib/schema";
-import { taskSchema } from "@/types";
-import { eq, desc, and, lte, gte, or, sql, type SQL } from "drizzle-orm";
-import { getAuthUser } from "@/lib/auth";
-import {
-  checkMaxTasks,
-  MaxLimitError,
-  checkFeatureEnabled,
-  FeatureDisabledError,
-} from "@/lib/company-rules";
-
-export async function GET(request: NextRequest) {
-  try {
-    const authUser = await getAuthUser();
-    if (!authUser) {
-      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
-    }
-
-    // Verifica feature abilitata
-    try {
-      await checkFeatureEnabled(authUser.companyId, "task");
-    } catch (e) {
-      if (e instanceof FeatureDisabledError) {
-        return NextResponse.json({ error: e.message }, { status: 403 });
-      }
-      throw e;
-    }
-
-    const companyId = authUser.companyId;
-
-    const { searchParams } = new URL(request.url);
-    const status = searchParams.get("status") || "";
-    const clientId = searchParams.get("clientId") || "";
-    const userId = searchParams.get("userId") || "";
-    const from = searchParams.get("from") || "";
-    const to = searchParams.get("to") || "";
-    const month = searchParams.get("month") || "";
-    const upcomingDays = parseInt(searchParams.get("upcomingDays") || "7");
-
-    const conditions: (SQL | undefined)[] = [eq(tasks.companyId, companyId)];
-
-    if (status && status !== "all") {
-      conditions.push(eq(tasks.status, status as any));
-    }
-
-    if (clientId) {
-      conditions.push(eq(tasks.clientId, clientId));
-    }
-
-    // Filtro "Assegnato a": task dei clienti assegnati a un utente specifico
-    // (usato dal filtro admin nella pagina Calendario Task)
-    if (userId) {
-      conditions.push(eq(clients.userId, userId));
-    }
-
-    // Filtra per user_id se non admin: vede i non assegnati + i propri
-    if (authUser.role !== "admin") {
-      conditions.push(
-        or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`)
-      );
-    }
-
-    // Filtro per intervallo di date (es. mese visualizzato nel calendario)
-    if (from) {
-      conditions.push(gte(tasks.dueDate, new Date(`${from}T00:00:00`)));
-    }
-    if (to) {
-      conditions.push(lte(tasks.dueDate, new Date(`${to}T23:59:59.999`)));
-    }
-
-    // Filtro per mese "YYYY-MM" (es. "2026-08"): primo e ultimo giorno del mese
-    if (month) {
-      const [y, m] = month.split("-").map(Number);
-      if (y && m && m >= 1 && m <= 12) {
-        conditions.push(gte(tasks.dueDate, new Date(y, m - 1, 1)));
-        conditions.push(lte(tasks.dueDate, new Date(y, m, 0, 23, 59, 59, 999)));
-      }
-    }
-
-    // Default: filtra solo todo/in_progress se nessun filtro specificato
-    // (salta se è presente un intervallo di date o un mese: in quel caso restituisce tutti i task del periodo)
-    const now = new Date();
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + upcomingDays);
-
-    if (!status && !clientId && !from && !to && !month) {
-      conditions.push(
-        or(
-          and(
-            lte(tasks.dueDate, futureDate),
-            sql`${tasks.status} IN ('todo', 'in_progress')`
-          ),
-          eq(tasks.status, "todo"),
-          eq(tasks.status, "in_progress")
-        )
-      );
-    }
-
-    const data = await db
-      .select({
-        id: tasks.id,
-        title: tasks.title,
-        description: tasks.description,
-        dueDate: tasks.dueDate,
-        status: tasks.status,
-        priority: tasks.priority,
-        completedAt: tasks.completedAt,
-        clientId: tasks.clientId,
-        createdAt: tasks.createdAt,
-        updatedAt: tasks.updatedAt,
-        clientName: clients.name,
-        clientEmail: clients.email,
-        clientPhone: clients.phone,
-        clientCompany: clients.company,
-      })
-      .from(tasks)
-      .leftJoin(clients, eq(tasks.clientId, clients.id))
-      .where(
-        conditions.length > 0 ? and(...conditions) : undefined
-      )
-      .orderBy(desc(tasks.priority), desc(tasks.dueDate));
-
-    return NextResponse.json(data);
-  } catch (error) {
-    console.error("Error fetching tasks:", error);
-    return NextResponse.json(
-      { error: "Errore nel caricamento dei task" },
-      { status: 500 }
-    );
-  }
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const authUser = await getAuthUser();
-    if (!authUser) {
-      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
-    }
-
-    // Controlla limite massimo task
-    try {
-      await checkMaxTasks(authUser.companyId);
-    } catch (e) {
-      if (e instanceof MaxLimitError) {
-        return NextResponse.json({ error: e.message }, { status: 403 });
-      }
-      throw e;
-    }
-
-    const body = await request.json();
-    const parsed = taskSchema.parse(body);
-
-    // Auto-assign: se utente non-admin e cliente senza userId, assegna a lui
-    if (authUser.role !== "admin" && body.clientId) {
-      const [client] = await db
-        .select({ userId: clients.userId })
-        .from(clients)
-        .where(eq(clients.id, body.clientId))
-        .limit(1);
-
-      if (client && !client.userId) {
-        await db
-          .update(clients)
-          .set({ userId: authUser.id, updatedAt: new Date() })
-          .where(eq(clients.id, body.clientId));
-      }
-    }
-
-    const [task] = await db
-      .insert(tasks)
-      .values({
-        clientId: body.clientId,
-        title: parsed.title,
-        description: parsed.description || null,
-        dueDate: parsed.dueDate ? new Date(parsed.dueDate) : null,
-        status: parsed.status,
-        priority: parsed.priority,
-        companyId: authUser.companyId,
-      })
-      .returning();
-
-    return NextResponse.json(task, { status: 201 });
-  } catch (error: any) {
-    if (error?.issues) {
-      return NextResponse.json(
-        { error: "Dati non validi", details: error.issues },
-        { status: 400 }
-      );
-    }
-    console.error("Error creating task:", error);
-    return NextResponse.json(
-      { error: "Errore nella creazione del task" },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
-<file path="types/index.ts">
-import { z } from "zod";
-
-// ── Utente ──
-export const userRoles = ["admin", "user"] as const;
-export type UserRole = (typeof userRoles)[number];
-
-export const userSchema = z.object({
-  email: z.string().email("Email non valida"),
-  password: z.string().min(6, "Minimo 6 caratteri").optional().or(z.literal("")),
-  name: z.string().min(1, "Il nome è obbligatorio"),
-  role: z.enum(userRoles).default("user"),
-  isActive: z.boolean().default(true),
-});
-
-export type UserFormData = z.infer<typeof userSchema>;
-
-// ── Login ──
-export const loginSchema = z.object({
-  email: z.string().email("Email non valida"),
-  password: z.string().min(1, "La password è obbligatoria"),
-});
-
-export type LoginFormData = z.infer<typeof loginSchema>;
-
-// ── Client ──
-export const clientStatuses = ["lead", "suspect", "won", "closed_lost"] as const;
-export type ClientStatus = (typeof clientStatuses)[number];
-
-export const clientCategories = [
-  "Palestra",
-  "PT",
-  "Piscina",
-  "Osteopata",
-  "Fisioterapista",
-  "Nutrizionista",
-  "Altro",
-] as const;
-
-export const clientSchema = z.object({
-  name: z.string().min(1, "Il nome è obbligatorio"),
-  email: z.string().email("Email non valida").optional().or(z.literal("")),
-  phone: z.string().optional().or(z.literal("")),
-  company: z.string().optional().or(z.literal("")),
-  status: z.enum(clientStatuses).default("lead"),
-  categoria: z.string().optional().or(z.literal("")),
-  notes: z.string().optional().or(z.literal("")),
-});
-
-export type ClientFormData = z.infer<typeof clientSchema>;
-
-// ── Note ──
-export const noteTypes = ["conversazione", "promemoria", "decisione"] as const;
-export type NoteType = (typeof noteTypes)[number];
-
-export const noteSchema = z.object({
-  content: z.string().min(1, "Il contenuto è obbligatorio"),
-  type: z.enum(noteTypes).default("conversazione"),
-  author: z.string().min(1, "L'autore è obbligatorio").default("Utente"),
-});
-
-export type NoteFormData = z.infer<typeof noteSchema>;
-
-// ── Task ──
-export const taskStatuses = [
-  "todo",
-  "in_progress",
-  "completed",
-  "cancelled",
-] as const;
-export type TaskStatus = (typeof taskStatuses)[number];
-
-export const priorities = ["low", "medium", "high"] as const;
-export type Priority = (typeof priorities)[number];
-
-export const taskSchema = z.object({
-  title: z.string().min(1, "Il titolo è obbligatorio"),
-  description: z.string().optional().or(z.literal("")),
-  dueDate: z.string().optional().or(z.literal("")),
-  status: z.enum(taskStatuses).default("todo"),
-  priority: z.enum(priorities).default("medium"),
-});
-
-export type TaskFormData = z.infer<typeof taskSchema>;
-
-// ── Email Log ──
-export const emailStatuses = ["sent", "pending", "failed"] as const;
-export type EmailStatus = (typeof emailStatuses)[number];
-
-export const emailSchema = z.object({
-  subject: z.string().min(1, "L'oggetto è obbligatorio"),
-  body: z.string().min(1, "Il corpo è obbligatorio"),
-  sender: z.string().email("Email mittente non valida"),
-});
-
-export type EmailFormData = z.infer<typeof emailSchema>;
-
-// ── Email Template ──
-export const emailTemplateSchema = z.object({
-  name: z.string().min(1, "Il nome è obbligatorio"),
-  subject: z.string().min(1, "L'oggetto è obbligatorio"),
-  bodyHtml: z.string().min(1, "Il corpo è obbligatorio"),
-  footerImageUrl: z.string().optional(),
-});
-
-export type EmailTemplateFormData = z.infer<typeof emailTemplateSchema>;
-
-// ── Transizioni status ──
-export const allowedTransitions: Record<ClientStatus, ClientStatus[]> = {
-  lead: ["suspect", "won", "closed_lost"],
-  suspect: ["lead", "won", "closed_lost"],
-  won: [],
-  closed_lost: ["lead", "suspect", "won"],
-};
-
-export function requiresNoteForTransition(
-  from: ClientStatus,
-  to: ClientStatus
-): boolean {
-  return (from === "lead" || from === "suspect") && to === "closed_lost";
 }
 </file>
 
@@ -24592,6 +25526,225 @@ export async function DELETE(
     console.error("Error deleting client:", error);
     return NextResponse.json(
       { error: "Errore nell'eliminazione del cliente" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/tasks/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { tasks, clients } from "@/lib/schema";
+import { taskSchema } from "@/types";
+import { eq, desc, and, lte, gte, or, sql, type SQL } from "drizzle-orm";
+import { getAuthUser } from "@/lib/auth";
+import {
+  checkMaxTasks,
+  MaxLimitError,
+  checkFeatureEnabled,
+  FeatureDisabledError,
+} from "@/lib/company-rules";
+
+export async function GET(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    // Verifica feature abilitata
+    try {
+      await checkFeatureEnabled(authUser.companyId, "task");
+    } catch (e) {
+      if (e instanceof FeatureDisabledError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
+
+    const companyId = authUser.companyId;
+
+    const { searchParams } = new URL(request.url);
+    const status = searchParams.get("status") || "";
+    const clientId = searchParams.get("clientId") || "";
+    const userId = searchParams.get("userId") || "";
+    const from = searchParams.get("from") || "";
+    const to = searchParams.get("to") || "";
+    const month = searchParams.get("month") || "";
+    const upcomingDays = parseInt(searchParams.get("upcomingDays") || "7");
+
+    const conditions: (SQL | undefined)[] = [eq(tasks.companyId, companyId)];
+
+    if (status && status !== "all") {
+      conditions.push(eq(tasks.status, status as any));
+    }
+
+    if (clientId) {
+      conditions.push(eq(tasks.clientId, clientId));
+    }
+
+    // Filtro "Assegnato a": task dei clienti assegnati a un utente specifico
+    // (usato dal filtro admin nella pagina Calendario Task)
+    if (userId) {
+      conditions.push(eq(clients.userId, userId));
+    }
+
+    // Filtra per user_id se non admin: vede i non assegnati + i propri
+    if (authUser.role !== "admin") {
+      conditions.push(
+        or(eq(clients.userId, authUser.id), sql`${clients.userId} IS NULL`)
+      );
+    }
+
+    // Filtro per intervallo di date (es. mese visualizzato nel calendario)
+    if (from) {
+      conditions.push(gte(tasks.dueDate, new Date(`${from}T00:00:00`)));
+    }
+    if (to) {
+      conditions.push(lte(tasks.dueDate, new Date(`${to}T23:59:59.999`)));
+    }
+
+    // Filtro per mese "YYYY-MM" (es. "2026-08"): primo e ultimo giorno del mese
+    if (month) {
+      const [y, m] = month.split("-").map(Number);
+      if (y && m && m >= 1 && m <= 12) {
+        conditions.push(gte(tasks.dueDate, new Date(y, m - 1, 1)));
+        conditions.push(lte(tasks.dueDate, new Date(y, m, 0, 23, 59, 59, 999)));
+      }
+    }
+
+    // Default: filtra solo todo/in_progress se nessun filtro specificato
+    // (salta se è presente un intervallo di date o un mese: in quel caso restituisce tutti i task del periodo)
+    const now = new Date();
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + upcomingDays);
+
+    if (!status && !clientId && !from && !to && !month) {
+      conditions.push(
+        or(
+          and(
+            lte(tasks.dueDate, futureDate),
+            sql`${tasks.status} IN ('todo', 'in_progress')`
+          ),
+          eq(tasks.status, "todo"),
+          eq(tasks.status, "in_progress")
+        )
+      );
+    }
+
+    const data = await db
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        description: tasks.description,
+        dueDate: tasks.dueDate,
+        status: tasks.status,
+        priority: tasks.priority,
+        completedAt: tasks.completedAt,
+        clientId: tasks.clientId,
+        createdAt: tasks.createdAt,
+        updatedAt: tasks.updatedAt,
+        clientName: clients.name,
+        clientEmail: clients.email,
+        clientPhone: clients.phone,
+        clientCompany: clients.company,
+      })
+      .from(tasks)
+      .leftJoin(clients, eq(tasks.clientId, clients.id))
+      .where(
+        conditions.length > 0 ? and(...conditions) : undefined
+      )
+      .orderBy(desc(tasks.priority), desc(tasks.dueDate));
+
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error("Error fetching tasks:", error);
+    return NextResponse.json(
+      { error: "Errore nel caricamento dei task" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const authUser = await getAuthUser();
+    if (!authUser) {
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
+    }
+
+    // Controlla limite massimo task
+    try {
+      await checkMaxTasks(authUser.companyId);
+    } catch (e) {
+      if (e instanceof MaxLimitError) {
+        return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      throw e;
+    }
+
+    const body = await request.json();
+    const parsed = taskSchema.parse(body);
+
+    // Validazione: il cliente deve appartenere alla company dell'utente (anti-IDOR)
+    if (body.clientId) {
+      const [client] = await db
+        .select({ userId: clients.userId })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, body.clientId),
+            eq(clients.companyId, authUser.companyId)
+          )
+        )
+        .limit(1);
+
+      if (!client) {
+        return NextResponse.json(
+          { error: "Cliente non trovato" },
+          { status: 404 }
+        );
+      }
+
+      // Auto-assign: se utente non-admin e cliente senza userId, assegna a lui
+      if (authUser.role !== "admin" && !client.userId) {
+        await db
+          .update(clients)
+          .set({ userId: authUser.id, updatedAt: new Date() })
+          .where(
+            and(
+              eq(clients.id, body.clientId),
+              eq(clients.companyId, authUser.companyId)
+            )
+          );
+      }
+    }
+
+    const [task] = await db
+      .insert(tasks)
+      .values({
+        clientId: body.clientId,
+        title: parsed.title,
+        description: parsed.description || null,
+        dueDate: parsed.dueDate ? new Date(parsed.dueDate) : null,
+        status: parsed.status,
+        priority: parsed.priority,
+        companyId: authUser.companyId,
+      })
+      .returning();
+
+    return NextResponse.json(task, { status: 201 });
+  } catch (error: any) {
+    if (error?.issues) {
+      return NextResponse.json(
+        { error: "Dati non validi", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error creating task:", error);
+    return NextResponse.json(
+      { error: "Errore nella creazione del task" },
       { status: 500 }
     );
   }
@@ -26523,6 +27676,13 @@ export function Sidebar({ open, onClose }: SidebarProps) {
     return enabledFeatures[featureKey] === true;
   });
 
+  // Dropdown "Strumenti": visibile se almeno una feature tra analisi, template e comunicazioni è attiva
+  const strumentiVisible =
+    !enabledFeatures ||
+    enabledFeatures.analisi === true ||
+    enabledFeatures.template === true ||
+    enabledFeatures.comunicazioni === true;
+
   const handleLogout = async () => {
     await fetch("/api/auth/me", { method: "DELETE" });
     window.location.href = "/login";
@@ -26585,7 +27745,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               );
             })}
 
-            {/* Strumenti dropdown — visibile a tutti */}
+            {/* Strumenti dropdown — visibile se almeno una feature tra analisi, template e comunicazioni è attiva */}
+            {strumentiVisible && (
             <div className="mt-1">
               <button
                 onClick={() => setStrumentiOpen(!strumentiOpen)}
@@ -26603,6 +27764,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               </button>
               {strumentiOpen && (
                 <div className="mt-1 space-y-1">
+                  {(!enabledFeatures || enabledFeatures.analisi === true) && (
                   <Link
                     href="/analisi"
                     onClick={onClose}
@@ -26616,6 +27778,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     <BarChart3 className="h-5 w-5 shrink-0" />
                     <span>Nuova Analisi</span>
                   </Link>
+                  )}
+                  {(!enabledFeatures || enabledFeatures.analisi === true) && (
                   <Link
                     href="/analisi-salvate"
                     onClick={onClose}
@@ -26629,6 +27793,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     <History className="h-5 w-5 shrink-0" />
                     <span>Analisi Salvate</span>
                   </Link>
+                  )}
+                  {(!enabledFeatures || enabledFeatures.template === true) && (
                   <Link
                     href="/template-nuovo"
                     onClick={onClose}
@@ -26642,6 +27808,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     <FileText className="h-5 w-5 shrink-0" />
                     <span>Nuovo Template</span>
                   </Link>
+                  )}
+                  {(!enabledFeatures || enabledFeatures.template === true) && (
                   <Link
                     href="/template-salvati"
                     onClick={onClose}
@@ -26655,6 +27823,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     <FileText className="h-5 w-5 shrink-0" />
                     <span>Template Salvati</span>
                   </Link>
+                  )}
+                  {(!enabledFeatures || enabledFeatures.comunicazioni === true) && (
                   <Link
                     href="/comunicazioni"
                     onClick={onClose}
@@ -26668,9 +27838,11 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     <MailIcon className="h-5 w-5 shrink-0" />
                     <span>Comunicazioni</span>
                   </Link>
+                  )}
                 </div>
               )}
             </div>
+            )}
 
             {/* Impostazioni dropdown — visibile se feature "impostazioni" attiva */}
             {(!enabledFeatures || enabledFeatures.impostazioni === true) && (
@@ -26882,7 +28054,6 @@ export function Sidebar({ open, onClose }: SidebarProps) {
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
-    "dayjs": "^1.11.21",
     "drizzle-orm": "^0.45.2",
     "imapflow": "^1.4.0",
     "jose": "^6.2.3",

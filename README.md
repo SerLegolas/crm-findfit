@@ -151,3 +151,7 @@ npm run db:push      # Pusha schema
 npm run db:migrate   # Esegui migrazioni
 npm run db:studio    # Apri Drizzle Studio
 ```
+
+Per Allineare i menu
+Esegui npm run menu:analyze (per vedere le differenze)
+Esegui npm run menu:sync (per applicare le modifiche con conferme)

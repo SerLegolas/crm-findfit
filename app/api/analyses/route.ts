@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
 
     // Verifica feature abilitata
     try {
-      await checkFeatureEnabled(authUser.companyId, "clienti");
+      await checkFeatureEnabled(authUser.companyId, "analisi");
     } catch (e) {
       if (e instanceof FeatureDisabledError) {
         return NextResponse.json({ error: e.message }, { status: 403 });
@@ -84,7 +84,7 @@ export async function GET() {
 
     // Verifica feature abilitata
     try {
-      await checkFeatureEnabled(authUser.companyId, "clienti");
+      await checkFeatureEnabled(authUser.companyId, "analisi");
     } catch (e) {
       if (e instanceof FeatureDisabledError) {
         return NextResponse.json({ error: e.message }, { status: 403 });

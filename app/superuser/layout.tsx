@@ -11,6 +11,7 @@ import {
   Menu,
   X,
   RefreshCw,
+  Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -33,6 +34,7 @@ export default function SuperuserLayout({
     { href: "/superuser/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/superuser/settings", label: "Impostazioni Globali", icon: Settings },
     { href: "/superuser/cron", label: "Cron Sincronizzazione", icon: RefreshCw },
+    { href: "/superuser/database", label: "Database", icon: Database },
   ];
 
   return (

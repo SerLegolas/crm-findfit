@@ -62,7 +62,7 @@ export async function GET() {
 
     // Verifica feature abilitata
     try {
-      await checkFeatureEnabled(authUser.companyId, "email");
+      await checkFeatureEnabled(authUser.companyId, "template");
     } catch (e) {
       if (e instanceof FeatureDisabledError) {
         return NextResponse.json({ error: e.message }, { status: 403 });
@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
 
     // Verifica feature abilitata (nessun controllo admin)
     try {
-      await checkFeatureEnabled(authUser.companyId, "email");
+      await checkFeatureEnabled(authUser.companyId, "template");
     } catch (e) {
       if (e instanceof FeatureDisabledError) {
         return NextResponse.json({ error: e.message }, { status: 403 });
