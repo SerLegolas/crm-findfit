@@ -1,0 +1,43 @@
+{
+  "name": "@crm/backend",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "CRM FindFit API Server",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "cross-env NODE_ENV=development tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest",
+    "lint": "eslint src --ext .ts",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@crm/shared": "1.0.0",
+    "@fastify/cookie": "^9.0.0",
+    "@fastify/cors": "^9.0.0",
+    "@fastify/rate-limit": "^9.1.0",
+    "@fastify/swagger": "^8.14.0",
+    "@fastify/swagger-ui": "^3.1.0",
+    "@libsql/client": "^0.14.0",
+    "bcryptjs": "^3.0.3",
+    "drizzle-orm": "^0.45.2",
+    "fastify": "^4.26.2",
+    "fastify-type-provider-zod": "^2.0.0",
+    "jose": "^6.2.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
+    "@types/node": "^20.12.12",
+    "cross-env": "^7.0.3",
+    "drizzle-kit": "^0.31.10",
+    "pino-pretty": "^10.3.1",
+    "tsx": "^4.22.4",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}
+
