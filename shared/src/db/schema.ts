@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { randomUUID } from "crypto";
 
 // ── Companies (multi-tenant) ──
@@ -370,6 +370,41 @@ export const comunicazioniBatch = sqliteTable("comunicazioni_batch", {
     .$onUpdateFn(() => new Date()),
 });
 
+// ── Regole di risposta automatica (auto-reply per categoria) ──
+export const autoReplyRules = sqliteTable(
+  "auto_reply_rules",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    categoria: text("categoria").notNull(),
+    templateId: text("template_id")
+      .notNull()
+      .references(() => emailTemplates.id, { onDelete: "cascade" }),
+    followUpDays: integer("follow_up_days").notNull().default(1),
+    followUpTaskTitle: text("follow_up_task_title")
+      .notNull()
+      .default("Ricontattare cliente"),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date())
+      .$onUpdateFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("auto_reply_rules_company_categoria_idx").on(
+      table.companyId,
+      table.categoria
+    ),
+  ]
+);
+
 // ── Tipi ──
 export type Company = typeof companies.$inferSelect;
 export type NewCompany = typeof companies.$inferInsert;
@@ -401,3 +436,5 @@ export type Comunicazione = typeof comunicazioni.$inferSelect;
 export type NewComunicazione = typeof comunicazioni.$inferInsert;
 export type ComunicazioneBatch = typeof comunicazioniBatch.$inferSelect;
 export type NewComunicazioneBatch = typeof comunicazioniBatch.$inferInsert;
+export type AutoReplyRule = typeof autoReplyRules.$inferSelect;
+export type NewAutoReplyRule = typeof autoReplyRules.$inferInsert;

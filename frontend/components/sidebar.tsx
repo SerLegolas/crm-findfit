@@ -101,6 +101,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const adminLinkFeature: Record<string, string> = {
     "/admin/users": "gestione_utenti",
     "/admin/imap": "configurazione_email",
+    "/admin/auto-reply": "configurazione_email",
     "/test-email": "recupero_email",
     "/admin/facebook-post": "facebook_post",
   };
@@ -411,6 +412,21 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 >
                   <Server className="h-5 w-5 shrink-0" />
                   <span>Configurazione Email</span>
+                </Link>
+                )}
+                {isAdminLinkEnabled("/admin/auto-reply") && (
+                <Link
+                  href="/admin/auto-reply"
+                  onClick={onClose}
+                  className={cn(
+                    "ml-2 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[#dbeafe] hover:text-[#1e293b]",
+                    pathname === "/admin/auto-reply"
+                      ? "bg-[#dbeafe] text-[#1e293b]"
+                      : "text-[#475569]"
+                  )}
+                >
+                  <MailIcon className="h-5 w-5 shrink-0" />
+                  <span>Risposta automatica</span>
                 </Link>
                 )}
                 {isAdminLinkEnabled("/test-email") && (

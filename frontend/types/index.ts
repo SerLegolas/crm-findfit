@@ -104,6 +104,20 @@ export const emailTemplateSchema = z.object({
 
 export type EmailTemplateFormData = z.infer<typeof emailTemplateSchema>;
 
+// ── Regola risposta automatica ──
+export const autoReplyRuleSchema = z.object({
+  categoria: z.string().min(1, "La categoria è obbligatoria"),
+  templateId: z.string().uuid("Template non valido"),
+  followUpDays: z.number().int().min(0, "Minimo 0 giorni").default(1),
+  followUpTaskTitle: z
+    .string()
+    .min(1, "Il titolo del task è obbligatorio")
+    .default("Ricontattare cliente"),
+  enabled: z.boolean().default(true),
+});
+
+export type AutoReplyRuleFormData = z.infer<typeof autoReplyRuleSchema>;
+
 // ── Transizioni status ──
 export const allowedTransitions: Record<ClientStatus, ClientStatus[]> = {
   lead: ["suspect", "won", "closed_lost"],
